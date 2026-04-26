@@ -85,7 +85,7 @@ export async function upsertTask(userId: string, task: Task, contextId: string):
     const record: any = {
       id,
       user_id: userId,
-      day_id: contextId,
+      day_id: task.day_id,   // ← use task.day_id (UUID), not contextId (date string)
       goal_id: task.goal_id,
       text,
       done,

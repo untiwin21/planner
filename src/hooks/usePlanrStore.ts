@@ -60,12 +60,14 @@ export function usePlanrStore(userId: string) {
     async function sync() {
       try {
         const remoteData = await fetchAll(userId)
-        setDaysRaw(remoteData.days)
-        setGoalsRaw(remoteData.goals)
-        setRoutinesRaw(remoteData.routines)
-        setLogsRaw(remoteData.logs)
-        setLongGoalsRaw(remoteData.longGoals)
-        setWeeklyReviewsRaw(remoteData.weeklyReviews)
+        // Only overwrite local data if remote actually returned content.
+        // This prevents an empty/unconfigured Supabase from wiping local-only data.
+        if (remoteData.days.length > 0)      setDaysRaw(remoteData.days)
+        if (remoteData.goals.length > 0)     setGoalsRaw(remoteData.goals)
+        if (remoteData.routines.length > 0)  setRoutinesRaw(remoteData.routines)
+        if (remoteData.logs.length > 0)      setLogsRaw(remoteData.logs)
+        if (remoteData.longGoals.length > 0) setLongGoalsRaw(remoteData.longGoals)
+        if (Object.keys(remoteData.weeklyReviews).length > 0) setWeeklyReviewsRaw(remoteData.weeklyReviews)
         save(STORAGE_KEYS.lastSync, new Date().toISOString())
       } catch (e) {
         console.error('Sync failed, falling back to local data', e)
@@ -258,6 +260,17 @@ export function usePlanrStore(userId: string) {
     if (userId && updatedGoal && newTask) upsertTask(userId, newTask, goalId)
   }
 
+  function deleteGoalTask(goalId: string, taskId: string) {
+    let updatedGoal: ShortGoal | undefined
+    setGoals(prev => prev.map(g => {
+      if (g.id !== goalId) return g
+      updatedGoal = { ...g, tasks: g.tasks.filter(t => t.id !== taskId) }
+      return updatedGoal
+    }))
+    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+    if (userId) deleteTaskSync(userId, taskId)
+  }
+
   function updateGoalTask(goalId: string, taskId: string, patch: Partial<Task>) {
     let updatedGoal: ShortGoal | undefined
     setGoals(prev => prev.map(g => {
@@ -391,7 +404,7 @@ export function usePlanrStore(userId: string) {
     days, goals, routines, logs, longGoals, weeklyReviews, categories,
     getDay, upsertDay, toggleTask, addTask, deleteTask, updateTask, updateNote, updateMeta,
     addDayNote, updateDayNote, deleteDayNote,
-    addGoal, updateGoal, deleteGoal, toggleGoalTask, addGoalTask, updateGoalTask,
+    addGoal, updateGoal, deleteGoal, toggleGoalTask, addGoalTask, deleteGoalTask, updateGoalTask,
     addGoalNote, updateGoalNote, deleteGoalNote,
     addLongGoal, updateLongGoal, deleteLongGoal,
     addGlobalCategory, deleteGlobalCategory, updateGlobalCategory,

@@ -2,7 +2,6 @@
 import { useState } from 'react'
 import { Trash2, Clock, ChevronRight, ChevronDown, Pencil, Plus } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
-import { ko } from 'date-fns/locale'
 import { formatDisplay } from '@/lib/dates'
 import { Badge, Checkbox, Input, Textarea, IconBtn } from '@/components/ui'
 import type { DayEntry, Category, DayMeta, Task, SubTask, JournalEntry } from '@/types'
@@ -35,13 +34,12 @@ export function DayDetail({
   const [newSchedTime, setNewSchedTime] = useState('')
   const meta = entry.meta
 
-  // ── Sleep input: 4-digit auto-colon ───────────────────────────────────────
+  // ── Sleep input ────────────────────────────────────────────────────────────
   const [sleepRaw, setSleepRaw] = useState<string>(() => {
     const m = entry.meta?.sleep
     if (m == null) return ''
     return `${String(Math.floor(m / 60)).padStart(2, '0')}${String(m % 60).padStart(2, '0')}`
   })
-
   const sleepDisplay =
     sleepRaw.length === 0 ? '' :
     sleepRaw.length <= 2 ? sleepRaw :
@@ -50,11 +48,7 @@ export function DayDetail({
   function handleSleepKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Backspace') {
       e.preventDefault()
-      setSleepRaw(prev => {
-        const next = prev.slice(0, -1)
-        if (next.length === 0) onMetaChange({ sleep: null })
-        return next
-      })
+      setSleepRaw(prev => { const n = prev.slice(0, -1); if (!n) onMetaChange({ sleep: null }); return n })
     } else if (/^\d$/.test(e.key)) {
       e.preventDefault()
       setSleepRaw(prev => {
@@ -70,7 +64,7 @@ export function DayDetail({
     }
   }
 
-  // ── Task edit / expand state ───────────────────────────────────────────────
+  // ── Edit / expand ──────────────────────────────────────────────────────────
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
@@ -94,7 +88,7 @@ export function DayDetail({
     setExpandedIds(prev => new Set([...prev, task.id]))
   }
 
-  // ── Journal (오늘의 생각) state ────────────────────────────────────────────
+  // ── Journal state ──────────────────────────────────────────────────────────
   const [showNewNote, setShowNewNote] = useState(false)
   const [newNoteTitle, setNewNoteTitle] = useState('')
   const [newNoteBody, setNewNoteBody] = useState('')
@@ -124,7 +118,7 @@ export function DayDetail({
 
     return (
       <div key={task.id}>
-        <div className="flex items-center gap-2 group py-1">
+        <div className="flex items-center gap-1.5 group py-1">
           <Checkbox checked={task.done} onChange={() => onToggleTask(task.id)} size="sm" />
 
           {isSchedule && task.time && (
@@ -134,53 +128,45 @@ export function DayDetail({
           )}
 
           {isEditing ? (
-            <input
-              autoFocus
-              value={editingText}
+            <input autoFocus value={editingText}
               onChange={e => setEditingText(e.target.value)}
               onBlur={() => commitEdit(task)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') commitEdit(task)
-                if (e.key === 'Escape') setEditingId(null)
-              }}
+              onKeyDown={e => { if (e.key === 'Enter') commitEdit(task); if (e.key === 'Escape') setEditingId(null) }}
               className="flex-1 text-sm bg-transparent outline-none border-b border-[var(--purple)] py-0.5"
             />
           ) : (
-            <span className={clsx('flex-1 text-sm leading-snug',
-              task.done && 'line-through text-[var(--text-3)]'
-            )}>
+            <span className={clsx('flex-1 text-sm leading-snug', task.done && 'line-through text-[var(--text-3)]')}>
               {task.text}
             </span>
           )}
 
           {/* subtask toggle */}
-          <button
-            onClick={() => toggleExpand(task.id)}
+          <button onClick={() => toggleExpand(task.id)}
             className={clsx(
-              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 text-[var(--text-3)] hover:text-[var(--text-2)] hover:bg-[var(--surface-2)] transition-all flex-shrink-0 text-[10px] font-medium',
-              subtasks.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-70',
-            )}
-            title="서브태스크"
-          >
+              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 hover:bg-[var(--surface-2)] transition-all flex-shrink-0 text-[10px] font-medium text-[var(--text-3)]',
+              subtasks.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-60',
+            )}>
             {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             {subtasks.length > 0 && <span className="tabular-nums">{subDone}/{subtasks.length}</span>}
           </button>
 
+          {/* edit — purple, fade-in on hover */}
           {!isEditing && (
-            <IconBtn
-              className="opacity-30 group-hover:opacity-100 transition-opacity"
+            <button
               onClick={() => startEdit(task)}
+              className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-[8px] flex items-center justify-center transition-all text-[var(--purple)] hover:bg-[var(--purple-bg)]"
             >
               <Pencil size={14} />
-            </IconBtn>
+            </button>
           )}
 
-          <IconBtn
-            className="opacity-30 group-hover:opacity-100 hover:!text-red-400 transition-opacity"
+          {/* delete — red, fade-in on hover */}
+          <button
             onClick={() => onDeleteTask(task.id)}
+            className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-[8px] flex items-center justify-center transition-all text-red-400 hover:text-red-600 hover:bg-red-50"
           >
             <Trash2 size={14} />
-          </IconBtn>
+          </button>
         </div>
 
         {/* Subtask list */}
@@ -188,41 +174,32 @@ export function DayDetail({
           <div className="ml-5 border-l-2 border-[var(--border)] pl-3 pb-2 mt-0.5">
             {subtasks.map(sub => (
               <div key={sub.id} className="flex items-center gap-2 py-0.5 group/sub">
-                <Checkbox
-                  checked={sub.done}
+                <Checkbox checked={sub.done} size="sm"
                   onChange={() => onUpdateTask(task.id, {
                     subtasks: subtasks.map(s => s.id === sub.id ? { ...s, done: !s.done } : s),
-                  })}
-                  size="sm"
-                />
+                  })} />
                 <span className={clsx('flex-1 text-sm leading-snug',
-                  sub.done ? 'line-through text-[var(--text-3)]' : 'text-[var(--text-2)]'
-                )}>
+                  sub.done ? 'line-through text-[var(--text-3)]' : 'text-[var(--text-2)]')}>
                   {sub.text}
                 </span>
-                <IconBtn
-                  className="opacity-20 group-hover/sub:opacity-100 hover:!text-red-400 !w-6 !h-6"
-                  onClick={() => onUpdateTask(task.id, {
-                    subtasks: subtasks.filter(s => s.id !== sub.id),
-                  })}
+                <button
+                  onClick={() => onUpdateTask(task.id, { subtasks: subtasks.filter(s => s.id !== sub.id) })}
+                  className="opacity-0 group-hover/sub:opacity-100 w-6 h-6 rounded-[6px] flex items-center justify-center transition-all text-red-400 hover:text-red-600 hover:bg-red-50"
                 >
                   <Trash2 size={12} />
-                </IconBtn>
+                </button>
               </div>
             ))}
             <div className="flex gap-1.5 mt-2">
-              <input
-                value={subInputs[task.id] ?? ''}
+              <input value={subInputs[task.id] ?? ''}
                 onChange={e => setSubInputs(p => ({ ...p, [task.id]: e.target.value }))}
                 onKeyDown={e => { if (e.key === 'Enter') addSubTask(task) }}
                 placeholder="세부 작업 추가..."
                 className="flex-1 px-2 py-1.5 rounded-[6px] text-sm bg-[var(--surface-2)] outline-none focus:bg-white border border-transparent focus:border-[var(--border-strong)]"
               />
-              <button
-                onClick={() => addSubTask(task)}
-                className="px-2.5 py-1.5 rounded-[6px] text-sm bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--border)] transition-colors"
-              >
-                추가
+              <button onClick={() => addSubTask(task)}
+                className="w-8 h-8 flex-shrink-0 rounded-[6px] flex items-center justify-center text-[var(--purple)] hover:bg-[var(--purple-bg)] transition-colors">
+                <Plus size={15} />
               </button>
             </div>
           </div>
@@ -231,7 +208,7 @@ export function DayDetail({
     )
   }
 
-  // ── Task add handlers ─────────────────────────────────────────────────────
+  // ── Add handlers ───────────────────────────────────────────────────────────
   function handleAddTask(catId: string) {
     const text = newTaskTexts[catId]?.trim()
     if (!text) return
@@ -246,7 +223,7 @@ export function DayDetail({
     setNewSchedTime('')
   }
 
-  // ── Sections ──────────────────────────────────────────────────────────────
+  // ── Sections ───────────────────────────────────────────────────────────────
   function renderScheduleSection() {
     const tasks = entry.tasks
       .filter(t => t.category_id === SCHEDULE_CAT_ID)
@@ -265,15 +242,14 @@ export function DayDetail({
             placeholder="09:00" maxLength={5}
             className="w-[60px] flex-shrink-0 px-2 py-1.5 rounded-[8px] text-sm font-mono text-center bg-[var(--surface-2)] border border-transparent outline-none focus:border-[var(--blue)] focus:bg-white"
           />
-          <Input
-            value={newTaskTexts[SCHEDULE_CAT_ID] ?? ''}
+          <Input value={newTaskTexts[SCHEDULE_CAT_ID] ?? ''}
             onChange={e => setNewTaskTexts(p => ({ ...p, [SCHEDULE_CAT_ID]: e.target.value }))}
             onKeyDown={e => e.key === 'Enter' && handleAddScheduleTask()}
             placeholder="일정 내용" className="text-sm py-1.5"
           />
           <button onClick={handleAddScheduleTask}
-            className="flex-shrink-0 px-3 py-1.5 rounded-[8px] text-sm bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--border)] transition-colors">
-            추가
+            className="flex-shrink-0 w-9 h-9 rounded-[8px] flex items-center justify-center text-[var(--blue)] hover:bg-[var(--blue-bg,#eff6ff)] transition-colors border border-[var(--border)] bg-white">
+            <Plus size={16} />
           </button>
         </div>
       </>
@@ -286,15 +262,14 @@ export function DayDetail({
       <>
         <div className="flex flex-col gap-0.5 mb-2">{tasks.map(t => renderTaskRow(t))}</div>
         <div className="flex gap-2">
-          <Input
-            value={newTaskTexts[catId] ?? ''}
+          <Input value={newTaskTexts[catId] ?? ''}
             onChange={e => setNewTaskTexts(p => ({ ...p, [catId]: e.target.value }))}
             onKeyDown={e => e.key === 'Enter' && handleAddTask(catId)}
             placeholder="할 일 추가..." className="text-sm py-1.5"
           />
           <button onClick={() => handleAddTask(catId)}
-            className="flex-shrink-0 px-3 py-1.5 rounded-[8px] text-sm bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--border)] transition-colors">
-            추가
+            className="flex-shrink-0 w-9 h-9 rounded-[8px] flex items-center justify-center text-[var(--purple)] hover:bg-[var(--purple-bg)] transition-colors border border-[var(--border)] bg-white">
+            <Plus size={16} />
           </button>
         </div>
       </>
@@ -377,63 +352,44 @@ export function DayDetail({
         ))
       )}
 
-      {/* ── 오늘의 생각 (journal) — 카테고리 아래 ── */}
+      {/* ── 오늘의 생각 journal ── */}
       <div className="pt-1">
         <div className="flex items-center justify-between mb-3">
           <span className="text-[11px] font-medium text-[var(--text-3)] uppercase tracking-wider">오늘의 생각</span>
           {!showNewNote && (
-            <button
-              onClick={() => setShowNewNote(true)}
-              className="flex items-center gap-1 text-xs text-[var(--text-3)] hover:text-[var(--purple)] transition-colors"
-            >
+            <button onClick={() => setShowNewNote(true)}
+              className="flex items-center gap-1 text-xs text-[var(--text-3)] hover:text-[var(--purple)] transition-colors">
               <Plus size={11} /> 새 메모
             </button>
           )}
         </div>
 
-        {/* New note form */}
         {showNewNote && (
           <div className="mb-4 p-3 rounded-[12px] bg-[var(--surface-2)] border border-[var(--border)]">
-            <input
-              value={newNoteTitle}
-              onChange={e => setNewNoteTitle(e.target.value)}
+            <input value={newNoteTitle} onChange={e => setNewNoteTitle(e.target.value)}
               placeholder="소제목 (선택)"
               className="w-full px-2.5 py-1.5 mb-2 rounded-[8px] text-sm font-medium bg-white border border-[var(--border)] outline-none focus:border-[var(--purple)] placeholder:text-[var(--text-3)] placeholder:font-normal"
             />
-            <Textarea
-              autoFocus
-              value={newNoteBody}
-              onChange={e => setNewNoteBody(e.target.value)}
-              placeholder="지금 이 순간의 생각, 다짐, 아이디어를 적어보세요..."
-              rows={4}
-              className="text-sm"
-            />
+            <Textarea autoFocus value={newNoteBody} onChange={e => setNewNoteBody(e.target.value)}
+              placeholder="지금 이 순간의 생각, 다짐, 아이디어를 적어보세요..." rows={4} className="text-sm" />
             <div className="flex gap-2 mt-2">
               <button onClick={handleAddNote}
-                className="flex-1 py-1.5 rounded-[8px] text-xs font-medium bg-[var(--purple)] text-white hover:opacity-90">
-                저장
-              </button>
+                className="flex-1 py-1.5 rounded-[8px] text-xs font-medium bg-[var(--purple)] text-white hover:opacity-90">저장</button>
               <button onClick={() => { setShowNewNote(false); setNewNoteTitle(''); setNewNoteBody('') }}
-                className="px-3 py-1.5 rounded-[8px] text-xs text-[var(--text-2)] hover:bg-[var(--border)]">
-                취소
-              </button>
+                className="px-3 py-1.5 rounded-[8px] text-xs text-[var(--text-2)] hover:bg-[var(--border)]">취소</button>
             </div>
           </div>
         )}
 
-        {/* Note entries */}
         <div className="flex flex-col gap-4">
           {dayNotes.length === 0 && !showNewNote && (
-            <p className="text-xs text-[var(--text-3)] text-center py-2 italic">
-              아직 메모가 없습니다.
-            </p>
+            <p className="text-xs text-[var(--text-3)] text-center py-2 italic">아직 메모가 없습니다.</p>
           )}
           {dayNotes.map((note: JournalEntry) => {
             const isEditing = editingNoteId === note.id
             const noteDate = parseISO(note.createdAt)
             return (
               <div key={note.id}>
-                {/* Date separator */}
                 <div className="flex items-center gap-3 mb-2">
                   <div className="flex-1 h-px bg-[var(--border)]" />
                   <span className="text-[10px] text-[var(--text-3)] font-medium whitespace-nowrap">
@@ -441,52 +397,29 @@ export function DayDetail({
                   </span>
                   <div className="flex-1 h-px bg-[var(--border)]" />
                 </div>
-
                 {isEditing ? (
                   <div className="p-3 rounded-[12px] bg-white border border-[var(--purple)] shadow-sm">
-                    <input
-                      value={editingNoteTitle}
-                      onChange={e => setEditingNoteTitle(e.target.value)}
+                    <input value={editingNoteTitle} onChange={e => setEditingNoteTitle(e.target.value)}
                       placeholder="소제목 (선택)"
                       className="w-full px-2.5 py-1.5 mb-2 rounded-[8px] text-sm font-medium bg-[var(--surface-2)] outline-none border border-transparent focus:border-[var(--purple)] placeholder:text-[var(--text-3)] placeholder:font-normal"
                     />
-                    <Textarea
-                      autoFocus
-                      value={editingNoteBody}
-                      onChange={e => setEditingNoteBody(e.target.value)}
-                      rows={4}
-                      className="text-sm"
-                    />
+                    <Textarea autoFocus value={editingNoteBody} onChange={e => setEditingNoteBody(e.target.value)} rows={4} className="text-sm" />
                     <div className="flex gap-2 mt-2">
                       <button onClick={handleUpdateNote}
-                        className="flex-1 py-1 rounded-[7px] text-xs font-medium bg-[var(--purple)] text-white hover:opacity-90">
-                        저장
-                      </button>
+                        className="flex-1 py-1 rounded-[7px] text-xs font-medium bg-[var(--purple)] text-white hover:opacity-90">저장</button>
                       <button onClick={() => setEditingNoteId(null)}
-                        className="px-3 py-1 rounded-[7px] text-xs text-[var(--text-2)] hover:bg-[var(--border)]">
-                        취소
-                      </button>
+                        className="px-3 py-1 rounded-[7px] text-xs text-[var(--text-2)] hover:bg-[var(--border)]">취소</button>
                     </div>
                   </div>
                 ) : (
-                  <div className="relative group/daynote p-3 rounded-[12px] bg-[var(--surface-2)] hover:bg-[var(--surface-2)]">
-                    {note.title && (
-                      <p className="text-sm font-semibold text-[var(--text)] mb-1.5">{note.title}</p>
-                    )}
-                    <p
-                      onClick={() => {
-                        setEditingNoteId(note.id)
-                        setEditingNoteTitle(note.title)
-                        setEditingNoteBody(note.body)
-                      }}
-                      className="text-sm text-[var(--text)] leading-relaxed whitespace-pre-wrap cursor-text"
-                    >
+                  <div className="relative group/daynote p-3 rounded-[12px] bg-[var(--surface-2)]">
+                    {note.title && <p className="text-sm font-semibold text-[var(--text)] mb-1.5">{note.title}</p>}
+                    <p onClick={() => { setEditingNoteId(note.id); setEditingNoteTitle(note.title); setEditingNoteBody(note.body) }}
+                      className="text-sm text-[var(--text)] leading-relaxed whitespace-pre-wrap cursor-text">
                       {note.body}
                     </p>
-                    <button
-                      onClick={() => onDeleteDayNote(note.id)}
-                      className="absolute top-2.5 right-2.5 opacity-0 group-hover/daynote:opacity-100 w-7 h-7 flex items-center justify-center text-[var(--text-3)] hover:text-red-500 transition-all rounded-[7px] hover:bg-red-50"
-                    >
+                    <button onClick={() => onDeleteDayNote(note.id)}
+                      className="absolute top-2.5 right-2.5 opacity-0 group-hover/daynote:opacity-100 w-7 h-7 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 transition-all rounded-[7px]">
                       <Trash2 size={13} />
                     </button>
                   </div>

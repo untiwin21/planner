@@ -295,6 +295,7 @@ export default function Home() {
                       onDelete={() => { store.deleteGoal(selectedGoal.id); setSelectedGoalId(null) }}
                       onToggleTask={taskId => store.toggleGoalTask(selectedGoal.id, taskId)}
                       onAddTask={(catId, text) => store.addGoalTask(selectedGoal.id, catId, text)}
+                      onDeleteTask={taskId => store.deleteGoalTask(selectedGoal.id, taskId)}
                       onUpdateTask={(taskId, patch) => store.updateGoalTask(selectedGoal.id, taskId, patch)}
                       onAddRoutine={name => store.addRoutine(name)}
                       onAddNote={text => store.addGoalNote(selectedGoal.id, text)}
