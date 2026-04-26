@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg: #F8F6F1;
+    --surface: #FFFFFF;
+    --surface-2: #F2EFE8;
+    --border: #E5E0D5;
+    --border-strong: #C8C2B5;
+    --text: #1C1A16;
+    --text-2: #6B6760;
+    --text-3: #A09C96;
+
+    --purple: #534AB7;
+    --purple-bg: #EEEDFE;
+    --purple-text: #3C3489;
+
+    --teal: #0F6E56;
+    --teal-bg: #E1F5EE;
+    --teal-text: #085041;
+
+    --amber: #BA7517;
+    --amber-bg: #FAEEDA;
+    --amber-text: #854F0B;
+
+    --coral: #993C1D;
+    --coral-bg: #FAECE7;
+    --coral-text: #712B13;
+
+    --blue: #185FA5;
+    --blue-bg: #E6F1FB;
+    --blue-text: #0C447C;
+
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 24px;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Pretendard', 'Apple SD Gothic Neo', -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+
+  h1, h2, h3 {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer utilities {
+  .cat-purple { background: var(--purple-bg); color: var(--purple-text); }
+  .cat-teal   { background: var(--teal-bg);   color: var(--teal-text); }
+  .cat-amber  { background: var(--amber-bg);  color: var(--amber-text); }
+  .cat-coral  { background: var(--coral-bg);  color: var(--coral-text); }
+  .cat-blue   { background: var(--blue-bg);   color: var(--blue-text); }
+
+  .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+}
