@@ -12,6 +12,7 @@ export function formatDate(date: Date): string {
   return format(date, 'yyyy-MM-dd')
 }
 
+
 export function formatDisplay(date: Date): string {
   return format(date, 'M월 d일', { locale: ko })
 }
