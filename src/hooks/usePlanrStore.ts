@@ -1,6 +1,6 @@
 'use client'
 import { useState, useCallback, useEffect } from 'react'
-import type { DayEntry, ShortGoal, Routine, RoutineLog, Category, Task, DayMeta, LongGoal, RoutineStatus } from '@/types'
+import type { DayEntry, ShortGoal, Routine, RoutineLog, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry } from '@/types'
 import { SCHEDULE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
 import {
@@ -152,6 +152,15 @@ export function usePlanrStore(userId: string) {
     if (userId) deleteTaskSync(userId, taskId)
   }
 
+  function updateTask(date: string, taskId: string, patch: Partial<Task>) {
+    const entry = getDay(date)
+    const task = entry.tasks.find(t => t.id === taskId)
+    if (!task) return
+    const updated = { ...task, ...patch }
+    upsertDay({ ...entry, tasks: entry.tasks.map(t => t.id === taskId ? updated : t) })
+    if (userId) upsertTask(userId, updated, date)
+  }
+
   function updateNote(date: string, note: string) {
     const updatedEntry = { ...getDay(date), note }
     upsertDay(updatedEntry)
@@ -212,13 +221,64 @@ export function usePlanrStore(userId: string) {
     let newTask: Task | undefined
     setGoals(prev => prev.map(g => {
       if (g.id !== goalId) return g
-      const category = g.categories.find(c => c.id === categoryId)
+      // look in per-goal categories first, then global categories
+      const category =
+        g.categories.find((c: Category) => c.id === categoryId) ||
+        categories.find(c => c.id === categoryId)
       if (!category) return g
       newTask = { id: uid(), text, done: false, category_id: categoryId, day_id: goalId, goal_id: goalId, category_name: category.name, category_color: category.color }
       updatedGoal = { ...g, tasks: [...g.tasks, newTask] }
       return updatedGoal
     }))
     if (userId && updatedGoal && newTask) upsertTask(userId, newTask, goalId)
+  }
+
+  function updateGoalTask(goalId: string, taskId: string, patch: Partial<Task>) {
+    let updatedGoal: ShortGoal | undefined
+    setGoals(prev => prev.map(g => {
+      if (g.id !== goalId) return g
+      const task = g.tasks.find(t => t.id === taskId)
+      if (!task) return g
+      const updated = { ...task, ...patch }
+      updatedGoal = { ...g, tasks: g.tasks.map(t => t.id === taskId ? updated : t) }
+      return updatedGoal
+    }))
+    if (userId && updatedGoal) {
+      const task = updatedGoal.tasks.find(t => t.id === taskId)
+      if (task) upsertTask(userId, task, goalId)
+    }
+  }
+
+  // ── GOAL NOTES ─────────────────────────────────────────────────────────────
+  function addGoalNote(goalId: string, text: string) {
+    const newNote: NoteEntry = { id: uid(), text: text.trim(), createdAt: new Date().toISOString() }
+    let updatedGoal: ShortGoal | undefined
+    setGoals(prev => prev.map(g => {
+      if (g.id !== goalId) return g
+      updatedGoal = { ...g, notes: [newNote, ...(g.notes ?? [])] }
+      return updatedGoal
+    }))
+    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+  }
+
+  function updateGoalNote(goalId: string, noteId: string, text: string) {
+    let updatedGoal: ShortGoal | undefined
+    setGoals(prev => prev.map(g => {
+      if (g.id !== goalId) return g
+      updatedGoal = { ...g, notes: (g.notes ?? []).map(n => n.id === noteId ? { ...n, text } : n) }
+      return updatedGoal
+    }))
+    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+  }
+
+  function deleteGoalNote(goalId: string, noteId: string) {
+    let updatedGoal: ShortGoal | undefined
+    setGoals(prev => prev.map(g => {
+      if (g.id !== goalId) return g
+      updatedGoal = { ...g, notes: (g.notes ?? []).filter(n => n.id !== noteId) }
+      return updatedGoal
+    }))
+    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
   }
 
   // ── LONG GOALS ─────────────────────────────────────────────────────────────
@@ -304,8 +364,9 @@ export function usePlanrStore(userId: string) {
   return {
     syncReady,
     days, goals, routines, logs, longGoals, weeklyReviews, categories,
-    getDay, upsertDay, toggleTask, addTask, deleteTask, updateNote, updateMeta,
-    addGoal, updateGoal, deleteGoal, toggleGoalTask, addGoalTask,
+    getDay, upsertDay, toggleTask, addTask, deleteTask, updateTask, updateNote, updateMeta,
+    addGoal, updateGoal, deleteGoal, toggleGoalTask, addGoalTask, updateGoalTask,
+    addGoalNote, updateGoalNote, deleteGoalNote,
     addLongGoal, updateLongGoal, deleteLongGoal,
     addGlobalCategory, deleteGlobalCategory, updateGlobalCategory,
     addRoutine, setRoutineStatus, updateRoutineName, deleteRoutine, toggleRoutineLog, isRoutineDone,

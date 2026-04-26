@@ -19,7 +19,9 @@ create table if not exists tasks (
   done boolean default false,
   category_id text not null,
   category_name text not null,
-  category_color text not null
+  category_color text not null,
+  time text,
+  subtasks jsonb default '[]'
 );
 
 create table if not exists routines (
@@ -48,7 +50,8 @@ create table if not exists short_goals (
   note text default '',
   long_goal_id text,
   routines jsonb default '[]',
-  categories jsonb default '[]'
+  categories jsonb default '[]',
+  notes jsonb default '[]'
 );
 
 create table if not exists long_goals (

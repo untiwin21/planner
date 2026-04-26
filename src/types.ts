@@ -2,6 +2,12 @@ export type BadgeColor = 'purple' | 'teal' | 'amber' | 'coral' | 'blue' | 'gray'
 
 export const SCHEDULE_CAT_ID = 'schedule'
 
+export interface SubTask {
+  id: string
+  text: string
+  done: boolean
+}
+
 export interface Task {
   id: string
   day_id: string
@@ -12,6 +18,7 @@ export interface Task {
   category_name: string
   category_color: BadgeColor
   time?: string
+  subtasks?: SubTask[]
 }
 
 export interface Category {
@@ -19,7 +26,6 @@ export interface Category {
   name: string
   color: BadgeColor
 }
-
 
 export interface DayMeta {
   sleep: number | null
@@ -37,6 +43,12 @@ export interface DayEntry {
   meta: DayMeta
 }
 
+export interface NoteEntry {
+  id: string
+  text: string
+  createdAt: string
+}
+
 export interface ShortGoal {
   id: string
   title: string
@@ -45,8 +57,9 @@ export interface ShortGoal {
   note: string
   tasks: Task[]
   long_goal_id?: string
-  routines: any[] // to be defined
-  categories: any[] // to be defined
+  routines: any[]
+  categories: any[]
+  notes?: NoteEntry[]
 }
 
 export interface LongGoal {

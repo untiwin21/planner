@@ -287,12 +287,20 @@ export default function Home() {
                 {/* Detail panel */}
                 <Card className="p-5">
                   {selectedGoal ? (
-                    <GoalDetail goal={selectedGoal} allRoutines={store.routines}
+                    <GoalDetail
+                      goal={selectedGoal}
+                      categories={store.categories}
+                      allRoutines={store.routines}
                       onUpdate={patch => store.updateGoal(selectedGoal.id, patch)}
                       onDelete={() => { store.deleteGoal(selectedGoal.id); setSelectedGoalId(null) }}
                       onToggleTask={taskId => store.toggleGoalTask(selectedGoal.id, taskId)}
                       onAddTask={(catId, text) => store.addGoalTask(selectedGoal.id, catId, text)}
-                      onAddRoutine={name => store.addRoutine(name)} />
+                      onUpdateTask={(taskId, patch) => store.updateGoalTask(selectedGoal.id, taskId, patch)}
+                      onAddRoutine={name => store.addRoutine(name)}
+                      onAddNote={text => store.addGoalNote(selectedGoal.id, text)}
+                      onUpdateNote={(noteId, text) => store.updateGoalNote(selectedGoal.id, noteId, text)}
+                      onDeleteNote={noteId => store.deleteGoalNote(selectedGoal.id, noteId)}
+                    />
                   ) : (
                     <DayDetail
                       date={parseISO(selectedDate)}
@@ -302,6 +310,7 @@ export default function Home() {
                       onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
                       onAddTask={(catId, text, time) => store.addTask(selectedDate, catId, text, time)}
                       onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
+                      onUpdateTask={(taskId, patch) => store.updateTask(selectedDate, taskId, patch)}
                       onMetaChange={patch => store.updateMeta(selectedDate, patch)}
                     />
                   )}

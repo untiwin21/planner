@@ -81,7 +81,7 @@ export async function upsertTask(userId: string, task: Task, contextId: string):
   if (!supabase) return
   const db = supabase as any
   try {
-    const { id, text, done, category_id, category_name, category_color, time } = task
+    const { id, text, done, category_id, category_name, category_color, time, subtasks } = task
     const record: any = {
       id,
       user_id: userId,
@@ -92,6 +92,7 @@ export async function upsertTask(userId: string, task: Task, contextId: string):
       category_id,
       category_name,
       category_color,
+      subtasks: subtasks ?? [],
     }
     if (time !== undefined) record.time = time
     await db.from('tasks').upsert(record)
