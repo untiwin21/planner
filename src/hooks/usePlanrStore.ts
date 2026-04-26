@@ -1,6 +1,6 @@
 'use client'
 import { useState, useCallback, useEffect } from 'react'
-import type { DayEntry, ShortGoal, Routine, RoutineLog, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry } from '@/types'
+import type { DayEntry, ShortGoal, Routine, RoutineLog, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry } from '@/types'
 import { SCHEDULE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
 import {
@@ -42,7 +42,7 @@ function save(key: string, value: unknown) {
 
 function uid() { return Math.random().toString(36).slice(2, 10) }
 
-const DEFAULT_META: DayMeta = { sleep: null, condition: null, focus: null, top3: [] }
+const DEFAULT_META: DayMeta = { sleep: null, condition: null, focus: null, top3: [], notes: [] }
 const SCHEDULE_CATEGORY: Category = { id: SCHEDULE_CAT_ID, name: '일정', color: 'blue' }
 
 export function usePlanrStore(userId: string) {
@@ -170,6 +170,31 @@ export function usePlanrStore(userId: string) {
   function updateMeta(date: string, patch: Partial<DayMeta>) {
     const entry = getDay(date)
     const updatedEntry = { ...entry, meta: { ...entry.meta, ...patch } }
+    upsertDay(updatedEntry)
+    if (userId) upsertDayEntry(userId, updatedEntry)
+  }
+
+  // ── DAY NOTES (journal) ───────────────────────────────────────────────────
+  function addDayNote(date: string, title: string, body: string) {
+    const entry = getDay(date)
+    const note: JournalEntry = { id: uid(), title, body, createdAt: new Date().toISOString() }
+    const updatedEntry = { ...entry, meta: { ...entry.meta, notes: [note, ...(entry.meta.notes ?? [])] } }
+    upsertDay(updatedEntry)
+    if (userId) upsertDayEntry(userId, updatedEntry)
+  }
+
+  function updateDayNote(date: string, noteId: string, title: string, body: string) {
+    const entry = getDay(date)
+    const notes = (entry.meta.notes ?? []).map(n => n.id === noteId ? { ...n, title, body } : n)
+    const updatedEntry = { ...entry, meta: { ...entry.meta, notes } }
+    upsertDay(updatedEntry)
+    if (userId) upsertDayEntry(userId, updatedEntry)
+  }
+
+  function deleteDayNote(date: string, noteId: string) {
+    const entry = getDay(date)
+    const notes = (entry.meta.notes ?? []).filter(n => n.id !== noteId)
+    const updatedEntry = { ...entry, meta: { ...entry.meta, notes } }
     upsertDay(updatedEntry)
     if (userId) upsertDayEntry(userId, updatedEntry)
   }
@@ -365,6 +390,7 @@ export function usePlanrStore(userId: string) {
     syncReady,
     days, goals, routines, logs, longGoals, weeklyReviews, categories,
     getDay, upsertDay, toggleTask, addTask, deleteTask, updateTask, updateNote, updateMeta,
+    addDayNote, updateDayNote, deleteDayNote,
     addGoal, updateGoal, deleteGoal, toggleGoalTask, addGoalTask, updateGoalTask,
     addGoalNote, updateGoalNote, deleteGoalNote,
     addLongGoal, updateLongGoal, deleteLongGoal,

@@ -306,12 +306,14 @@ export default function Home() {
                       date={parseISO(selectedDate)}
                       entry={selectedEntry}
                       categories={store.categories}
-                      onNoteChange={note => store.updateNote(selectedDate, note)}
                       onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
                       onAddTask={(catId, text, time) => store.addTask(selectedDate, catId, text, time)}
                       onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
                       onUpdateTask={(taskId, patch) => store.updateTask(selectedDate, taskId, patch)}
                       onMetaChange={patch => store.updateMeta(selectedDate, patch)}
+                      onAddDayNote={(title, body) => store.addDayNote(selectedDate, title, body)}
+                      onUpdateDayNote={(noteId, title, body) => store.updateDayNote(selectedDate, noteId, title, body)}
+                      onDeleteDayNote={noteId => store.deleteDayNote(selectedDate, noteId)}
                     />
                   )}
                 </Card>

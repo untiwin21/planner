@@ -27,11 +27,19 @@ export interface Category {
   color: BadgeColor
 }
 
+export interface JournalEntry {
+  id: string
+  title: string
+  body: string
+  createdAt: string
+}
+
 export interface DayMeta {
   sleep: number | null
   condition: number | null
   focus: number | null
   top3: string[]
+  notes?: JournalEntry[]
 }
 
 export interface DayEntry {

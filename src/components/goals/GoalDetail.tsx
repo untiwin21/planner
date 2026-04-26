@@ -124,16 +124,16 @@ export function GoalDetail({
           {/* subtask toggle */}
           <button onClick={() => toggleExpand(task.id)}
             className={clsx(
-              'flex items-center gap-0.5 rounded px-1 h-5 text-[var(--text-3)] hover:text-[var(--text-2)] hover:bg-[var(--surface-2)] transition-all flex-shrink-0 text-[9px]',
-              subtasks.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-60',
+              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 text-[var(--text-3)] hover:text-[var(--text-2)] hover:bg-[var(--surface-2)] transition-all flex-shrink-0 text-[10px] font-medium',
+              subtasks.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-70',
             )}>
-            {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+            {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             {subtasks.length > 0 && <span className="tabular-nums">{subDone}/{subtasks.length}</span>}
           </button>
 
           {!isEditing && (
-            <IconBtn className="opacity-0 group-hover:opacity-100 !w-5 !h-5" onClick={() => startEdit(task)}>
-              <Pencil size={10} />
+            <IconBtn className="opacity-30 group-hover:opacity-100 transition-opacity" onClick={() => startEdit(task)}>
+              <Pencil size={14} />
             </IconBtn>
           )}
         </div>
@@ -147,24 +147,24 @@ export function GoalDetail({
                   onChange={() => onUpdateTask(task.id, {
                     subtasks: subtasks.map(s => s.id === sub.id ? { ...s, done: !s.done } : s),
                   })} />
-                <span className={clsx('flex-1 text-xs', sub.done ? 'line-through text-[var(--text-3)]' : 'text-[var(--text-2)]')}>
+                <span className={clsx('flex-1 text-sm', sub.done ? 'line-through text-[var(--text-3)]' : 'text-[var(--text-2)]')}>
                   {sub.text}
                 </span>
-                <IconBtn className="opacity-0 group-hover/sub:opacity-100 !w-5 !h-5"
+                <IconBtn className="opacity-20 group-hover/sub:opacity-100 hover:!text-red-400 !w-6 !h-6"
                   onClick={() => onUpdateTask(task.id, { subtasks: subtasks.filter(s => s.id !== sub.id) })}>
-                  <Trash2 size={10} />
+                  <Trash2 size={12} />
                 </IconBtn>
               </div>
             ))}
-            <div className="flex gap-1.5 mt-1.5">
+            <div className="flex gap-1.5 mt-2">
               <input value={subInputs[task.id] ?? ''}
                 onChange={e => setSubInputs(p => ({ ...p, [task.id]: e.target.value }))}
                 onKeyDown={e => { if (e.key === 'Enter') addSubTask(task) }}
                 placeholder="세부 작업 추가..."
-                className="flex-1 px-2 py-1 rounded-[6px] text-xs bg-[var(--surface-2)] outline-none focus:bg-white border border-transparent focus:border-[var(--border-strong)]"
+                className="flex-1 px-2 py-1.5 rounded-[6px] text-sm bg-[var(--surface-2)] outline-none focus:bg-white border border-transparent focus:border-[var(--border-strong)]"
               />
               <button onClick={() => addSubTask(task)}
-                className="px-2.5 py-1 rounded-[6px] text-xs bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--border)]">
+                className="px-2.5 py-1.5 rounded-[6px] text-sm bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--border)]">
                 추가
               </button>
             </div>
