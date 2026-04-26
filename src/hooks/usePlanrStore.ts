@@ -60,10 +60,57 @@ export function usePlanrStore(userId: string) {
     async function sync() {
       try {
         const remoteData = await fetchAll(userId)
-        // Only overwrite local data if remote actually returned content.
-        // This prevents an empty/unconfigured Supabase from wiping local-only data.
-        if (remoteData.days.length > 0)      setDaysRaw(remoteData.days)
-        if (remoteData.goals.length > 0)     setGoalsRaw(remoteData.goals)
+
+        // ── Days: merge remote + local (never discard local tasks) ──────────
+        setDaysRaw(prev => {
+          if (remoteData.days.length === 0) return prev  // remote empty → keep local
+          const localMap = new Map(prev.map(d => [d.date, d]))
+          const remoteDates = new Set(remoteData.days.map((d: DayEntry) => d.date))
+          // Merge each remote day with local counterpart
+          const merged = remoteData.days.map((rem: DayEntry) => {
+            const loc = localMap.get(rem.date)
+            if (!loc) return rem
+            // Union tasks by id (remote wins on conflict, local-only tasks preserved)
+            const remoteTaskIds = new Set(rem.tasks.map((t: Task) => t.id))
+            const localOnlyTasks = loc.tasks.filter((t: Task) => !remoteTaskIds.has(t.id))
+            // Union notes by id
+            const remNotes = rem.meta?.notes ?? []
+            const locNotes = loc.meta?.notes ?? []
+            const remNoteIds = new Set(remNotes.map((n: any) => n.id))
+            const localOnlyNotes = locNotes.filter((n: any) => !remNoteIds.has(n.id))
+            return {
+              ...rem,
+              tasks: [...rem.tasks, ...localOnlyTasks],
+              meta: { ...rem.meta, notes: [...remNotes, ...localOnlyNotes] },
+            }
+          })
+          // Append local-only days not yet in remote
+          const localOnly = prev.filter(d => !remoteDates.has(d.date))
+          return [...merged, ...localOnly]
+        })
+
+        // ── Goals: same merge strategy ───────────────────────────────────────
+        setGoalsRaw(prev => {
+          if (remoteData.goals.length === 0) return prev
+          const localMap = new Map(prev.map(g => [g.id, g]))
+          const remoteIds = new Set(remoteData.goals.map((g: ShortGoal) => g.id))
+          const merged = remoteData.goals.map((rem: ShortGoal) => {
+            const loc = localMap.get(rem.id)
+            if (!loc) return rem
+            const remTaskIds = new Set(rem.tasks.map((t: Task) => t.id))
+            const localOnlyTasks = loc.tasks.filter((t: Task) => !remTaskIds.has(t.id))
+            const remNoteIds = new Set((rem.notes ?? []).map((n: any) => n.id))
+            const localOnlyNotes = (loc.notes ?? []).filter((n: any) => !remNoteIds.has(n.id))
+            return {
+              ...rem,
+              tasks: [...rem.tasks, ...localOnlyTasks],
+              notes: [...(rem.notes ?? []), ...localOnlyNotes],
+            }
+          })
+          const localOnly = prev.filter(g => !remoteIds.has(g.id))
+          return [...merged, ...localOnly]
+        })
+
         if (remoteData.routines.length > 0)  setRoutinesRaw(remoteData.routines)
         if (remoteData.logs.length > 0)      setLogsRaw(remoteData.logs)
         if (remoteData.longGoals.length > 0) setLongGoalsRaw(remoteData.longGoals)

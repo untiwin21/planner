@@ -125,8 +125,9 @@ export function GoalDetail({
           {/* subtask toggle */}
           <button onClick={() => toggleExpand(task.id)}
             className={clsx(
-              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 hover:bg-[var(--surface-2)] transition-all flex-shrink-0 text-[10px] font-medium text-[var(--text-3)]',
-              subtasks.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-60',
+              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 transition-all flex-shrink-0 text-[10px] font-semibold text-[var(--teal)] hover:bg-[var(--teal-bg)]',
+              subtasks.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-70',
+              isExpanded && 'bg-[var(--teal-bg)]',
             )}>
             {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             {subtasks.length > 0 && <span className="tabular-nums">{subDone}/{subtasks.length}</span>}
