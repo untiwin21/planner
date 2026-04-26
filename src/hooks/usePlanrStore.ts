@@ -25,6 +25,7 @@ const STORAGE_KEYS = {
   logs: 'planr_routine_logs',
   longGoals: 'planr_long_goals',
   weeklyReviews: 'planr_weekly_reviews',
+  categories: 'planr_categories',
   lastSync: 'planr_last_sync',
 }
 
@@ -42,7 +43,6 @@ function save(key: string, value: unknown) {
 function uid() { return Math.random().toString(36).slice(2, 10) }
 
 const DEFAULT_META: DayMeta = { sleep: null, condition: null, focus: null, top3: [] }
-
 const SCHEDULE_CATEGORY: Category = { id: SCHEDULE_CAT_ID, name: '일정', color: 'blue' }
 
 export function usePlanrStore(userId: string) {
@@ -53,17 +53,13 @@ export function usePlanrStore(userId: string) {
   const [logs, setLogsRaw] = useState<RoutineLog[]>(() => load(STORAGE_KEYS.logs, []))
   const [longGoals, setLongGoalsRaw] = useState<LongGoal[]>(() => load(STORAGE_KEYS.longGoals, []))
   const [weeklyReviews, setWeeklyReviewsRaw] = useState<Record<string, string>>(() => load(STORAGE_KEYS.weeklyReviews, {}))
+  const [categories, setCategoriesRaw] = useState<Category[]>(() => load(STORAGE_KEYS.categories, []))
 
   useEffect(() => {
-    if (!userId) {
-      setSyncReady(true)
-      return
-    }
-
+    if (!userId) { setSyncReady(true); return }
     async function sync() {
       try {
         const remoteData = await fetchAll(userId)
-        // A real implementation would have a more sophisticated merge strategy
         setDaysRaw(remoteData.days)
         setGoalsRaw(remoteData.goals)
         setRoutinesRaw(remoteData.routines)
@@ -72,16 +68,15 @@ export function usePlanrStore(userId: string) {
         setWeeklyReviewsRaw(remoteData.weeklyReviews)
         save(STORAGE_KEYS.lastSync, new Date().toISOString())
       } catch (e) {
-        console.error("Sync failed, falling back to local data", e)
+        console.error('Sync failed, falling back to local data', e)
       } finally {
         setSyncReady(true)
       }
     }
-
     sync()
   }, [userId])
 
-
+  // ── Setters with auto-persist ──────────────────────────────────────────────
   const setDays = useCallback((v: DayEntry[] | ((p: DayEntry[]) => DayEntry[])) => {
     setDaysRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.days, next); return next })
   }, [])
@@ -100,12 +95,14 @@ export function usePlanrStore(userId: string) {
   const setWeeklyReviews = useCallback((v: Record<string, string> | ((p: Record<string, string>) => Record<string, string>)) => {
     setWeeklyReviewsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.weeklyReviews, next); return next })
   }, [])
+  const setCategories = useCallback((v: Category[] | ((p: Category[]) => Category[])) => {
+    setCategoriesRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.categories, next); return next })
+  }, [])
 
   // ── DAY ENTRY ──────────────────────────────────────────────────────────────
   function getDay(date: string): DayEntry {
     const stored = days.find(d => d.date === date)
     if (stored) {
-      // Ensure schedule category always exists
       const hasSched = stored.categories.find(c => c.id === SCHEDULE_CAT_ID)
       if (!hasSched) return { ...stored, categories: [SCHEDULE_CATEGORY, ...stored.categories] }
       return stored
@@ -134,9 +131,17 @@ export function usePlanrStore(userId: string) {
 
   function addTask(date: string, categoryId: string, text: string, time?: string) {
     const entry = getDay(date)
-    const category = entry.categories.find(c => c.id === categoryId)
+    // Schedule cat lives in entry.categories; all others come from global categories
+    const category =
+      entry.categories.find(c => c.id === categoryId) ||
+      categories.find(c => c.id === categoryId)
     if (!category) return
-    const task: Task = { id: uid(), text, done: false, category_id: categoryId, day_id: entry.id, category_name: category.name, category_color: category.color, ...(time ? { time } : {}) }
+    const task: Task = {
+      id: uid(), text, done: false,
+      category_id: categoryId, day_id: entry.id,
+      category_name: category.name, category_color: category.color,
+      ...(time ? { time } : {}),
+    }
     upsertDay({ ...entry, tasks: [...entry.tasks, task] })
     if (userId) upsertTask(userId, task, date)
   }
@@ -145,18 +150,6 @@ export function usePlanrStore(userId: string) {
     const entry = getDay(date)
     upsertDay({ ...entry, tasks: entry.tasks.filter(t => t.id !== taskId) })
     if (userId) deleteTaskSync(userId, taskId)
-  }
-
-  function upsertCategory(date: string, cat: Omit<Category, 'id'> & { id?: string }) {
-    if (cat.id === SCHEDULE_CAT_ID) return // schedule cat is immutable
-    const entry = getDay(date)
-    const id = cat.id ?? uid()
-    const full: Category = { ...cat, id }
-    const exists = entry.categories.find(c => c.id === id)
-    const categories = exists
-      ? entry.categories.map(c => c.id === id ? full : c)
-      : [...entry.categories, full]
-    upsertDay({ ...entry, categories })
   }
 
   function updateNote(date: string, note: string) {
@@ -172,6 +165,20 @@ export function usePlanrStore(userId: string) {
     if (userId) upsertDayEntry(userId, updatedEntry)
   }
 
+  // ── GLOBAL CATEGORIES ─────────────────────────────────────────────────────
+  function addGlobalCategory(cat: Omit<Category, 'id'>) {
+    const newCat: Category = { ...cat, id: uid() }
+    setCategories(prev => [...prev, newCat])
+  }
+
+  function deleteGlobalCategory(id: string) {
+    setCategories(prev => prev.filter(c => c.id !== id))
+  }
+
+  function updateGlobalCategory(id: string, patch: Partial<Omit<Category, 'id'>>) {
+    setCategories(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c))
+  }
+
   // ── SHORT GOALS ────────────────────────────────────────────────────────────
   function addGoal(g: Omit<ShortGoal, 'id'>) {
     const newGoal = { ...g, id: uid() }
@@ -179,14 +186,8 @@ export function usePlanrStore(userId: string) {
     if (userId) upsertShortGoal(userId, newGoal)
   }
   function updateGoal(id: string, patch: Partial<ShortGoal>) {
-    let updatedGoal: ShortGoal | undefined;
-    setGoals(prev => prev.map(g => {
-      if (g.id === id) {
-        updatedGoal = { ...g, ...patch }
-        return updatedGoal
-      }
-      return g
-    }))
+    let updatedGoal: ShortGoal | undefined
+    setGoals(prev => prev.map(g => { if (g.id === id) { updatedGoal = { ...g, ...patch }; return updatedGoal } return g }))
     if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
   }
   function deleteGoal(id: string) {
@@ -194,7 +195,7 @@ export function usePlanrStore(userId: string) {
     if (userId) deleteShortGoalSync(userId, id)
   }
   function toggleGoalTask(goalId: string, taskId: string) {
-    let updatedGoal: ShortGoal | undefined;
+    let updatedGoal: ShortGoal | undefined
     setGoals(prev => prev.map(g => {
       if (g.id !== goalId) return g
       const tasks = g.tasks.map(t => t.id === taskId ? { ...t, done: !t.done } : t)
@@ -207,8 +208,8 @@ export function usePlanrStore(userId: string) {
     }
   }
   function addGoalTask(goalId: string, categoryId: string, text: string) {
-    let updatedGoal: ShortGoal | undefined;
-    let newTask: Task | undefined;
+    let updatedGoal: ShortGoal | undefined
+    let newTask: Task | undefined
     setGoals(prev => prev.map(g => {
       if (g.id !== goalId) return g
       const category = g.categories.find(c => c.id === categoryId)
@@ -217,9 +218,7 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, tasks: [...g.tasks, newTask] }
       return updatedGoal
     }))
-    if (userId && updatedGoal && newTask) {
-      upsertTask(userId, newTask, goalId)
-    }
+    if (userId && updatedGoal && newTask) upsertTask(userId, newTask, goalId)
   }
 
   // ── LONG GOALS ─────────────────────────────────────────────────────────────
@@ -229,14 +228,8 @@ export function usePlanrStore(userId: string) {
     if (userId) upsertLongGoal(userId, newGoal)
   }
   function updateLongGoal(id: string, patch: Partial<LongGoal>) {
-    let updatedGoal: LongGoal | undefined;
-    setLongGoals(prev => prev.map(g => {
-      if (g.id === id) {
-        updatedGoal = { ...g, ...patch }
-        return updatedGoal
-      }
-      return g
-    }))
+    let updatedGoal: LongGoal | undefined
+    setLongGoals(prev => prev.map(g => { if (g.id === id) { updatedGoal = { ...g, ...patch }; return updatedGoal } return g }))
     if (userId && updatedGoal) upsertLongGoal(userId, updatedGoal)
   }
   function deleteLongGoal(id: string) {
@@ -247,16 +240,18 @@ export function usePlanrStore(userId: string) {
   // ── QUICK ADD ──────────────────────────────────────────────────────────────
   function quickAddTask(date: string, text: string) {
     const entry = getDay(date)
-    const nonScheduleCat = entry.categories.find(c => c.id !== SCHEDULE_CAT_ID)
-    if (nonScheduleCat) {
-      const task: Task = { id: uid(), text, done: false, category_id: nonScheduleCat.id, day_id: entry.id, category_name: nonScheduleCat.name, category_color: nonScheduleCat.color }
+    const targetCat = categories[0] // use first global category
+    if (targetCat) {
+      const task: Task = { id: uid(), text, done: false, category_id: targetCat.id, day_id: entry.id, category_name: targetCat.name, category_color: targetCat.color }
       upsertDay({ ...entry, tasks: [...entry.tasks, task] })
       if (userId) upsertTask(userId, task, date)
     } else {
+      // Fallback: create a default category on-the-fly
       const catId = uid()
       const newCat: Category = { id: catId, name: '할 일', color: 'purple' }
+      setCategories(prev => [...prev, newCat])
       const task: Task = { id: uid(), text, done: false, category_id: catId, day_id: entry.id, category_name: newCat.name, category_color: newCat.color }
-      upsertDay({ ...entry, categories: [...entry.categories, newCat], tasks: [...entry.tasks, task] })
+      upsertDay({ ...entry, tasks: [...entry.tasks, task] })
       if (userId) upsertTask(userId, task, date)
     }
   }
@@ -269,24 +264,12 @@ export function usePlanrStore(userId: string) {
   }
   function setRoutineStatus(id: string, status: RoutineStatus) {
     let updatedRoutine: Routine | undefined
-    setRoutines(prev => prev.map(r => {
-      if (r.id === id) {
-        updatedRoutine = { ...r, status }
-        return updatedRoutine
-      }
-      return r
-    }))
+    setRoutines(prev => prev.map(r => { if (r.id === id) { updatedRoutine = { ...r, status }; return updatedRoutine } return r }))
     if (userId && updatedRoutine) upsertRoutine(userId, updatedRoutine)
   }
   function updateRoutineName(id: string, name: string) {
     let updatedRoutine: Routine | undefined
-    setRoutines(prev => prev.map(r => {
-      if (r.id === id) {
-        updatedRoutine = { ...r, name }
-        return updatedRoutine
-      }
-      return r
-    }))
+    setRoutines(prev => prev.map(r => { if (r.id === id) { updatedRoutine = { ...r, name }; return updatedRoutine } return r }))
     if (userId && updatedRoutine) upsertRoutine(userId, updatedRoutine)
   }
   function deleteRoutine(id: string) {
@@ -310,25 +293,23 @@ export function usePlanrStore(userId: string) {
   function isRoutineDone(routineId: string, date: string): boolean {
     return logs.find(l => l.routine_id === routineId && l.date === date)?.done ?? false
   }
-  
-  // ── WEEKLY REVIEW ──────────────────────────────────────────────────────────
-  function getWeeklyReview(weekKey: string): string {
-    return weeklyReviews[weekKey] || ''
-  }
 
+  // ── WEEKLY REVIEW ──────────────────────────────────────────────────────────
+  function getWeeklyReview(weekKey: string): string { return weeklyReviews[weekKey] || '' }
   function updateWeeklyReview(weekKey: string, content: string) {
-    setWeeklyReviews(prev => ({...prev, [weekKey]: content}))
-    if(userId) upsertWeeklyReview(userId, weekKey, content)
+    setWeeklyReviews(prev => ({ ...prev, [weekKey]: content }))
+    if (userId) upsertWeeklyReview(userId, weekKey, content)
   }
 
   return {
     syncReady,
-    days, goals, routines, logs, longGoals, weeklyReviews,
-    getDay, upsertDay, toggleTask, addTask, deleteTask, upsertCategory, updateNote, updateMeta,
+    days, goals, routines, logs, longGoals, weeklyReviews, categories,
+    getDay, upsertDay, toggleTask, addTask, deleteTask, updateNote, updateMeta,
     addGoal, updateGoal, deleteGoal, toggleGoalTask, addGoalTask,
     addLongGoal, updateLongGoal, deleteLongGoal,
+    addGlobalCategory, deleteGlobalCategory, updateGlobalCategory,
     addRoutine, setRoutineStatus, updateRoutineName, deleteRoutine, toggleRoutineLog, isRoutineDone,
     quickAddTask,
-    getWeeklyReview, updateWeeklyReview
+    getWeeklyReview, updateWeeklyReview,
   }
 }

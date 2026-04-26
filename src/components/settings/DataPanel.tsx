@@ -8,6 +8,7 @@ const STORAGE_KEYS = [
   'planr_routine_logs',
   'planr_long_goals',
   'planr_weekly_reviews',
+  'planr_categories',
 ]
 
 export function DataPanel() {

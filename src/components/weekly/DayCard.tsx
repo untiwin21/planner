@@ -1,6 +1,6 @@
 'use client'
 import clsx from 'clsx'
-import { isToday, DAY_NAMES } from '@/lib/dates'
+import { isToday, DAY_NAMES, formatSleepMin } from '@/lib/dates'
 import type { DayEntry } from '@/types'
 import { SCHEDULE_CAT_ID } from '@/types'
 
@@ -74,8 +74,8 @@ export function DayCard({ date, entry, isSelected, onClick }: DayCardProps) {
         {today && <span className="w-1.5 h-1.5 rounded-full bg-[var(--purple)] mt-1 flex-shrink-0" />}
       </div>
 
-      {/* Row 2: schedules (from 일정 category) */}
-      <div className="px-3 py-2 border-t border-[var(--border)] min-h-[2.5rem]">
+      {/* Row 2: schedules — grows with viewport */}
+      <div className="px-3 py-2 border-t border-[var(--border)] min-h-[2.5rem] lg:min-h-[4.5rem] xl:min-h-[5.5rem] 2xl:min-h-[7rem]">
         {schedules.length > 0
           ? schedules.map(t => (
               <div key={t!.id} className="flex items-baseline gap-1 leading-snug">
@@ -93,12 +93,11 @@ export function DayCard({ date, entry, isSelected, onClick }: DayCardProps) {
         }
       </div>
 
-      {/* Row 3: top 3 work tasks */}
-      <div className="px-3 py-2 border-t border-[var(--border)] min-h-[3.75rem]">
+      {/* Row 3: top 3 work tasks — grows with viewport */}
+      <div className="px-3 py-2 border-t border-[var(--border)] min-h-[3.75rem] lg:min-h-[5.5rem] xl:min-h-[7rem] 2xl:min-h-[9rem]">
         {top3.length > 0
           ? top3.slice(0, 3).map(t => {
-              const cat = entry?.categories.find(c => c.id === t!.category_id)
-              const dot = DOT_COLORS[cat?.color ?? 'purple']
+              const dot = DOT_COLORS[t!.category_color ?? 'purple']
               return (
                 <div key={t!.id} className="flex items-start gap-1.5 mb-0.5 last:mb-0">
                   <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px]', dot, t!.done && 'opacity-25')} />
@@ -127,7 +126,7 @@ export function DayCard({ date, entry, isSelected, onClick }: DayCardProps) {
       {/* Row 5: sleep / condition / focus */}
       <div className="grid grid-cols-3 border-t border-[var(--border)]">
         {[
-          { label: '수면', value: meta?.sleep ?? '—' },
+          { label: '수면', value: meta?.sleep != null ? formatSleepMin(meta.sleep) : '—' },
           { label: '컨디션', value: meta?.condition != null ? LEVEL_EMOJI[meta.condition] : '—' },
           { label: '집중력', value: meta?.focus != null ? LEVEL_EMOJI[meta.focus] : '—' },
         ].map((item, i) => (
