@@ -78,7 +78,7 @@ export function CategoryPanel({ categories, onAdd, onDelete }: Props) {
               <button
                 key={c}
                 onClick={() => setNewColor(c)}
-                className={`px-2 py-0.5 rounded-[5px] text-[10px] font-medium cat-${c} transition-all ${
+                className={`px-2 py-0.5 rounded-[5px] text-[15px] font-medium cat-${c} transition-all ${
                   newColor === c ? 'ring-2 ring-[var(--purple)] ring-offset-1' : ''
                 }`}
               >

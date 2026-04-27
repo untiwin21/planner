@@ -24,12 +24,13 @@ interface Props {
   onAddNote: (text: string) => void
   onUpdateNote: (noteId: string, text: string) => void
   onDeleteNote: (noteId: string) => void
+  onReorderTasks: (categoryId: string, draggedId: string, targetId: string) => void
 }
 
 export function GoalDetail({
   goal, categories, allRoutines,
   onUpdate, onDelete, onToggleTask, onAddTask, onDeleteTask, onUpdateTask, onAddRoutine,
-  onAddNote, onUpdateNote, onDeleteNote,
+  onAddNote, onUpdateNote, onDeleteNote, onReorderTasks,
 }: Props) {
   const [newTaskTexts, setNewTaskTexts] = useState<Record<string, string>>({})
   const [newRoutineName, setNewRoutineName] = useState('')
@@ -58,6 +59,10 @@ export function GoalDetail({
     setSubInputs(p => ({ ...p, [task.id]: '' }))
     setExpandedIds(prev => new Set([...prev, task.id]))
   }
+
+  // ── Drag state ───────────────────────────────────────────────────────────
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
 
   // ── Notes ────────────────────────────────────────────────────────────────
   const [showNewNote, setShowNewNote] = useState(false)
@@ -103,9 +108,27 @@ export function GoalDetail({
     const isExpanded = expandedIds.has(task.id)
     const subtasks = task.subtasks ?? []
     const subDone = subtasks.filter(s => s.done).length
+    const isDragging = draggedId === task.id
+    const isOver = dragOverId === task.id && draggedId !== task.id
 
     return (
-      <div key={task.id}>
+      <div key={task.id}
+        draggable
+        onDragStart={() => setDraggedId(task.id)}
+        onDragOver={(e: React.DragEvent) => { e.preventDefault(); setDragOverId(task.id) }}
+        onDrop={() => {
+          if (draggedId && draggedId !== task.id) {
+            onReorderTasks(task.category_id, draggedId, task.id)
+          }
+          setDraggedId(null); setDragOverId(null)
+        }}
+        onDragEnd={() => { setDraggedId(null); setDragOverId(null) }}
+        className={clsx(
+          'cursor-grab active:cursor-grabbing',
+          isDragging && 'opacity-40',
+          isOver && 'border-t-2 border-[var(--teal)]',
+        )}
+      >
         <div className="flex items-center gap-1.5 group py-1">
           <Checkbox checked={task.done} onChange={() => onToggleTask(task.id)} size="sm" />
 
@@ -125,7 +148,7 @@ export function GoalDetail({
           {/* subtask toggle */}
           <button onClick={() => toggleExpand(task.id)}
             className={clsx(
-              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 transition-all flex-shrink-0 text-[10px] font-semibold text-[var(--teal)] hover:bg-[var(--teal-bg)]',
+              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 transition-all flex-shrink-0 text-[15px] font-semibold text-[var(--teal)] hover:bg-[var(--teal-bg)]',
               subtasks.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-70',
               isExpanded && 'bg-[var(--teal-bg)]',
             )}>
@@ -198,7 +221,7 @@ export function GoalDetail({
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1">
-          <span className="text-[11px] text-[var(--teal)] font-medium">
+          <span className="text-[17px] text-[var(--teal)] font-medium">
             {dayRangeLabel(goal.date_from, goal.date_to)}
           </span>
           <input value={goal.title} onChange={e => onUpdate({ title: e.target.value })}
@@ -220,7 +243,7 @@ export function GoalDetail({
 
       {/* ── Routines ── */}
       <div>
-        <label className="block text-[11px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-2">이 기간 루틴</label>
+        <label className="block text-[17px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-2">이 기간 루틴</label>
         <div className="flex flex-col gap-1 mb-2">
           {allRoutines.map(r => {
             const active = !!goal.routines.find((gr: any) => gr.id === r.id)
@@ -260,7 +283,7 @@ export function GoalDetail({
             <div key={cat.id}>
               <div className="flex items-center gap-2 mb-2">
                 <Badge color={cat.color}>{cat.name}</Badge>
-                <span className="text-[11px] text-[var(--text-3)]">
+                <span className="text-[17px] text-[var(--text-3)]">
                   {tasks.filter(t => t.done).length}/{tasks.length}
                 </span>
               </div>
@@ -284,9 +307,8 @@ export function GoalDetail({
 
       {/* ── Notes journal ── */}
       <div>
-        {/* Section header */}
         <div className="flex items-center justify-between mb-3">
-          <label className="text-[11px] font-medium text-[var(--text-3)] uppercase tracking-wider">메 모</label>
+          <label className="text-[17px] font-medium text-[var(--text-3)] uppercase tracking-wider">메 모</label>
           {!showNewNote && (
             <button onClick={() => setShowNewNote(true)}
               className="flex items-center gap-1 text-xs text-[var(--text-3)] hover:text-[var(--purple)] transition-colors">
@@ -295,7 +317,6 @@ export function GoalDetail({
           )}
         </div>
 
-        {/* New note input */}
         {showNewNote && (
           <div className="mb-4 p-3 rounded-[12px] bg-[var(--surface-2)] border border-[var(--border)]">
             <Textarea autoFocus value={newNoteText} onChange={e => setNewNoteText(e.target.value)}
@@ -314,22 +335,20 @@ export function GoalDetail({
           </div>
         )}
 
-        {/* Note entries */}
         <div className="flex flex-col gap-4">
           {notes.length === 0 && !showNewNote && (
             <p className="text-xs text-[var(--text-3)] text-center py-3 italic">
               아직 메모가 없습니다. 위 버튼으로 첫 메모를 작성해보세요.
             </p>
           )}
-          {notes.map(note => {
+          {notes.map((note: NoteEntry) => {
             const isEditing = editingNoteId === note.id
             const date = parseISO(note.createdAt)
             return (
               <div key={note.id}>
-                {/* Date separator */}
                 <div className="flex items-center gap-3 mb-2">
                   <div className="flex-1 h-px bg-[var(--border)]" />
-                  <span className="text-[10px] text-[var(--text-3)] font-medium whitespace-nowrap">
+                  <span className="text-[15px] text-[var(--text-3)] font-medium whitespace-nowrap">
                     {format(date, 'yyyy년 M월 d일 EEEE', { locale: ko })}
                   </span>
                   <div className="flex-1 h-px bg-[var(--border)]" />

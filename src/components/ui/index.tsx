@@ -21,7 +21,7 @@ export function Card({ className, children, onClick, ...props }: React.HTMLAttri
 }
 
 // BADGE
-type BadgeColor = 'purple' | 'teal' | 'amber' | 'coral' | 'blue' | 'gray'
+type BadgeColor = 'purple' | 'teal' | 'amber' | 'coral' | 'blue' | 'gray' | 'red'
 const badgeClasses: Record<BadgeColor, string> = {
   purple: 'cat-purple',
   teal: 'cat-teal',
@@ -29,11 +29,12 @@ const badgeClasses: Record<BadgeColor, string> = {
   coral: 'cat-coral',
   blue: 'cat-blue',
   gray: 'bg-[var(--surface-2)] text-[var(--text-2)]',
+  red: 'cat-red',
 }
 
 export function Badge({ color = 'gray', children, className }: { color?: BadgeColor; children: React.ReactNode; className?: string }) {
   return (
-    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-[6px] text-[11px] font-medium', badgeClasses[color], className)}>
+    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-[6px] text-[17px] font-medium', badgeClasses[color], className)}>
       {children}
     </span>
   )

@@ -64,7 +64,7 @@ export function DayCard({ date, entry, isSelected, onClick }: DayCardProps) {
       {/* Row 1: day + date */}
       <div className="flex items-start justify-between px-3 pt-3 pb-2">
         <div>
-          <span className={clsx('text-[10px] font-semibold tracking-widest uppercase block',
+          <span className={clsx('text-[15px] font-semibold tracking-widest uppercase block',
             isSelected || today ? 'text-[var(--purple)]' : 'text-[var(--text-3)]'
           )}>{DAY_NAMES[dayIdx]}</span>
           <span className={clsx('text-[clamp(16px,2vw,22px)] font-bold leading-none tracking-tight',
@@ -89,7 +89,7 @@ export function DayCard({ date, entry, isSelected, onClick }: DayCardProps) {
                 </p>
               </div>
             ))
-          : <p className="text-[10px] text-[var(--text-3)] italic">일정 없음</p>
+          : <p className="text-[15px] text-[var(--text-3)] italic">일정 없음</p>
         }
       </div>
 
@@ -107,15 +107,15 @@ export function DayCard({ date, entry, isSelected, onClick }: DayCardProps) {
                 </div>
               )
             })
-          : <p className="text-[10px] text-[var(--text-3)] italic">할 일 없음</p>
+          : <p className="text-[15px] text-[var(--text-3)] italic">할 일 없음</p>
         }
       </div>
 
       {/* Row 4: progress */}
       <div className="px-3 py-2 border-t border-[var(--border)]">
         <div className="flex justify-between mb-1">
-          <span className="text-[9px] text-[var(--text-3)] font-medium">달성률</span>
-          <span className="text-[9px] text-[var(--text-3)]">{totalCnt > 0 ? `${pct}%` : '—'}</span>
+          <span className="text-[14px] text-[var(--text-3)] font-medium">달성률</span>
+          <span className="text-[14px] text-[var(--text-3)]">{totalCnt > 0 ? `${pct}%` : '—'}</span>
         </div>
         <div className="w-full h-[3px] rounded-full bg-[var(--border)]">
           <div className="h-full rounded-full transition-all duration-500"
@@ -131,7 +131,7 @@ export function DayCard({ date, entry, isSelected, onClick }: DayCardProps) {
           { label: '집중력', value: meta?.focus != null ? LEVEL_EMOJI[meta.focus] : '—' },
         ].map((item, i) => (
           <div key={i} className={clsx('flex flex-col items-center py-2 gap-0.5', i > 0 && 'border-l border-[var(--border)]')}>
-            <span className="text-[8px] text-[var(--text-3)] uppercase tracking-wide">{item.label}</span>
+            <span className="text-[12px] text-[var(--text-3)] uppercase tracking-wide">{item.label}</span>
             <span className="text-[clamp(9px,0.9vw,11px)] font-semibold text-[var(--text-2)]">{item.value}</span>
           </div>
         ))}

@@ -31,6 +31,10 @@
     --blue-bg: #E6F1FB;
     --blue-text: #0C447C;
 
+    --red: #C0392B;
+    --red-bg: #FDECEA;
+    --red-text: #922B21;
+
     --radius-sm: 8px;
     --radius-md: 12px;
     --radius-lg: 16px;
@@ -44,7 +48,7 @@
   }
 
   html {
-    font-size: 16px;
+    font-size: 24px;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -67,6 +71,7 @@
   .cat-amber  { background: var(--amber-bg);  color: var(--amber-text); }
   .cat-coral  { background: var(--coral-bg);  color: var(--coral-text); }
   .cat-blue   { background: var(--blue-bg);   color: var(--blue-text); }
+  .cat-red    { background: var(--red-bg);    color: var(--red-text); }
 
   .scrollbar-thin::-webkit-scrollbar { width: 4px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }

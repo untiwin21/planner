@@ -1,11 +1,11 @@
 'use client'
 import { useState } from 'react'
-import { Trash2, Clock, ChevronRight, ChevronDown, Pencil, Plus } from 'lucide-react'
+import { Trash2, Clock, ChevronRight, ChevronDown, Pencil, Plus, AlertCircle } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { formatDisplay } from '@/lib/dates'
-import { Badge, Checkbox, Input, Textarea, IconBtn } from '@/components/ui'
+import { Badge, Checkbox, Input, Textarea } from '@/components/ui'
 import type { DayEntry, Category, DayMeta, Task, SubTask, JournalEntry } from '@/types'
-import { SCHEDULE_CAT_ID } from '@/types'
+import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import clsx from 'clsx'
 
 const LEVEL_EMOJI: Record<number, string> = { 1: '😞', 2: '😕', 3: '😐', 4: '🙂', 5: '😄' }
@@ -23,12 +23,13 @@ interface Props {
   onAddDayNote: (title: string, body: string) => void
   onUpdateDayNote: (noteId: string, title: string, body: string) => void
   onDeleteDayNote: (noteId: string) => void
+  onReorderTasks: (categoryId: string, draggedId: string, targetId: string) => void
 }
 
 export function DayDetail({
   date, entry, categories,
   onToggleTask, onAddTask, onDeleteTask, onUpdateTask, onMetaChange,
-  onAddDayNote, onUpdateDayNote, onDeleteDayNote,
+  onAddDayNote, onUpdateDayNote, onDeleteDayNote, onReorderTasks,
 }: Props) {
   const [newTaskTexts, setNewTaskTexts] = useState<Record<string, string>>({})
   const [newSchedTime, setNewSchedTime] = useState('')
@@ -88,6 +89,10 @@ export function DayDetail({
     setExpandedIds(prev => new Set([...prev, task.id]))
   }
 
+  // ── Drag state ────────────────────────────────────────────────────────────
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+
   // ── Journal state ──────────────────────────────────────────────────────────
   const [showNewNote, setShowNewNote] = useState(false)
   const [newNoteTitle, setNewNoteTitle] = useState('')
@@ -110,19 +115,39 @@ export function DayDetail({
   const dayNotes = [...(entry.meta?.notes ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
   // ── Task row ──────────────────────────────────────────────────────────────
-  function renderTaskRow(task: Task, isSchedule = false) {
+  function renderTaskRow(task: Task, isSchedule = false, draggable = false) {
     const isEditing = editingId === task.id
     const isExpanded = expandedIds.has(task.id)
     const subtasks = task.subtasks ?? []
     const subDone = subtasks.filter(s => s.done).length
+    const isDragging = draggable && draggedId === task.id
+    const isOver = draggable && dragOverId === task.id && draggedId !== task.id
 
     return (
-      <div key={task.id}>
+      <div key={task.id}
+        {...(draggable ? {
+          draggable: true,
+          onDragStart: () => setDraggedId(task.id),
+          onDragOver: (e: React.DragEvent) => { e.preventDefault(); setDragOverId(task.id) },
+          onDrop: () => {
+            if (draggedId && draggedId !== task.id) {
+              onReorderTasks(task.category_id, draggedId, task.id)
+            }
+            setDraggedId(null); setDragOverId(null)
+          },
+          onDragEnd: () => { setDraggedId(null); setDragOverId(null) },
+        } : {})}
+        className={clsx(
+          draggable && 'cursor-grab active:cursor-grabbing',
+          isDragging && 'opacity-40',
+          isOver && 'border-t-2 border-[var(--purple)]',
+        )}
+      >
         <div className="flex items-center gap-1.5 group py-1">
           <Checkbox checked={task.done} onChange={() => onToggleTask(task.id)} size="sm" />
 
           {isSchedule && task.time && (
-            <span className="text-[11px] font-mono text-[var(--blue)] flex-shrink-0 w-10 tabular-nums">
+            <span className="text-[17px] font-mono text-[var(--blue)] flex-shrink-0 w-10 tabular-nums">
               {task.time}
             </span>
           )}
@@ -143,7 +168,7 @@ export function DayDetail({
           {/* subtask toggle */}
           <button onClick={() => toggleExpand(task.id)}
             className={clsx(
-              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 transition-all flex-shrink-0 text-[10px] font-semibold text-[var(--purple)] hover:bg-[var(--purple-bg)]',
+              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 transition-all flex-shrink-0 text-[15px] font-semibold text-[var(--purple)] hover:bg-[var(--purple-bg)]',
               subtasks.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-70',
               isExpanded && 'bg-[var(--purple-bg)]',
             )}>
@@ -151,7 +176,7 @@ export function DayDetail({
             {subtasks.length > 0 && <span className="tabular-nums">{subDone}/{subtasks.length}</span>}
           </button>
 
-          {/* edit — purple, fade-in on hover */}
+          {/* edit — purple */}
           {!isEditing && (
             <button
               onClick={() => startEdit(task)}
@@ -161,7 +186,7 @@ export function DayDetail({
             </button>
           )}
 
-          {/* delete — red, fade-in on hover */}
+          {/* delete — red */}
           <button
             onClick={() => onDeleteTask(task.id)}
             className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-[8px] flex items-center justify-center transition-all text-red-400 hover:text-red-600 hover:bg-red-50"
@@ -225,6 +250,26 @@ export function DayDetail({
   }
 
   // ── Sections ───────────────────────────────────────────────────────────────
+  function renderDeadlineSection() {
+    const tasks = entry.tasks.filter(t => t.category_id === DEADLINE_CAT_ID)
+    return (
+      <>
+        <div className="flex flex-col gap-0.5 mb-2">{tasks.map(t => renderTaskRow(t, false, true))}</div>
+        <div className="flex gap-2">
+          <Input value={newTaskTexts[DEADLINE_CAT_ID] ?? ''}
+            onChange={e => setNewTaskTexts(p => ({ ...p, [DEADLINE_CAT_ID]: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && handleAddTask(DEADLINE_CAT_ID)}
+            placeholder="데드라인 추가..." className="text-sm py-1.5"
+          />
+          <button onClick={() => handleAddTask(DEADLINE_CAT_ID)}
+            className="flex-shrink-0 w-9 h-9 rounded-[8px] flex items-center justify-center text-[var(--red)] hover:bg-[var(--red-bg)] transition-colors border border-[var(--border)] bg-white">
+            <Plus size={16} />
+          </button>
+        </div>
+      </>
+    )
+  }
+
   function renderScheduleSection() {
     const tasks = entry.tasks
       .filter(t => t.category_id === SCHEDULE_CAT_ID)
@@ -235,7 +280,7 @@ export function DayDetail({
       })
     return (
       <>
-        <div className="flex flex-col gap-0.5 mb-2">{tasks.map(t => renderTaskRow(t, true))}</div>
+        <div className="flex flex-col gap-0.5 mb-2">{tasks.map(t => renderTaskRow(t, true, false))}</div>
         <div className="flex gap-2">
           <input type="text" value={newSchedTime}
             onChange={e => setNewSchedTime(e.target.value.replace(/[^\d:]/g, '').slice(0, 5))}
@@ -249,7 +294,7 @@ export function DayDetail({
             placeholder="일정 내용" className="text-sm py-1.5"
           />
           <button onClick={handleAddScheduleTask}
-            className="flex-shrink-0 w-9 h-9 rounded-[8px] flex items-center justify-center text-[var(--blue)] hover:bg-[var(--blue-bg,#eff6ff)] transition-colors border border-[var(--border)] bg-white">
+            className="flex-shrink-0 w-9 h-9 rounded-[8px] flex items-center justify-center text-[var(--blue)] hover:bg-[var(--blue-bg)] transition-colors border border-[var(--border)] bg-white">
             <Plus size={16} />
           </button>
         </div>
@@ -261,7 +306,7 @@ export function DayDetail({
     const tasks = entry.tasks.filter(t => t.category_id === catId)
     return (
       <>
-        <div className="flex flex-col gap-0.5 mb-2">{tasks.map(t => renderTaskRow(t))}</div>
+        <div className="flex flex-col gap-0.5 mb-2">{tasks.map(t => renderTaskRow(t, false, true))}</div>
         <div className="flex gap-2">
           <Input value={newTaskTexts[catId] ?? ''}
             onChange={e => setNewTaskTexts(p => ({ ...p, [catId]: e.target.value }))}
@@ -287,11 +332,22 @@ export function DayDetail({
         </span>
       </div>
 
+      {/* Deadline */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Badge color="red"><AlertCircle size={10} className="mr-1 inline" />데드라인</Badge>
+          <span className="text-[17px] text-[var(--text-3)]">
+            {entry.tasks.filter(t => t.category_id === DEADLINE_CAT_ID).length}개
+          </span>
+        </div>
+        {renderDeadlineSection()}
+      </div>
+
       {/* Schedule */}
       <div>
         <div className="flex items-center gap-2 mb-2">
           <Badge color="blue"><Clock size={10} className="mr-1 inline" />일정</Badge>
-          <span className="text-[11px] text-[var(--text-3)]">
+          <span className="text-[17px] text-[var(--text-3)]">
             {entry.tasks.filter(t => t.category_id === SCHEDULE_CAT_ID).length}개
           </span>
         </div>
@@ -301,31 +357,31 @@ export function DayDetail({
       {/* Meta */}
       <div className="grid grid-cols-3 gap-3 p-3 rounded-[12px] bg-[var(--surface-2)] border border-[var(--border)]">
         <div>
-          <label className="block text-[10px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">수면 시간</label>
+          <label className="block text-[15px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">수면 시간</label>
           <input type="text" inputMode="numeric"
             value={sleepDisplay} onChange={() => {}} onKeyDown={handleSleepKeyDown}
             placeholder="0730" maxLength={5}
             className="w-full px-2 py-1.5 rounded-[8px] text-sm bg-white border border-[var(--border)] outline-none focus:border-[var(--purple)] text-center font-mono tracking-widest"
           />
-          <p className="text-[9px] text-[var(--text-3)] text-center mt-0.5">숫자 4자리 입력</p>
+          <p className="text-[14px] text-[var(--text-3)] text-center mt-0.5">숫자 4자리 입력</p>
         </div>
         <div>
-          <label className="block text-[10px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">컨디션</label>
+          <label className="block text-[15px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">컨디션</label>
           <div className="flex gap-0.5 justify-between">
             {[1,2,3,4,5].map(v => (
               <button key={v} onClick={() => onMetaChange({ condition: meta?.condition === v ? null : v })}
-                className={`flex-1 py-1 rounded-[6px] text-[12px] transition-all ${meta?.condition === v ? 'bg-[var(--amber-bg)] ring-1 ring-[var(--amber)]' : 'bg-white border border-[var(--border)] hover:border-[var(--border-strong)]'}`}>
+                className={`flex-1 py-1 rounded-[6px] text-[18px] transition-all ${meta?.condition === v ? 'bg-[var(--amber-bg)] ring-1 ring-[var(--amber)]' : 'bg-white border border-[var(--border)] hover:border-[var(--border-strong)]'}`}>
                 {LEVEL_EMOJI[v]}
               </button>
             ))}
           </div>
         </div>
         <div>
-          <label className="block text-[10px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">집중력</label>
+          <label className="block text-[15px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">집중력</label>
           <div className="flex gap-0.5 justify-between">
             {[1,2,3,4,5].map(v => (
               <button key={v} onClick={() => onMetaChange({ focus: meta?.focus === v ? null : v })}
-                className={`flex-1 py-1 rounded-[6px] text-[12px] transition-all ${meta?.focus === v ? 'bg-[var(--purple-bg)] ring-1 ring-[var(--purple)]' : 'bg-white border border-[var(--border)] hover:border-[var(--border-strong)]'}`}>
+                className={`flex-1 py-1 rounded-[6px] text-[18px] transition-all ${meta?.focus === v ? 'bg-[var(--purple-bg)] ring-1 ring-[var(--purple)]' : 'bg-white border border-[var(--border)] hover:border-[var(--border-strong)]'}`}>
                 {LEVEL_EMOJI[v]}
               </button>
             ))}
@@ -343,7 +399,7 @@ export function DayDetail({
           <div key={cat.id}>
             <div className="flex items-center gap-2 mb-2">
               <Badge color={cat.color}>{cat.name}</Badge>
-              <span className="text-[11px] text-[var(--text-3)]">
+              <span className="text-[17px] text-[var(--text-3)]">
                 {entry.tasks.filter(t => t.category_id === cat.id && t.done).length}/
                 {entry.tasks.filter(t => t.category_id === cat.id).length}
               </span>
@@ -356,7 +412,7 @@ export function DayDetail({
       {/* ── 오늘의 생각 journal ── */}
       <div className="pt-1">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-[11px] font-medium text-[var(--text-3)] uppercase tracking-wider">오늘의 생각</span>
+          <span className="text-[17px] font-medium text-[var(--text-3)] uppercase tracking-wider">오늘의 생각</span>
           {!showNewNote && (
             <button onClick={() => setShowNewNote(true)}
               className="flex items-center gap-1 text-xs text-[var(--text-3)] hover:text-[var(--purple)] transition-colors">
@@ -393,7 +449,7 @@ export function DayDetail({
               <div key={note.id}>
                 <div className="flex items-center gap-3 mb-2">
                   <div className="flex-1 h-px bg-[var(--border)]" />
-                  <span className="text-[10px] text-[var(--text-3)] font-medium whitespace-nowrap">
+                  <span className="text-[15px] text-[var(--text-3)] font-medium whitespace-nowrap">
                     {format(noteDate, 'M월 d일 HH:mm')}
                   </span>
                   <div className="flex-1 h-px bg-[var(--border)]" />

@@ -52,7 +52,7 @@ export function RightSidebar({ longGoals, shortGoals, selectedDate, onSelectDate
         </div>
         <div className="grid grid-cols-7 mb-1">
           {['월','화','수','목','금','토','일'].map(d => (
-            <div key={d} className="text-center text-[9px] font-medium text-[var(--text-3)] py-0.5">{d}</div>
+            <div key={d} className="text-center text-[14px] font-medium text-[var(--text-3)] py-0.5">{d}</div>
           ))}
         </div>
         <div className="grid grid-cols-7 gap-y-0.5">
@@ -69,7 +69,7 @@ export function RightSidebar({ longGoals, shortGoals, selectedDate, onSelectDate
                   isSelected ? 'bg-[var(--purple)]' : isToday ? 'bg-[var(--purple-bg)]' : 'hover:bg-[var(--surface-2)]',
                   !isThisMonth && 'opacity-25'
                 )}>
-                <span className={clsx('text-[11px] font-medium leading-none',
+                <span className={clsx('text-[17px] font-medium leading-none',
                   isSelected ? 'text-white' : isToday ? 'text-[var(--purple)]' : 'text-[var(--text)]'
                 )}>{day.getDate()}</span>
                 <div className="flex gap-0.5 mt-0.5 min-h-[4px]">
@@ -96,15 +96,15 @@ export function RightSidebar({ longGoals, shortGoals, selectedDate, onSelectDate
             <input value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="설명 (선택)"
               className="w-full px-2 py-1.5 rounded-[8px] text-sm bg-white border border-[var(--border)] outline-none focus:border-[var(--purple)]" />
             <div className="grid grid-cols-2 gap-1.5">
-              <div><label className="text-[9px] text-[var(--text-3)] block mb-0.5">시작</label>
-                <input type="date" value={form.date_from} onChange={e => setForm(p => ({ ...p, date_from: e.target.value }))} className="w-full px-2 py-1 rounded-[8px] text-[11px] bg-white border border-[var(--border)] outline-none" /></div>
-              <div><label className="text-[9px] text-[var(--text-3)] block mb-0.5">종료</label>
-                <input type="date" value={form.date_to} onChange={e => setForm(p => ({ ...p, date_to: e.target.value }))} className="w-full px-2 py-1 rounded-[8px] text-[11px] bg-white border border-[var(--border)] outline-none" /></div>
+              <div><label className="text-[14px] text-[var(--text-3)] block mb-0.5">시작</label>
+                <input type="date" value={form.date_from} onChange={e => setForm(p => ({ ...p, date_from: e.target.value }))} className="w-full px-2 py-1 rounded-[8px] text-[17px] bg-white border border-[var(--border)] outline-none" /></div>
+              <div><label className="text-[14px] text-[var(--text-3)] block mb-0.5">종료</label>
+                <input type="date" value={form.date_to} onChange={e => setForm(p => ({ ...p, date_to: e.target.value }))} className="w-full px-2 py-1 rounded-[8px] text-[17px] bg-white border border-[var(--border)] outline-none" /></div>
             </div>
             <div className="flex gap-1 flex-wrap">
               {CAT_COLORS.map(c => (
                 <button key={c} onClick={() => setForm(p => ({ ...p, color: c }))}
-                  className={clsx('px-2 py-0.5 rounded-[6px] text-[10px] font-medium', form.color === c && 'ring-2 ring-offset-1')}
+                  className={clsx('px-2 py-0.5 rounded-[6px] text-[15px] font-medium', form.color === c && 'ring-2 ring-offset-1')}
                   style={{ background: COLOR_BG[c], color: COLOR_TEXT[c] }}>{COLOR_LABELS[c]}</button>
               ))}
             </div>
@@ -125,8 +125,8 @@ export function RightSidebar({ longGoals, shortGoals, selectedDate, onSelectDate
                 <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1" style={{ background: COLOR_DOT[g.color] }} />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold truncate" style={{ color: COLOR_TEXT[g.color] }}>{g.title}</p>
-                  {g.description && <p className="text-[10px] text-[var(--text-3)] truncate">{g.description}</p>}
-                  <p className="text-[9px] text-[var(--text-3)] mt-0.5">{from} — {to}</p>
+                  {g.description && <p className="text-[15px] text-[var(--text-3)] truncate">{g.description}</p>}
+                  <p className="text-[14px] text-[var(--text-3)] mt-0.5">{from} — {to}</p>
                 </div>
                 <button onClick={() => onDeleteLongGoal(g.id)} className="opacity-0 group-hover:opacity-100 w-5 h-5 rounded flex items-center justify-center text-[var(--text-3)] hover:text-[var(--coral)] transition-all flex-shrink-0">
                   <Trash2 size={11} />

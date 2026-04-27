@@ -1,6 +1,7 @@
-export type BadgeColor = 'purple' | 'teal' | 'amber' | 'coral' | 'blue' | 'gray'
+export type BadgeColor = 'purple' | 'teal' | 'amber' | 'coral' | 'blue' | 'gray' | 'red'
 
 export const SCHEDULE_CAT_ID = 'schedule'
+export const DEADLINE_CAT_ID = 'deadline'
 
 export interface SubTask {
   id: string

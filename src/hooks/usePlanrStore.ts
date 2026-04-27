@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback, useEffect } from 'react'
 import type { DayEntry, ShortGoal, Routine, RoutineLog, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry } from '@/types'
-import { SCHEDULE_CAT_ID } from '@/types'
+import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
 import {
   fetchAll,
@@ -43,6 +43,7 @@ function save(key: string, value: unknown) {
 function uid() { return Math.random().toString(36).slice(2, 10) }
 
 const DEFAULT_META: DayMeta = { sleep: null, condition: null, focus: null, top3: [], notes: [] }
+const DEADLINE_CATEGORY: Category = { id: DEADLINE_CAT_ID, name: '데드라인', color: 'red' }
 const SCHEDULE_CATEGORY: Category = { id: SCHEDULE_CAT_ID, name: '일정', color: 'blue' }
 
 export function usePlanrStore(userId: string) {
@@ -152,11 +153,13 @@ export function usePlanrStore(userId: string) {
   function getDay(date: string): DayEntry {
     const stored = days.find(d => d.date === date)
     if (stored) {
-      const hasSched = stored.categories.find(c => c.id === SCHEDULE_CAT_ID)
-      if (!hasSched) return { ...stored, categories: [SCHEDULE_CATEGORY, ...stored.categories] }
-      return stored
+      let cats = stored.categories
+      if (!cats.find(c => c.id === DEADLINE_CAT_ID)) cats = [DEADLINE_CATEGORY, ...cats]
+      if (!cats.find(c => c.id === SCHEDULE_CAT_ID)) cats = [...cats, SCHEDULE_CATEGORY]
+      if (cats === stored.categories) return stored
+      return { ...stored, categories: cats }
     }
-    return { id: uid(), date, note: '', tasks: [], categories: [SCHEDULE_CATEGORY], meta: DEFAULT_META }
+    return { id: uid(), date, note: '', tasks: [], categories: [DEADLINE_CATEGORY, SCHEDULE_CATEGORY], meta: DEFAULT_META }
   }
 
   function upsertDay(entry: DayEntry) {
@@ -439,6 +442,45 @@ export function usePlanrStore(userId: string) {
     return logs.find(l => l.routine_id === routineId && l.date === date)?.done ?? false
   }
 
+  // ── TASK REORDER ───────────────────────────────────────────────────────────
+  function reorderDayTasks(date: string, categoryId: string, draggedId: string, targetId: string) {
+    let updatedEntry: DayEntry | undefined
+    setDays(prev => {
+      const d = prev.find(day => day.date === date)
+      if (!d) return prev
+      const catTasks = d.tasks.filter(t => t.category_id === categoryId)
+      const rest = d.tasks.filter(t => t.category_id !== categoryId)
+      const dragIdx = catTasks.findIndex(t => t.id === draggedId)
+      const dropIdx = catTasks.findIndex(t => t.id === targetId)
+      if (dragIdx < 0 || dropIdx < 0) return prev
+      const reordered = [...catTasks]
+      const [moved] = reordered.splice(dragIdx, 1)
+      reordered.splice(dropIdx, 0, moved)
+      updatedEntry = { ...d, tasks: [...rest, ...reordered] }
+      return prev.map(day => day.date === date ? updatedEntry! : day)
+    })
+    if (userId && updatedEntry) upsertDayEntry(userId, updatedEntry)
+  }
+
+  function reorderGoalTasks(goalId: string, categoryId: string, draggedId: string, targetId: string) {
+    let updatedGoal: ShortGoal | undefined
+    setGoals(prev => {
+      const g = prev.find(goal => goal.id === goalId)
+      if (!g) return prev
+      const catTasks = g.tasks.filter(t => t.category_id === categoryId)
+      const rest = g.tasks.filter(t => t.category_id !== categoryId)
+      const dragIdx = catTasks.findIndex(t => t.id === draggedId)
+      const dropIdx = catTasks.findIndex(t => t.id === targetId)
+      if (dragIdx < 0 || dropIdx < 0) return prev
+      const reordered = [...catTasks]
+      const [moved] = reordered.splice(dragIdx, 1)
+      reordered.splice(dropIdx, 0, moved)
+      updatedGoal = { ...g, tasks: [...rest, ...reordered] }
+      return prev.map(goal => goal.id === goalId ? updatedGoal! : goal)
+    })
+    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+  }
+
   // ── WEEKLY REVIEW ──────────────────────────────────────────────────────────
   function getWeeklyReview(weekKey: string): string { return weeklyReviews[weekKey] || '' }
   function updateWeeklyReview(weekKey: string, content: string) {
@@ -457,6 +499,7 @@ export function usePlanrStore(userId: string) {
     addGlobalCategory, deleteGlobalCategory, updateGlobalCategory,
     addRoutine, setRoutineStatus, updateRoutineName, deleteRoutine, toggleRoutineLog, isRoutineDone,
     quickAddTask,
+    reorderDayTasks, reorderGoalTasks,
     getWeeklyReview, updateWeeklyReview,
   }
 }
