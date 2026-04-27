@@ -34,7 +34,7 @@ const badgeClasses: Record<BadgeColor, string> = {
 
 export function Badge({ color = 'gray', children, className }: { color?: BadgeColor; children: React.ReactNode; className?: string }) {
   return (
-    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-[6px] text-[17px] font-medium', badgeClasses[color], className)}>
+    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-[6px] text-[13px] font-medium', badgeClasses[color], className)}>
       {children}
     </span>
   )

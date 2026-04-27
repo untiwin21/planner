@@ -103,7 +103,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[var(--bg)] relative">
-      <div className="max-w-[1600px] mx-auto px-6 py-7">
+      <div className="w-full px-6 py-7">
 
         {/* Top bar */}
         <div className="flex items-center justify-between mb-6">
@@ -197,7 +197,7 @@ export default function Home() {
                             <div className="h-full rounded-full transition-all duration-300"
                               style={{ width: `${pct}%`, background: 'var(--teal)' }} />
                           </div>
-                          <span className="text-[15px] text-[var(--text-3)] flex-shrink-0 tabular-nums">
+                          <span className="text-[11px] text-[var(--text-3)] flex-shrink-0 tabular-nums">
                             {done}/{total}
                           </span>
                         </div>
@@ -258,7 +258,7 @@ export default function Home() {
                     onSelectGoal={id => setSelectedGoalId(prev => prev === id ? null : id)} />
                   <div className="mt-2 flex justify-end">
                     <button onClick={() => setShowGoalForm(v => !v)}
-                      className="flex items-center gap-1 text-[17px] text-[var(--text-3)] hover:text-[var(--text-2)] px-2 py-1 rounded-[6px] hover:bg-white transition-all">
+                      className="flex items-center gap-1 text-[13px] text-[var(--text-3)] hover:text-[var(--text-2)] px-2 py-1 rounded-[6px] hover:bg-white transition-all">
                       <Plus size={11} /> 단기 목표 추가
                     </button>
                   </div>
@@ -268,11 +268,11 @@ export default function Home() {
                         className="w-full px-3 py-2 rounded-[10px] text-sm bg-[var(--surface-2)] outline-none" />
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="text-[15px] text-[var(--text-3)] mb-1 block">시작일</label>
+                          <label className="text-[11px] text-[var(--text-3)] mb-1 block">시작일</label>
                           <input type="date" value={newGoalFrom} onChange={e => setNewGoalFrom(e.target.value)} className="w-full px-2 py-1.5 rounded-[8px] text-sm bg-[var(--surface-2)] outline-none" />
                         </div>
                         <div>
-                          <label className="text-[15px] text-[var(--text-3)] mb-1 block">종료일</label>
+                          <label className="text-[11px] text-[var(--text-3)] mb-1 block">종료일</label>
                           <input type="date" value={newGoalTo} onChange={e => setNewGoalTo(e.target.value)} className="w-full px-2 py-1.5 rounded-[8px] text-sm bg-[var(--surface-2)] outline-none" />
                         </div>
                       </div>
@@ -339,7 +339,7 @@ export default function Home() {
             </div>
             {/* Task quick-add */}
             <div>
-              <p className="text-[17px] text-[var(--text-3)] mb-1.5">할 일 (오늘)</p>
+              <p className="text-[13px] text-[var(--text-3)] mb-1.5">할 일 (오늘)</p>
               <div className="flex gap-2">
                 <input value={qaTaskText} onChange={e => setQaTaskText(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleQuickAddTask() }}
@@ -355,7 +355,7 @@ export default function Home() {
             <div className="border-t border-[var(--border)]" />
             {/* Goal quick-add */}
             <div>
-              <p className="text-[17px] text-[var(--text-3)] mb-1.5">단기 목표</p>
+              <p className="text-[13px] text-[var(--text-3)] mb-1.5">단기 목표</p>
               <input value={qaGoalTitle} onChange={e => setQaGoalTitle(e.target.value)}
                 placeholder="목표 제목"
                 className="w-full px-2 py-1.5 rounded-[8px] text-sm bg-[var(--surface-2)] outline-none focus:ring-1 focus:ring-[var(--teal)] mb-2" />

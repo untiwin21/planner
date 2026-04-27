@@ -147,7 +147,7 @@ export function DayDetail({
           <Checkbox checked={task.done} onChange={() => onToggleTask(task.id)} size="sm" />
 
           {isSchedule && task.time && (
-            <span className="text-[17px] font-mono text-[var(--blue)] flex-shrink-0 w-10 tabular-nums">
+            <span className="text-[13px] font-mono text-[var(--blue)] flex-shrink-0 w-10 tabular-nums">
               {task.time}
             </span>
           )}
@@ -168,7 +168,7 @@ export function DayDetail({
           {/* subtask toggle */}
           <button onClick={() => toggleExpand(task.id)}
             className={clsx(
-              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 transition-all flex-shrink-0 text-[15px] font-semibold text-[var(--purple)] hover:bg-[var(--purple-bg)]',
+              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 transition-all flex-shrink-0 text-[11px] font-semibold text-[var(--purple)] hover:bg-[var(--purple-bg)]',
               subtasks.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-70',
               isExpanded && 'bg-[var(--purple-bg)]',
             )}>
@@ -336,7 +336,7 @@ export function DayDetail({
       <div>
         <div className="flex items-center gap-2 mb-2">
           <Badge color="red"><AlertCircle size={10} className="mr-1 inline" />데드라인</Badge>
-          <span className="text-[17px] text-[var(--text-3)]">
+          <span className="text-[13px] text-[var(--text-3)]">
             {entry.tasks.filter(t => t.category_id === DEADLINE_CAT_ID).length}개
           </span>
         </div>
@@ -347,7 +347,7 @@ export function DayDetail({
       <div>
         <div className="flex items-center gap-2 mb-2">
           <Badge color="blue"><Clock size={10} className="mr-1 inline" />일정</Badge>
-          <span className="text-[17px] text-[var(--text-3)]">
+          <span className="text-[13px] text-[var(--text-3)]">
             {entry.tasks.filter(t => t.category_id === SCHEDULE_CAT_ID).length}개
           </span>
         </div>
@@ -357,31 +357,31 @@ export function DayDetail({
       {/* Meta */}
       <div className="grid grid-cols-3 gap-3 p-3 rounded-[12px] bg-[var(--surface-2)] border border-[var(--border)]">
         <div>
-          <label className="block text-[15px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">수면 시간</label>
+          <label className="block text-[11px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">수면 시간</label>
           <input type="text" inputMode="numeric"
             value={sleepDisplay} onChange={() => {}} onKeyDown={handleSleepKeyDown}
             placeholder="0730" maxLength={5}
             className="w-full px-2 py-1.5 rounded-[8px] text-sm bg-white border border-[var(--border)] outline-none focus:border-[var(--purple)] text-center font-mono tracking-widest"
           />
-          <p className="text-[14px] text-[var(--text-3)] text-center mt-0.5">숫자 4자리 입력</p>
+          <p className="text-[11px] text-[var(--text-3)] text-center mt-0.5">숫자 4자리 입력</p>
         </div>
         <div>
-          <label className="block text-[15px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">컨디션</label>
+          <label className="block text-[11px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">컨디션</label>
           <div className="flex gap-0.5 justify-between">
             {[1,2,3,4,5].map(v => (
               <button key={v} onClick={() => onMetaChange({ condition: meta?.condition === v ? null : v })}
-                className={`flex-1 py-1 rounded-[6px] text-[18px] transition-all ${meta?.condition === v ? 'bg-[var(--amber-bg)] ring-1 ring-[var(--amber)]' : 'bg-white border border-[var(--border)] hover:border-[var(--border-strong)]'}`}>
+                className={`flex-1 py-1 rounded-[6px] text-[14px] transition-all ${meta?.condition === v ? 'bg-[var(--amber-bg)] ring-1 ring-[var(--amber)]' : 'bg-white border border-[var(--border)] hover:border-[var(--border-strong)]'}`}>
                 {LEVEL_EMOJI[v]}
               </button>
             ))}
           </div>
         </div>
         <div>
-          <label className="block text-[15px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">집중력</label>
+          <label className="block text-[11px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">집중력</label>
           <div className="flex gap-0.5 justify-between">
             {[1,2,3,4,5].map(v => (
               <button key={v} onClick={() => onMetaChange({ focus: meta?.focus === v ? null : v })}
-                className={`flex-1 py-1 rounded-[6px] text-[18px] transition-all ${meta?.focus === v ? 'bg-[var(--purple-bg)] ring-1 ring-[var(--purple)]' : 'bg-white border border-[var(--border)] hover:border-[var(--border-strong)]'}`}>
+                className={`flex-1 py-1 rounded-[6px] text-[14px] transition-all ${meta?.focus === v ? 'bg-[var(--purple-bg)] ring-1 ring-[var(--purple)]' : 'bg-white border border-[var(--border)] hover:border-[var(--border-strong)]'}`}>
                 {LEVEL_EMOJI[v]}
               </button>
             ))}
@@ -399,7 +399,7 @@ export function DayDetail({
           <div key={cat.id}>
             <div className="flex items-center gap-2 mb-2">
               <Badge color={cat.color}>{cat.name}</Badge>
-              <span className="text-[17px] text-[var(--text-3)]">
+              <span className="text-[13px] text-[var(--text-3)]">
                 {entry.tasks.filter(t => t.category_id === cat.id && t.done).length}/
                 {entry.tasks.filter(t => t.category_id === cat.id).length}
               </span>
@@ -412,7 +412,7 @@ export function DayDetail({
       {/* ── 오늘의 생각 journal ── */}
       <div className="pt-1">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-[17px] font-medium text-[var(--text-3)] uppercase tracking-wider">오늘의 생각</span>
+          <span className="text-[13px] font-medium text-[var(--text-3)] uppercase tracking-wider">오늘의 생각</span>
           {!showNewNote && (
             <button onClick={() => setShowNewNote(true)}
               className="flex items-center gap-1 text-xs text-[var(--text-3)] hover:text-[var(--purple)] transition-colors">
@@ -449,7 +449,7 @@ export function DayDetail({
               <div key={note.id}>
                 <div className="flex items-center gap-3 mb-2">
                   <div className="flex-1 h-px bg-[var(--border)]" />
-                  <span className="text-[15px] text-[var(--text-3)] font-medium whitespace-nowrap">
+                  <span className="text-[11px] text-[var(--text-3)] font-medium whitespace-nowrap">
                     {format(noteDate, 'M월 d일 HH:mm')}
                   </span>
                   <div className="flex-1 h-px bg-[var(--border)]" />

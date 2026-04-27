@@ -148,7 +148,7 @@ export function GoalDetail({
           {/* subtask toggle */}
           <button onClick={() => toggleExpand(task.id)}
             className={clsx(
-              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 transition-all flex-shrink-0 text-[15px] font-semibold text-[var(--teal)] hover:bg-[var(--teal-bg)]',
+              'flex items-center gap-1 rounded-[6px] px-1.5 h-6 transition-all flex-shrink-0 text-[11px] font-semibold text-[var(--teal)] hover:bg-[var(--teal-bg)]',
               subtasks.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-70',
               isExpanded && 'bg-[var(--teal-bg)]',
             )}>
@@ -221,7 +221,7 @@ export function GoalDetail({
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1">
-          <span className="text-[17px] text-[var(--teal)] font-medium">
+          <span className="text-[13px] text-[var(--teal)] font-medium">
             {dayRangeLabel(goal.date_from, goal.date_to)}
           </span>
           <input value={goal.title} onChange={e => onUpdate({ title: e.target.value })}
@@ -243,7 +243,7 @@ export function GoalDetail({
 
       {/* ── Routines ── */}
       <div>
-        <label className="block text-[17px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-2">이 기간 루틴</label>
+        <label className="block text-[13px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-2">이 기간 루틴</label>
         <div className="flex flex-col gap-1 mb-2">
           {allRoutines.map(r => {
             const active = !!goal.routines.find((gr: any) => gr.id === r.id)
@@ -283,7 +283,7 @@ export function GoalDetail({
             <div key={cat.id}>
               <div className="flex items-center gap-2 mb-2">
                 <Badge color={cat.color}>{cat.name}</Badge>
-                <span className="text-[17px] text-[var(--text-3)]">
+                <span className="text-[13px] text-[var(--text-3)]">
                   {tasks.filter(t => t.done).length}/{tasks.length}
                 </span>
               </div>
@@ -308,7 +308,7 @@ export function GoalDetail({
       {/* ── Notes journal ── */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <label className="text-[17px] font-medium text-[var(--text-3)] uppercase tracking-wider">메 모</label>
+          <label className="text-[13px] font-medium text-[var(--text-3)] uppercase tracking-wider">메 모</label>
           {!showNewNote && (
             <button onClick={() => setShowNewNote(true)}
               className="flex items-center gap-1 text-xs text-[var(--text-3)] hover:text-[var(--purple)] transition-colors">
@@ -348,7 +348,7 @@ export function GoalDetail({
               <div key={note.id}>
                 <div className="flex items-center gap-3 mb-2">
                   <div className="flex-1 h-px bg-[var(--border)]" />
-                  <span className="text-[15px] text-[var(--text-3)] font-medium whitespace-nowrap">
+                  <span className="text-[11px] text-[var(--text-3)] font-medium whitespace-nowrap">
                     {format(date, 'yyyy년 M월 d일 EEEE', { locale: ko })}
                   </span>
                   <div className="flex-1 h-px bg-[var(--border)]" />

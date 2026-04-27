@@ -161,7 +161,7 @@ export function WeeklyReview({ weekDays, days, routines, logs }: Props) {
         <div className="grid grid-cols-5 gap-2">
           {statCards.map(({ label, value }) => (
             <div key={label} className="bg-[var(--surface-2)] rounded-[12px] p-3 flex flex-col gap-1">
-              <span className="text-[15px] text-[var(--text-3)] leading-tight">{label}</span>
+              <span className="text-[11px] text-[var(--text-3)] leading-tight">{label}</span>
               <span className="text-base font-bold text-[var(--text)] leading-tight">{value}</span>
             </div>
           ))}
@@ -179,11 +179,11 @@ export function WeeklyReview({ weekDays, days, routines, logs }: Props) {
               const color = pct === 100 ? 'var(--teal)' : pct > 0 ? 'var(--purple)' : 'var(--border-strong)'
               return (
                 <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <span className="text-[14px] text-[var(--text-3)] h-3 flex items-end">{hasData ? `${pct}%` : ''}</span>
+                  <span className="text-[11px] text-[var(--text-3)] h-3 flex items-end">{hasData ? `${pct}%` : ''}</span>
                   <div className="w-full flex items-end" style={{ height: '80px' }}>
                     <div className="w-full rounded-[3px] transition-all duration-300" style={{ height: `${barPx}px`, background: color }} />
                   </div>
-                  <span className="text-[15px] text-[var(--text-2)]">{DAY_NAMES[i]}</span>
+                  <span className="text-[11px] text-[var(--text-2)]">{DAY_NAMES[i]}</span>
                 </div>
               )
             })}
@@ -198,13 +198,13 @@ export function WeeklyReview({ weekDays, days, routines, logs }: Props) {
           <div className="bg-[var(--surface-2)] rounded-[12px] p-4">
             <div className="flex items-center gap-2 mb-2 ml-[100px]">
               {DAY_NAMES.map(n => (
-                <div key={n} className="flex-1 text-center text-[15px] text-[var(--text-3)]">{n}</div>
+                <div key={n} className="flex-1 text-center text-[11px] text-[var(--text-3)]">{n}</div>
               ))}
             </div>
             <div className="flex flex-col gap-2">
               {heatmapRoutines.map(r => (
                 <div key={r.id} className="flex items-center gap-2">
-                  <span className="text-[17px] text-[var(--text-2)] truncate flex-shrink-0" style={{ width: '100px' }}>{r.name}</span>
+                  <span className="text-[13px] text-[var(--text-2)] truncate flex-shrink-0" style={{ width: '100px' }}>{r.name}</span>
                   <div className="flex-1 flex gap-2">
                     {weekDays.map(d => {
                       const dateStr = formatDate(d)
@@ -255,7 +255,7 @@ export function WeeklyReview({ weekDays, days, routines, logs }: Props) {
               className="text-sm"
             />
             <div className="flex items-center justify-between mt-3">
-              <span className="text-[15px] text-[var(--text-3)]">Ctrl+Enter로 저장</span>
+              <span className="text-[11px] text-[var(--text-3)]">Ctrl+Enter로 저장</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => { setShowForm(false); setFormTitle(''); setFormBody('') }}
@@ -290,7 +290,7 @@ export function WeeklyReview({ weekDays, days, routines, logs }: Props) {
                 {/* Date separator */}
                 <div className="flex items-center gap-3 mb-3">
                   <div className="flex-1 h-px bg-[var(--border)]" />
-                  <span className="text-[15px] text-[var(--text-3)] font-medium whitespace-nowrap">
+                  <span className="text-[11px] text-[var(--text-3)] font-medium whitespace-nowrap">
                     {format(entryDate, 'yyyy년 M월 d일 EEEE', { locale: ko })}
                   </span>
                   <div className="flex-1 h-px bg-[var(--border)]" />

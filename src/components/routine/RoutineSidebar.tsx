@@ -184,7 +184,7 @@ export function RoutineSidebar({
 
         {/* Goal label */}
         {goalLabel && goalRoutines.length > 0 && (
-          <div className="mb-2 px-2 py-1 rounded-[6px] bg-[var(--purple-bg)] text-[15px] font-medium text-[var(--purple-text)] truncate">
+          <div className="mb-2 px-2 py-1 rounded-[6px] bg-[var(--purple-bg)] text-[11px] font-medium text-[var(--purple-text)] truncate">
             {goalLabel}
           </div>
         )}
@@ -204,7 +204,7 @@ export function RoutineSidebar({
                   {r.name}
                 </span>
                 {streak > 0 && (
-                  <span className="text-[15px] text-[var(--teal)] font-semibold flex-shrink-0">
+                  <span className="text-[11px] text-[var(--teal)] font-semibold flex-shrink-0">
                     {streak}일
                   </span>
                 )}
@@ -219,7 +219,7 @@ export function RoutineSidebar({
         <div className="mt-3 flex justify-end">
           <button
             onClick={() => setShowManage(v => !v)}
-            className="text-[17px] text-[var(--text-3)] hover:text-[var(--text-2)] px-2 py-1 rounded-[6px] hover:bg-[var(--surface-2)] transition-all"
+            className="text-[13px] text-[var(--text-3)] hover:text-[var(--text-2)] px-2 py-1 rounded-[6px] hover:bg-[var(--surface-2)] transition-all"
           >
             관리 {showManage ? '▲' : '▼'}
           </button>
@@ -232,7 +232,7 @@ export function RoutineSidebar({
 
             {activeAll.length > 0 && (
               <div className="mb-2">
-                <p className="text-[15px] text-[var(--text-3)] mb-1 flex items-center gap-1">
+                <p className="text-[11px] text-[var(--text-3)] mb-1 flex items-center gap-1">
                   <span className="text-[var(--teal)]">●</span> 활성
                 </p>
                 {activeAll.map(r => renderManageRow(r))}
@@ -241,14 +241,14 @@ export function RoutineSidebar({
 
             {pausedAll.length > 0 && (
               <div className="mb-2">
-                <p className="text-[15px] text-[var(--text-3)] mb-1">⏸ 일시정지</p>
+                <p className="text-[11px] text-[var(--text-3)] mb-1">⏸ 일시정지</p>
                 {pausedAll.map(r => renderManageRow(r))}
               </div>
             )}
 
             {archivedAll.length > 0 && (
               <div className="mb-2">
-                <p className="text-[15px] text-[var(--text-3)] mb-1">▣ 보관</p>
+                <p className="text-[11px] text-[var(--text-3)] mb-1">▣ 보관</p>
                 {archivedAll.map(r => renderManageRow(r))}
               </div>
             )}
@@ -313,7 +313,7 @@ export function RoutineSidebar({
                   )}>
                     {r.name}
                   </span>
-                  <span className="text-[15px] text-[var(--text-3)]">{cnt}일</span>
+                  <span className="text-[11px] text-[var(--text-3)]">{cnt}일</span>
                 </div>
                 <div className="flex gap-0.5">
                   {historyDays.map(d => {

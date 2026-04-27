@@ -23,7 +23,7 @@ export function GoalCard({ goal, isSelected, onClick }: Props) {
           : 'bg-white border-[var(--border)] hover:border-[var(--border-strong)] hover:-translate-y-0.5'
       )}
     >
-      <span className={clsx('text-[15px] font-medium mb-1', isSelected ? 'text-[var(--teal-text)]' : 'text-[var(--text-3)]')}>
+      <span className={clsx('text-[11px] font-medium mb-1', isSelected ? 'text-[var(--teal-text)]' : 'text-[var(--text-3)]')}>
         {dayRangeLabel(goal.date_from, goal.date_to)}
       </span>
       <span className={clsx('text-sm font-semibold leading-snug mb-3', isSelected ? 'text-[var(--teal-text)]' : 'text-[var(--text)]')}>
@@ -39,7 +39,7 @@ export function GoalCard({ goal, isSelected, onClick }: Props) {
               />
             ))}
           </div>
-          <span className="text-[15px] text-[var(--text-3)]">{done}/{total}</span>
+          <span className="text-[11px] text-[var(--text-3)]">{done}/{total}</span>
         </div>
       )}
     </button>

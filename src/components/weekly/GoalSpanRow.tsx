@@ -83,7 +83,7 @@ function buildRowCells(
         <div className={clsx('w-1 self-stretch rounded-full flex-shrink-0', isSelected ? 'bg-[var(--teal)]' : 'bg-[var(--border-strong)]')} />
 
         <div className="flex-1 min-w-0">
-          <p className={clsx('text-[17px] font-semibold truncate', isSelected ? 'text-[var(--teal-text)]' : 'text-[var(--text)]')}>
+          <p className={clsx('text-[13px] font-semibold truncate', isSelected ? 'text-[var(--teal-text)]' : 'text-[var(--text)]')}>
             {goal.title}
           </p>
           {total > 0 && (
@@ -94,7 +94,7 @@ function buildRowCells(
                   style={{ width: `${pct}%`, background: isSelected ? 'var(--teal)' : 'var(--purple)' }}
                 />
               </div>
-              <span className="text-[14px] text-[var(--text-3)] flex-shrink-0">{done}/{total}</span>
+              <span className="text-[11px] text-[var(--text-3)] flex-shrink-0">{done}/{total}</span>
             </div>
           )}
         </div>
