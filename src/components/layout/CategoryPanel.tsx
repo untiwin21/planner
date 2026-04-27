@@ -6,7 +6,7 @@ import type { Category, BadgeColor } from '@/types'
 
 const CAT_COLORS: BadgeColor[] = ['purple', 'teal', 'amber', 'coral', 'blue']
 const CAT_COLOR_LABELS: Record<BadgeColor, string> = {
-  purple: '보라', teal: '청록', amber: '호박', coral: '코랄', blue: '파랑', gray: '회색',
+  purple: '보라', teal: '청록', amber: '호박', coral: '코랄', blue: '파랑', gray: '회색', red: '빨강',
 }
 
 interface Props {
