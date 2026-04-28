@@ -62,19 +62,16 @@ export function usePlanrStore(userId: string) {
       try {
         const remoteData = await fetchAll(userId)
 
-        // ── Days: merge remote + local (never discard local tasks) ──────────
-        setDaysRaw(prev => {
-          if (remoteData.days.length === 0) return prev  // remote empty → keep local
-          const localMap = new Map(prev.map(d => [d.date, d]))
-          const remoteDates = new Set(remoteData.days.map((d: DayEntry) => d.date))
-          // Merge each remote day with local counterpart
-          const merged = remoteData.days.map((rem: DayEntry) => {
+        // ── Merge helpers (pure functions) ────────────────────────────────────
+        function mergeDaysList(local: DayEntry[], remote: DayEntry[]): DayEntry[] {
+          if (remote.length === 0) return local
+          const localMap = new Map(local.map(d => [d.date, d]))
+          const remoteDates = new Set(remote.map((d: DayEntry) => d.date))
+          const merged = remote.map((rem: DayEntry) => {
             const loc = localMap.get(rem.date)
             if (!loc) return rem
-            // Union tasks by id (remote wins on conflict, local-only tasks preserved)
             const remoteTaskIds = new Set(rem.tasks.map((t: Task) => t.id))
             const localOnlyTasks = loc.tasks.filter((t: Task) => !remoteTaskIds.has(t.id))
-            // Union notes by id
             const remNotes = rem.meta?.notes ?? []
             const locNotes = loc.meta?.notes ?? []
             const remNoteIds = new Set(remNotes.map((n: any) => n.id))
@@ -85,17 +82,15 @@ export function usePlanrStore(userId: string) {
               meta: { ...rem.meta, notes: [...remNotes, ...localOnlyNotes] },
             }
           })
-          // Append local-only days not yet in remote
-          const localOnly = prev.filter(d => !remoteDates.has(d.date))
+          const localOnly = local.filter(d => !remoteDates.has(d.date))
           return [...merged, ...localOnly]
-        })
+        }
 
-        // ── Goals: same merge strategy ───────────────────────────────────────
-        setGoalsRaw(prev => {
-          if (remoteData.goals.length === 0) return prev
-          const localMap = new Map(prev.map(g => [g.id, g]))
-          const remoteIds = new Set(remoteData.goals.map((g: ShortGoal) => g.id))
-          const merged = remoteData.goals.map((rem: ShortGoal) => {
+        function mergeGoalsList(local: ShortGoal[], remote: ShortGoal[]): ShortGoal[] {
+          if (remote.length === 0) return local
+          const localMap = new Map(local.map(g => [g.id, g]))
+          const remoteIds = new Set(remote.map((g: ShortGoal) => g.id))
+          const merged = remote.map((rem: ShortGoal) => {
             const loc = localMap.get(rem.id)
             if (!loc) return rem
             const remTaskIds = new Set(rem.tasks.map((t: Task) => t.id))
@@ -108,14 +103,37 @@ export function usePlanrStore(userId: string) {
               notes: [...(rem.notes ?? []), ...localOnlyNotes],
             }
           })
-          const localOnly = prev.filter(g => !remoteIds.has(g.id))
+          const localOnly = local.filter(g => !remoteIds.has(g.id))
           return [...merged, ...localOnly]
-        })
+        }
+
+        // ── Compute merged result using current local state ───────────────────
+        // (days/goals are stable at effect-creation time = initial localStorage values)
+        const mergedDays = mergeDaysList(days, remoteData.days)
+        const mergedGoals = mergeGoalsList(goals, remoteData.goals)
+
+        setDaysRaw(() => { save(STORAGE_KEYS.days, mergedDays); return mergedDays })
+        setGoalsRaw(() => { save(STORAGE_KEYS.goals, mergedGoals); return mergedGoals })
 
         if (remoteData.routines.length > 0)  setRoutinesRaw(remoteData.routines)
         if (remoteData.logs.length > 0)      setLogsRaw(remoteData.logs)
         if (remoteData.longGoals.length > 0) setLongGoalsRaw(remoteData.longGoals)
         if (Object.keys(remoteData.weeklyReviews).length > 0) setWeeklyReviewsRaw(remoteData.weeklyReviews)
+
+        // ── One-time backfill: re-push ALL data in new embedded format ────────
+        // Existing Supabase rows have no meta._tasks / short_goals.tasks yet.
+        // This runs once per device, migrating all local tasks into the parent records.
+        const BACKFILL_KEY = 'planr_backfill_v1'
+        if (!localStorage.getItem(BACKFILL_KEY)) {
+          console.log('[Planr] 백필 동기화 시작...')
+          await Promise.all([
+            ...mergedDays.map(d => upsertDayEntry(userId, d)),
+            ...mergedGoals.map(g => upsertShortGoal(userId, g)),
+          ])
+          localStorage.setItem(BACKFILL_KEY, '1')
+          console.log('[Planr] 백필 동기화 완료.')
+        }
+
         save(STORAGE_KEYS.lastSync, new Date().toISOString())
       } catch (e) {
         console.error('Sync failed, falling back to local data', e)
@@ -124,6 +142,7 @@ export function usePlanrStore(userId: string) {
       }
     }
     sync()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
   // ── Setters with auto-persist ──────────────────────────────────────────────
