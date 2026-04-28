@@ -288,14 +288,11 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, tasks }
       return updatedGoal
     }))
-    if (userId && updatedGoal) {
-      const task = updatedGoal.tasks.find(t => t.id === taskId)
-      if (task) upsertTask(userId, { ...task, goal_id: goalId }, goalId)
-    }
+    // Embed the full goal (including updated tasks) so tasks sync reliably
+    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
   }
   function addGoalTask(goalId: string, categoryId: string, text: string) {
     let updatedGoal: ShortGoal | undefined
-    let newTask: Task | undefined
     setGoals(prev => prev.map(g => {
       if (g.id !== goalId) return g
       // look in per-goal categories first, then global categories
@@ -303,11 +300,12 @@ export function usePlanrStore(userId: string) {
         g.categories.find((c: Category) => c.id === categoryId) ||
         categories.find(c => c.id === categoryId)
       if (!category) return g
-      newTask = { id: uid(), text, done: false, category_id: categoryId, day_id: goalId, goal_id: goalId, category_name: category.name, category_color: category.color }
+      const newTask: Task = { id: uid(), text, done: false, category_id: categoryId, day_id: goalId, goal_id: goalId, category_name: category.name, category_color: category.color }
       updatedGoal = { ...g, tasks: [...g.tasks, newTask] }
       return updatedGoal
     }))
-    if (userId && updatedGoal && newTask) upsertTask(userId, newTask, goalId)
+    // Embed the full goal so tasks sync reliably
+    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
   }
 
   function deleteGoalTask(goalId: string, taskId: string) {
@@ -331,10 +329,8 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, tasks: g.tasks.map(t => t.id === taskId ? updated : t) }
       return updatedGoal
     }))
-    if (userId && updatedGoal) {
-      const task = updatedGoal.tasks.find(t => t.id === taskId)
-      if (task) upsertTask(userId, task, goalId)
-    }
+    // Embed the full goal so tasks sync reliably
+    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
   }
 
   // ── GOAL NOTES ─────────────────────────────────────────────────────────────
@@ -481,6 +477,22 @@ export function usePlanrStore(userId: string) {
     if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
   }
 
+  // ── GOAL TASK LINKING ──────────────────────────────────────────────────────
+  // Link a short-goal task to a day so it appears in the day's category section
+  function linkGoalTask(date: string, goalTaskId: string) {
+    const entry = getDay(date)
+    const linked = entry.meta.linkedGoalTaskIds ?? []
+    if (linked.includes(goalTaskId)) return
+    const updated = { ...entry, meta: { ...entry.meta, linkedGoalTaskIds: [...linked, goalTaskId] } }
+    upsertDay(updated)
+  }
+  function unlinkGoalTask(date: string, goalTaskId: string) {
+    const entry = getDay(date)
+    const linked = (entry.meta.linkedGoalTaskIds ?? []).filter((id: string) => id !== goalTaskId)
+    const updated = { ...entry, meta: { ...entry.meta, linkedGoalTaskIds: linked } }
+    upsertDay(updated)
+  }
+
   // ── WEEKLY REVIEW ──────────────────────────────────────────────────────────
   function getWeeklyReview(weekKey: string): string { return weeklyReviews[weekKey] || '' }
   function updateWeeklyReview(weekKey: string, content: string) {
@@ -500,6 +512,7 @@ export function usePlanrStore(userId: string) {
     addRoutine, setRoutineStatus, updateRoutineName, deleteRoutine, toggleRoutineLog, isRoutineDone,
     quickAddTask,
     reorderDayTasks, reorderGoalTasks,
+    linkGoalTask, unlinkGoalTask,
     getWeeklyReview, updateWeeklyReview,
   }
 }

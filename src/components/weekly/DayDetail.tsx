@@ -1,10 +1,10 @@
 'use client'
 import { useState } from 'react'
-import { Trash2, Clock, ChevronRight, ChevronDown, Pencil, Plus, AlertCircle } from 'lucide-react'
+import { Trash2, Clock, ChevronRight, ChevronDown, Pencil, Plus, AlertCircle, Download, X } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
-import { formatDisplay } from '@/lib/dates'
+import { formatDisplay, formatDate } from '@/lib/dates'
 import { Badge, Checkbox, Input, Textarea } from '@/components/ui'
-import type { DayEntry, Category, DayMeta, Task, SubTask, JournalEntry } from '@/types'
+import type { DayEntry, Category, DayMeta, Task, SubTask, JournalEntry, ShortGoal } from '@/types'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import clsx from 'clsx'
 
@@ -15,6 +15,7 @@ interface Props {
   date: Date
   entry: DayEntry
   categories: Category[]
+  goals: ShortGoal[]
   onToggleTask: (taskId: string) => void
   onAddTask: (catId: string, text: string, time?: string) => void
   onDeleteTask: (taskId: string) => void
@@ -24,12 +25,16 @@ interface Props {
   onUpdateDayNote: (noteId: string, title: string, body: string) => void
   onDeleteDayNote: (noteId: string) => void
   onReorderTasks: (categoryId: string, draggedId: string, targetId: string) => void
+  onLinkGoalTask: (goalTaskId: string) => void
+  onUnlinkGoalTask: (goalTaskId: string) => void
+  onToggleLinkedTask: (goalId: string, taskId: string) => void
 }
 
 export function DayDetail({
-  date, entry, categories,
+  date, entry, categories, goals,
   onToggleTask, onAddTask, onDeleteTask, onUpdateTask, onMetaChange,
   onAddDayNote, onUpdateDayNote, onDeleteDayNote, onReorderTasks,
+  onLinkGoalTask, onUnlinkGoalTask, onToggleLinkedTask,
 }: Props) {
   const [newTaskTexts, setNewTaskTexts] = useState<Record<string, string>>({})
   const [newSchedTime, setNewSchedTime] = useState('')
@@ -93,6 +98,9 @@ export function DayDetail({
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
 
+  // ── Import picker state ────────────────────────────────────────────────────
+  const [importPickerCatId, setImportPickerCatId] = useState<string | null>(null)
+
   // ── Journal state ──────────────────────────────────────────────────────────
   const [showNewNote, setShowNewNote] = useState(false)
   const [newNoteTitle, setNewNoteTitle] = useState('')
@@ -113,6 +121,29 @@ export function DayDetail({
   }
 
   const dayNotes = [...(entry.meta?.notes ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+
+  // ── Linked goal task helpers ───────────────────────────────────────────────
+  const dateStr = formatDate(date)
+  const linkedTaskIds = entry.meta.linkedGoalTaskIds ?? []
+
+  // All tasks from active goals that cover this date, keyed by task id
+  const activeGoalsForDay = goals.filter(g => g.date_from <= dateStr && g.date_to >= dateStr)
+
+  function getLinkedTasksForCat(catId: string) {
+    return activeGoalsForDay.flatMap(g =>
+      g.tasks
+        .filter(t => linkedTaskIds.includes(t.id) && t.category_id === catId)
+        .map(t => ({ task: t, goalId: g.id, goalTitle: g.title }))
+    )
+  }
+
+  function getAvailableForImport(catId: string) {
+    return activeGoalsForDay.flatMap(g =>
+      g.tasks
+        .filter(t => t.category_id === catId && !linkedTaskIds.includes(t.id))
+        .map(t => ({ task: t, goalId: g.id, goalTitle: g.title }))
+    )
+  }
 
   // ── Task row ──────────────────────────────────────────────────────────────
   function renderTaskRow(task: Task, isSchedule = false, draggable = false) {
@@ -176,7 +207,7 @@ export function DayDetail({
             {subtasks.length > 0 && <span className="tabular-nums">{subDone}/{subtasks.length}</span>}
           </button>
 
-          {/* edit — purple */}
+          {/* edit */}
           {!isEditing && (
             <button
               onClick={() => startEdit(task)}
@@ -186,7 +217,7 @@ export function DayDetail({
             </button>
           )}
 
-          {/* delete — red */}
+          {/* delete */}
           <button
             onClick={() => onDeleteTask(task.id)}
             className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-[8px] flex items-center justify-center transition-all text-red-400 hover:text-red-600 hover:bg-red-50"
@@ -230,6 +261,28 @@ export function DayDetail({
             </div>
           </div>
         )}
+      </div>
+    )
+  }
+
+  // ── Linked goal task row ───────────────────────────────────────────────────
+  function renderLinkedTaskRow(task: Task, goalId: string, goalTitle: string) {
+    return (
+      <div key={`linked-${task.id}`} className="flex items-center gap-1.5 group py-1 pl-2 border-l-2 border-[var(--teal)]">
+        <Checkbox checked={task.done} onChange={() => onToggleLinkedTask(goalId, task.id)} size="sm" />
+        <span className={clsx('flex-1 text-sm leading-snug', task.done && 'line-through text-[var(--text-3)]')}>
+          {task.text}
+        </span>
+        <span className="text-[11px] text-[var(--teal-text)] bg-[var(--teal-bg)] px-1.5 py-0.5 rounded-[4px] max-w-[90px] truncate flex-shrink-0">
+          {goalTitle}
+        </span>
+        <button
+          onClick={() => onUnlinkGoalTask(task.id)}
+          className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-3)] hover:text-red-500 hover:bg-red-50 transition-all flex-shrink-0"
+          title="연결 해제"
+        >
+          <X size={11} />
+        </button>
       </div>
     )
   }
@@ -302,11 +355,52 @@ export function DayDetail({
     )
   }
 
-  function renderCategorySection(catId: string) {
-    const tasks = entry.tasks.filter(t => t.category_id === catId)
+  function renderCategorySection(cat: Category) {
+    const catId = cat.id
+    const dayTasks = entry.tasks.filter(t => t.category_id === catId)
+    const linked = getLinkedTasksForCat(catId)
+    const available = getAvailableForImport(catId)
+    const isPickerOpen = importPickerCatId === catId
+
     return (
       <>
-        <div className="flex flex-col gap-0.5 mb-2">{tasks.map(t => renderTaskRow(t, false, true))}</div>
+        {/* Linked goal tasks (teal accent) */}
+        {linked.length > 0 && (
+          <div className="flex flex-col gap-0.5 mb-1">
+            {linked.map(({ task, goalId, goalTitle }) => renderLinkedTaskRow(task, goalId, goalTitle))}
+          </div>
+        )}
+
+        {/* Regular day tasks (draggable) */}
+        <div className="flex flex-col gap-0.5 mb-2">{dayTasks.map(t => renderTaskRow(t, false, true))}</div>
+
+        {/* Import picker */}
+        {isPickerOpen && (
+          <div className="mb-2 rounded-[10px] border border-[var(--teal)] bg-[var(--teal-bg)] p-2">
+            {available.length > 0 ? (
+              <>
+                <p className="text-[11px] font-semibold text-[var(--teal-text)] mb-1.5 px-1">단기 목표에서 불러오기</p>
+                <div className="flex flex-col gap-0.5">
+                  {available.map(({ task, goalId: _gid, goalTitle }) => (
+                    <button
+                      key={task.id}
+                      onClick={() => { onLinkGoalTask(task.id); }}
+                      className="flex items-center gap-2 py-1.5 px-2 rounded-[7px] hover:bg-white text-left w-full transition-colors"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--teal)] flex-shrink-0" />
+                      <span className={clsx('flex-1 text-sm', task.done && 'line-through opacity-50')}>{task.text}</span>
+                      <span className="text-[11px] text-[var(--teal-text)] truncate max-w-[80px] flex-shrink-0">{goalTitle}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-[12px] text-[var(--teal-text)] italic px-1 py-0.5">이 카테고리의 단기 목표 할 일이 없습니다.</p>
+            )}
+          </div>
+        )}
+
+        {/* Add task input */}
         <div className="flex gap-2">
           <Input value={newTaskTexts[catId] ?? ''}
             onChange={e => setNewTaskTexts(p => ({ ...p, [catId]: e.target.value }))}
@@ -332,29 +426,7 @@ export function DayDetail({
         </span>
       </div>
 
-      {/* Deadline */}
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <Badge color="red"><AlertCircle size={10} className="mr-1 inline" />데드라인</Badge>
-          <span className="text-[13px] text-[var(--text-3)]">
-            {entry.tasks.filter(t => t.category_id === DEADLINE_CAT_ID).length}개
-          </span>
-        </div>
-        {renderDeadlineSection()}
-      </div>
-
-      {/* Schedule */}
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <Badge color="blue"><Clock size={10} className="mr-1 inline" />일정</Badge>
-          <span className="text-[13px] text-[var(--text-3)]">
-            {entry.tasks.filter(t => t.category_id === SCHEDULE_CAT_ID).length}개
-          </span>
-        </div>
-        {renderScheduleSection()}
-      </div>
-
-      {/* Meta */}
+      {/* ── 수면 / 컨디션 / 집중력 — TOP ── */}
       <div className="grid grid-cols-3 gap-3 p-3 rounded-[12px] bg-[var(--surface-2)] border border-[var(--border)]">
         <div>
           <label className="block text-[11px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">수면 시간</label>
@@ -389,6 +461,28 @@ export function DayDetail({
         </div>
       </div>
 
+      {/* Deadline */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Badge color="red"><AlertCircle size={10} className="mr-1 inline" />데드라인</Badge>
+          <span className="text-[13px] text-[var(--text-3)]">
+            {entry.tasks.filter(t => t.category_id === DEADLINE_CAT_ID).length}개
+          </span>
+        </div>
+        {renderDeadlineSection()}
+      </div>
+
+      {/* Schedule */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Badge color="blue"><Clock size={10} className="mr-1 inline" />일정</Badge>
+          <span className="text-[13px] text-[var(--text-3)]">
+            {entry.tasks.filter(t => t.category_id === SCHEDULE_CAT_ID).length}개
+          </span>
+        </div>
+        {renderScheduleSection()}
+      </div>
+
       {/* Global categories */}
       {categories.length === 0 ? (
         <p className="text-xs text-[var(--text-3)] text-center py-2 italic">
@@ -400,11 +494,29 @@ export function DayDetail({
             <div className="flex items-center gap-2 mb-2">
               <Badge color={cat.color}>{cat.name}</Badge>
               <span className="text-[13px] text-[var(--text-3)]">
-                {entry.tasks.filter(t => t.category_id === cat.id && t.done).length}/
-                {entry.tasks.filter(t => t.category_id === cat.id).length}
+                {(entry.meta.linkedGoalTaskIds ?? []).filter(id =>
+                  activeGoalsForDay.some(g => g.tasks.some(t => t.id === id && t.category_id === cat.id))
+                ).length + entry.tasks.filter(t => t.category_id === cat.id && t.done).length}/
+                {(entry.meta.linkedGoalTaskIds ?? []).filter(id =>
+                  activeGoalsForDay.some(g => g.tasks.some(t => t.id === id && t.category_id === cat.id))
+                ).length + entry.tasks.filter(t => t.category_id === cat.id).length}
               </span>
+              <div className="flex-1" />
+              {/* Import button */}
+              <button
+                onClick={() => setImportPickerCatId(prev => prev === cat.id ? null : cat.id)}
+                className={clsx(
+                  'flex items-center gap-1 px-2 py-0.5 rounded-[6px] text-[11px] font-medium transition-all',
+                  importPickerCatId === cat.id
+                    ? 'bg-[var(--teal)] text-white'
+                    : 'text-[var(--teal-text)] bg-[var(--teal-bg)] hover:bg-[var(--teal)] hover:text-white'
+                )}
+              >
+                <Download size={10} />
+                불러오기
+              </button>
             </div>
-            {renderCategorySection(cat.id)}
+            {renderCategorySection(cat)}
           </div>
         ))
       )}

@@ -308,6 +308,7 @@ export default function Home() {
                       date={parseISO(selectedDate)}
                       entry={selectedEntry}
                       categories={store.categories}
+                      goals={store.goals}
                       onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
                       onAddTask={(catId, text, time) => store.addTask(selectedDate, catId, text, time)}
                       onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
@@ -317,6 +318,9 @@ export default function Home() {
                       onUpdateDayNote={(noteId, title, body) => store.updateDayNote(selectedDate, noteId, title, body)}
                       onDeleteDayNote={noteId => store.deleteDayNote(selectedDate, noteId)}
                       onReorderTasks={(catId, dId, tId) => store.reorderDayTasks(selectedDate, catId, dId, tId)}
+                      onLinkGoalTask={taskId => store.linkGoalTask(selectedDate, taskId)}
+                      onUnlinkGoalTask={taskId => store.unlinkGoalTask(selectedDate, taskId)}
+                      onToggleLinkedTask={(goalId, taskId) => store.toggleGoalTask(goalId, taskId)}
                     />
                   )}
                 </Card>

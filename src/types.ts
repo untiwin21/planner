@@ -41,6 +41,7 @@ export interface DayMeta {
   focus: number | null
   top3: string[]
   notes?: JournalEntry[]
+  linkedGoalTaskIds?: string[]   // IDs of short-goal tasks linked to this day
 }
 
 export interface DayEntry {
