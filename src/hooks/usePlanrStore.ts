@@ -120,6 +120,32 @@ export function usePlanrStore(userId: string) {
         if (remoteData.longGoals.length > 0) setLongGoalsRaw(remoteData.longGoals)
         if (Object.keys(remoteData.weeklyReviews).length > 0) setWeeklyReviewsRaw(remoteData.weeklyReviews)
 
+        // ── Restore categories on new devices ────────────────────────────────
+        // Global categories are localStorage-only. On a new PC they're empty,
+        // so we reconstruct them from the category fields embedded in every task.
+        const localCats = load<Category[]>(STORAGE_KEYS.categories, [])
+        if (localCats.length === 0) {
+          const catMap = new Map<string, Category>()
+          for (const day of mergedDays) {
+            for (const task of day.tasks) {
+              if (task.category_id !== SCHEDULE_CAT_ID && task.category_id !== DEADLINE_CAT_ID && !catMap.has(task.category_id)) {
+                catMap.set(task.category_id, { id: task.category_id, name: task.category_name, color: task.category_color })
+              }
+            }
+          }
+          for (const goal of mergedGoals) {
+            for (const task of goal.tasks) {
+              if (task.category_id !== SCHEDULE_CAT_ID && task.category_id !== DEADLINE_CAT_ID && !catMap.has(task.category_id)) {
+                catMap.set(task.category_id, { id: task.category_id, name: task.category_name, color: task.category_color })
+              }
+            }
+          }
+          if (catMap.size > 0) {
+            const derived = Array.from(catMap.values())
+            setCategoriesRaw(prev => { save(STORAGE_KEYS.categories, derived); return derived })
+          }
+        }
+
         // ── One-time backfill: re-push ALL data in new embedded format ────────
         // Existing Supabase rows have no meta._tasks / short_goals.tasks yet.
         // This runs once per device, migrating all local tasks into the parent records.
