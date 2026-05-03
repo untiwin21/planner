@@ -19,6 +19,7 @@ import { useUserId } from '@/context/UserContext'
 import { supabase } from '@/lib/supabase'
 import { signOut } from '@/lib/auth'
 import { DataPanel } from '@/components/settings/DataPanel'
+import { MobileLayout } from '@/components/mobile/MobileLayout'
 
 function packGoalsIntoRows(goals: ShortGoal[], weekDays: Date[]) {
   const weekStart = formatDate(weekDays[0])
@@ -102,7 +103,36 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] relative">
+    <>
+    {/* ── Mobile layout (< 768px) ── */}
+    <div className="md:hidden">
+      <MobileLayout
+        days={store.days}
+        goals={store.goals}
+        longGoals={store.longGoals}
+        categories={store.categories}
+        routines={store.routines}
+        logs={store.logs}
+        getDay={store.getDay}
+        toggleTask={store.toggleTask}
+        addTask={store.addTask}
+        deleteTask={store.deleteTask}
+        updateMeta={store.updateMeta}
+        toggleRoutineLog={store.toggleRoutineLog}
+        toggleGoalTask={store.toggleGoalTask}
+        addGoalTask={store.addGoalTask}
+        deleteGoalTask={store.deleteGoalTask}
+        addGoal={store.addGoal}
+        deleteGoal={store.deleteGoal}
+        linkGoalTask={store.linkGoalTask}
+        unlinkGoalTask={store.unlinkGoalTask}
+        getWeeklyReview={store.getWeeklyReview}
+        updateWeeklyReview={store.updateWeeklyReview}
+      />
+    </div>
+
+    {/* ── Desktop layout (≥ 768px) ── */}
+    <div className="hidden md:block min-h-screen bg-[var(--bg)] relative">
       <div className="w-full px-6 py-7">
 
         {/* Top bar */}
@@ -384,5 +414,6 @@ export default function Home() {
         </button>
       </div>
     </div>
+    </>
   )
 }
