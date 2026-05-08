@@ -4,6 +4,7 @@ import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { Plus, Trash2 } from 'lucide-react'
 import { formatDate, DAY_NAMES } from '@/lib/dates'
+import { tasksProgress } from '@/lib/taskProgress'
 import { Textarea } from '@/components/ui'
 import type { DayEntry, ShortGoal, Routine, RoutineLog, JournalEntry } from '@/types'
 import clsx from 'clsx'
@@ -114,8 +115,9 @@ export function WeeklyReview({ weekDays, days, routines, logs }: Props) {
     for (const d of weekDays) {
       const entry = days.find(e => e.date === formatDate(d))
       if (!entry) continue
-      total += entry.tasks.length
-      done += entry.tasks.filter(t => t.done).length
+      const p = tasksProgress(entry.tasks)
+      total += p.total
+      done += p.done
     }
     if (total === 0) return null
     return Math.round((done / total) * 100)
@@ -144,7 +146,8 @@ export function WeeklyReview({ weekDays, days, routines, logs }: Props) {
     weekDays.map(d => {
       const entry = days.find(e => e.date === formatDate(d))
       if (!entry || entry.tasks.length === 0) return { pct: 0, hasData: false }
-      return { pct: Math.round((entry.tasks.filter(t => t.done).length / entry.tasks.length) * 100), hasData: true }
+      const p = tasksProgress(entry.tasks)
+      return { pct: p.pct, hasData: p.total > 0 }
     }),
     [weekDays, days],
   )

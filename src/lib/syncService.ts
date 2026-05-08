@@ -135,10 +135,20 @@ export async function deleteTask(userId: string, taskId: string): Promise<void> 
 export async function upsertRoutine(userId: string, routine: Routine): Promise<void> {
   if (!supabase) return
   const db = supabase as any
-  const { id, name, status, created_at } = routine
+  const { id, name, status, created_at, time, order, period } = routine
   try {
-    const { error } = await db.from('routines').upsert({ id, user_id: userId, name, status, created_at })
-    if (error) console.error('Error upserting routine:', error.message, error)
+    const { error } = await db.from('routines').upsert({
+      id, user_id: userId, name, status, created_at,
+      time: time ?? null, order: order ?? 0, period: period ?? 'anytime',
+    })
+    if (error) {
+      if (error.code === '42703' || (error.message && error.message.includes('column'))) {
+        const { error: e2 } = await db.from('routines').upsert({ id, user_id: userId, name, status, created_at })
+        if (e2) console.error('Error upserting routine (fallback):', e2.message, e2)
+      } else {
+        console.error('Error upserting routine:', error.message, error)
+      }
+    }
   } catch (error) {
     console.error('Error upserting routine (exception):', error)
   }

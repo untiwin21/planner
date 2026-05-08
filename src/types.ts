@@ -83,11 +83,16 @@ export interface LongGoal {
 
 export type RoutineStatus = 'active' | 'archived' | 'paused'
 
+export type RoutinePeriod = 'morning' | 'afternoon' | 'evening' | 'anytime'
+
 export interface Routine {
   id: string
   name: string
   status: RoutineStatus
   created_at: string
+  time?: string
+  order?: number
+  period?: RoutinePeriod
 }
 
 export interface RoutineLog {
