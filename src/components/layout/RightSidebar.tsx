@@ -20,9 +20,10 @@ interface Props {
   onSelectDate: (date: string) => void
   onAddLongGoal: (g: Omit<LongGoal, 'id'>) => void
   onDeleteLongGoal: (id: string) => void
+  calendarOnly?: boolean
 }
 
-export function RightSidebar({ longGoals, shortGoals, selectedDate, onSelectDate, onAddLongGoal, onDeleteLongGoal }: Props) {
+export function RightSidebar({ longGoals, shortGoals, selectedDate, onSelectDate, onAddLongGoal, onDeleteLongGoal, calendarOnly }: Props) {
   const [calMonth, setCalMonth] = useState(new Date())
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ title: '', description: '', date_from: '', date_to: '', color: 'purple' as LongGoal['color'] })
@@ -41,45 +42,53 @@ export function RightSidebar({ longGoals, shortGoals, selectedDate, onSelectDate
   let cur = gridStart
   while (cur <= gridEnd) { calDays.push(cur); cur = addDays(cur, 1) }
 
+  const calendarContent = (
+    <>
+      <div className="flex items-center justify-between mb-3">
+        <button onClick={() => setCalMonth(subMonths(calMonth, 1))} className="w-6 h-6 rounded-[6px] flex items-center justify-center hover:bg-[var(--surface-2)]"><ChevronLeft size={13} /></button>
+        <span className="text-xs font-semibold">{format(calMonth, 'yyyy년 M월', { locale: ko })}</span>
+        <button onClick={() => setCalMonth(addMonths(calMonth, 1))} className="w-6 h-6 rounded-[6px] flex items-center justify-center hover:bg-[var(--surface-2)]"><ChevronRight size={13} /></button>
+      </div>
+      <div className="grid grid-cols-7 mb-1">
+        {['월','화','수','목','금','토','일'].map(d => (
+          <div key={d} className="text-center text-[11px] font-medium text-[var(--text-3)] py-0.5">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-y-0.5">
+        {calDays.map((day, i) => {
+          const ds = formatDate(day)
+          const isThisMonth = isSameMonth(day, calMonth)
+          const isSelected = ds === selectedDate
+          const isToday = isSameDay(day, new Date())
+          const dayLongGoals = longGoals.filter(g => { try { return isWithinInterval(day, { start: parseISO(g.date_from), end: parseISO(g.date_to) }) } catch { return false } })
+          const hasShort = shortGoals.some(g => ds >= g.date_from && ds <= g.date_to)
+          return (
+            <button key={i} onClick={() => onSelectDate(ds)}
+              className={clsx('flex flex-col items-center py-0.5 rounded-[6px] transition-all',
+                isSelected ? 'bg-[var(--purple)]' : isToday ? 'bg-[var(--purple-bg)]' : 'hover:bg-[var(--surface-2)]',
+                !isThisMonth && 'opacity-25'
+              )}>
+              <span className={clsx('text-[13px] font-medium leading-none',
+                isSelected ? 'text-white' : isToday ? 'text-[var(--purple)]' : 'text-[var(--text)]'
+              )}>{day.getDate()}</span>
+              <div className="flex gap-0.5 mt-0.5 min-h-[4px]">
+                {dayLongGoals.slice(0, 3).map(g => <span key={g.id} className="w-1 h-1 rounded-full" style={{ background: COLOR_DOT[g.color] }} />)}
+                {hasShort && dayLongGoals.length === 0 && <span className="w-1 h-1 rounded-full bg-[var(--teal)]" />}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </>
+  )
+
+  if (calendarOnly) return calendarContent
+
   return (
     <div className="flex flex-col gap-4">
       {/* Mini Calendar */}
       <div className="bg-white border border-[var(--border)] rounded-[16px] p-4">
-        <div className="flex items-center justify-between mb-3">
-          <button onClick={() => setCalMonth(subMonths(calMonth, 1))} className="w-6 h-6 rounded-[6px] flex items-center justify-center hover:bg-[var(--surface-2)]"><ChevronLeft size={13} /></button>
-          <span className="text-xs font-semibold">{format(calMonth, 'yyyy년 M월', { locale: ko })}</span>
-          <button onClick={() => setCalMonth(addMonths(calMonth, 1))} className="w-6 h-6 rounded-[6px] flex items-center justify-center hover:bg-[var(--surface-2)]"><ChevronRight size={13} /></button>
-        </div>
-        <div className="grid grid-cols-7 mb-1">
-          {['월','화','수','목','금','토','일'].map(d => (
-            <div key={d} className="text-center text-[11px] font-medium text-[var(--text-3)] py-0.5">{d}</div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 gap-y-0.5">
-          {calDays.map((day, i) => {
-            const ds = formatDate(day)
-            const isThisMonth = isSameMonth(day, calMonth)
-            const isSelected = ds === selectedDate
-            const isToday = isSameDay(day, new Date())
-            const dayLongGoals = longGoals.filter(g => { try { return isWithinInterval(day, { start: parseISO(g.date_from), end: parseISO(g.date_to) }) } catch { return false } })
-            const hasShort = shortGoals.some(g => ds >= g.date_from && ds <= g.date_to)
-            return (
-              <button key={i} onClick={() => onSelectDate(ds)}
-                className={clsx('flex flex-col items-center py-0.5 rounded-[6px] transition-all',
-                  isSelected ? 'bg-[var(--purple)]' : isToday ? 'bg-[var(--purple-bg)]' : 'hover:bg-[var(--surface-2)]',
-                  !isThisMonth && 'opacity-25'
-                )}>
-                <span className={clsx('text-[13px] font-medium leading-none',
-                  isSelected ? 'text-white' : isToday ? 'text-[var(--purple)]' : 'text-[var(--text)]'
-                )}>{day.getDate()}</span>
-                <div className="flex gap-0.5 mt-0.5 min-h-[4px]">
-                  {dayLongGoals.slice(0, 3).map(g => <span key={g.id} className="w-1 h-1 rounded-full" style={{ background: COLOR_DOT[g.color] }} />)}
-                  {hasShort && dayLongGoals.length === 0 && <span className="w-1 h-1 rounded-full bg-[var(--teal)]" />}
-                </div>
-              </button>
-            )
-          })}
-        </div>
+        {calendarContent}
       </div>
 
       {/* Long Goals */}

@@ -88,3 +88,8 @@ create policy "users own their data" on routine_logs for all using (auth.uid() =
 create policy "users own their data" on short_goals for all using (auth.uid() = user_id);
 create policy "users own their data" on long_goals for all using (auth.uid() = user_id);
 create policy "users own their data" on weekly_reviews for all using (auth.uid() = user_id);
+
+-- Migration: add time, order, period to routines
+alter table routines add column if not exists time text;
+alter table routines add column if not exists "order" integer default 0;
+alter table routines add column if not exists period text default 'anytime';

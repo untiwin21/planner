@@ -1,6 +1,7 @@
 'use client'
 import { useState, useCallback, useEffect } from 'react'
-import type { DayEntry, ShortGoal, Routine, RoutineLog, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry } from '@/types'
+import type { DayEntry, ShortGoal, Routine, RoutineLog, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod } from '@/types'
+import { tasksProgress } from '@/lib/taskProgress'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
 import {
@@ -45,6 +46,14 @@ function uid() { return Math.random().toString(36).slice(2, 10) }
 const DEFAULT_META: DayMeta = { sleep: null, condition: null, focus: null, top3: [], notes: [] }
 const DEADLINE_CATEGORY: Category = { id: DEADLINE_CAT_ID, name: '데드라인', color: 'red' }
 const SCHEDULE_CATEGORY: Category = { id: SCHEDULE_CAT_ID, name: '일정', color: 'blue' }
+
+function derivePeriod(time?: string): RoutinePeriod {
+  if (!time) return 'anytime'
+  const h = parseInt(time.split(':')[0], 10)
+  if (h >= 5 && h < 12) return 'morning'
+  if (h >= 12 && h < 18) return 'afternoon'
+  return 'evening'
+}
 
 export function usePlanrStore(userId: string) {
   const [syncReady, setSyncReady] = useState(false)
@@ -446,8 +455,9 @@ export function usePlanrStore(userId: string) {
   }
 
   // ── ROUTINES ───────────────────────────────────────────────────────────────
-  function addRoutine(name: string) {
-    const newRoutine = { id: uid(), name, status: 'active' as RoutineStatus, created_at: formatDate(new Date()) }
+  function addRoutine(name: string, time?: string, period?: RoutinePeriod) {
+    const derivedPeriod = period ?? derivePeriod(time)
+    const newRoutine: Routine = { id: uid(), name, status: 'active' as RoutineStatus, created_at: formatDate(new Date()), time, order: 0, period: derivedPeriod }
     setRoutines(prev => [...prev, newRoutine])
     if (userId) upsertRoutine(userId, newRoutine)
   }
@@ -460,6 +470,32 @@ export function usePlanrStore(userId: string) {
     let updatedRoutine: Routine | undefined
     setRoutines(prev => prev.map(r => { if (r.id === id) { updatedRoutine = { ...r, name }; return updatedRoutine } return r }))
     if (userId && updatedRoutine) upsertRoutine(userId, updatedRoutine)
+  }
+  function updateRoutine(id: string, patch: Partial<Omit<Routine, 'id'>>) {
+    if (patch.time !== undefined && !patch.period) {
+      patch = { ...patch, period: derivePeriod(patch.time) }
+    }
+    let updatedRoutine: Routine | undefined
+    setRoutines(prev => prev.map(r => { if (r.id === id) { updatedRoutine = { ...r, ...patch }; return updatedRoutine } return r }))
+    if (userId && updatedRoutine) upsertRoutine(userId, updatedRoutine)
+  }
+  function reorderRoutine(id: string, direction: 'up' | 'down') {
+    setRoutines(prev => {
+      const routine = prev.find(r => r.id === id)
+      if (!routine) return prev
+      const period = routine.period ?? 'anytime'
+      const inPeriod = prev.filter(r => (r.period ?? 'anytime') === period).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      const idx = inPeriod.findIndex(r => r.id === id)
+      const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+      if (swapIdx < 0 || swapIdx >= inPeriod.length) return prev
+      const reordered = [...inPeriod]
+      ;[reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]]
+      const orderMap = new Map<string, number>()
+      reordered.forEach((r, i) => orderMap.set(r.id, i))
+      const next = prev.map(r => orderMap.has(r.id) ? { ...r, order: orderMap.get(r.id)! } : r)
+      next.filter(r => orderMap.has(r.id)).forEach(r => { if (userId) upsertRoutine(userId, r) })
+      return next
+    })
   }
   function deleteRoutine(id: string) {
     setRoutines(prev => prev.filter(r => r.id !== id))
@@ -538,6 +574,18 @@ export function usePlanrStore(userId: string) {
     upsertDay(updated)
   }
 
+  // ── LONG GOAL PROGRESS ─────────────────────────────────────────────────────
+  function getLongGoalProgress(longGoalId: string): { done: number; total: number; pct: number } {
+    const linked = goals.filter(g => g.long_goal_id === longGoalId)
+    let total = 0, done = 0
+    for (const g of linked) {
+      const p = tasksProgress(g.tasks)
+      total += p.total
+      done += p.done
+    }
+    return { done, total, pct: total > 0 ? Math.round((done / total) * 100) : 0 }
+  }
+
   // ── WEEKLY REVIEW ──────────────────────────────────────────────────────────
   function getWeeklyReview(weekKey: string): string { return weeklyReviews[weekKey] || '' }
   function updateWeeklyReview(weekKey: string, content: string) {
@@ -554,10 +602,11 @@ export function usePlanrStore(userId: string) {
     addGoalNote, updateGoalNote, deleteGoalNote,
     addLongGoal, updateLongGoal, deleteLongGoal,
     addGlobalCategory, deleteGlobalCategory, updateGlobalCategory,
-    addRoutine, setRoutineStatus, updateRoutineName, deleteRoutine, toggleRoutineLog, isRoutineDone,
+    addRoutine, setRoutineStatus, updateRoutineName, updateRoutine, reorderRoutine, deleteRoutine, toggleRoutineLog, isRoutineDone,
     quickAddTask,
     reorderDayTasks, reorderGoalTasks,
     linkGoalTask, unlinkGoalTask,
+    getLongGoalProgress,
     getWeeklyReview, updateWeeklyReview,
   }
 }

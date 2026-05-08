@@ -1,6 +1,7 @@
 'use client'
 import clsx from 'clsx'
 import { isToday, DAY_NAMES, formatSleepMin } from '@/lib/dates'
+import { tasksProgress } from '@/lib/taskProgress'
 import type { DayEntry } from '@/types'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 
@@ -39,11 +40,12 @@ export function DayCard({ date, entry, isSelected, onClick }: DayCardProps) {
     })
     .slice(0, 3)
 
-  // Non-schedule tasks for progress + top3
+  // Non-schedule tasks for progress + top3 (subtask-aware)
   const workTasks = tasks.filter(t => t.category_id !== SCHEDULE_CAT_ID)
-  const doneCnt = workTasks.filter(t => t.done).length
-  const totalCnt = workTasks.length
-  const pct = totalCnt > 0 ? Math.round((doneCnt / totalCnt) * 100) : 0
+  const progress = tasksProgress(workTasks)
+  const doneCnt = progress.done
+  const totalCnt = progress.total
+  const pct = progress.pct
 
   const top3Ids = meta?.top3 ?? []
   const top3 = top3Ids.length > 0
