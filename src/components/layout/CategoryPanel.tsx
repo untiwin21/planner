@@ -1,8 +1,9 @@
 'use client'
 import { useState } from 'react'
-import { Trash2, Plus } from 'lucide-react'
+import { Trash2, Plus, GripVertical } from 'lucide-react'
 import { Badge } from '@/components/ui'
 import type { Category, BadgeColor } from '@/types'
+import clsx from 'clsx'
 
 const CAT_COLORS: BadgeColor[] = ['purple', 'teal', 'amber', 'coral', 'blue']
 const CAT_COLOR_LABELS: Record<BadgeColor, string> = {
@@ -13,12 +14,15 @@ interface Props {
   categories: Category[]
   onAdd: (cat: Omit<Category, 'id'>) => void
   onDelete: (id: string) => void
+  onReorder?: (draggedId: string, targetId: string) => void
 }
 
-export function CategoryPanel({ categories, onAdd, onDelete }: Props) {
+export function CategoryPanel({ categories, onAdd, onDelete, onReorder }: Props) {
   const [showForm, setShowForm] = useState(false)
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState<BadgeColor>('purple')
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
 
   function handleAdd() {
     if (!newName.trim()) return
@@ -42,24 +46,48 @@ export function CategoryPanel({ categories, onAdd, onDelete }: Props) {
         )}
       </div>
 
-      {/* Category list */}
+      {/* Category list with drag-and-drop */}
       <div className="flex flex-col gap-1.5 mb-1">
         {categories.length === 0 && !showForm && (
           <p className="text-xs text-[var(--text-3)]">카테고리가 없습니다.</p>
         )}
-        {categories.map(cat => (
-          <div key={cat.id} className="flex items-center gap-2 group">
-            <div className="flex-1 min-w-0">
-              <Badge color={cat.color}>{cat.name}</Badge>
-            </div>
-            <button
-              onClick={() => onDelete(cat.id)}
-              className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-[var(--text-3)] hover:text-red-500 transition-all flex-shrink-0"
+        {categories.map(cat => {
+          const isDragging = draggedId === cat.id
+          const isOver = dragOverId === cat.id && draggedId !== cat.id
+          return (
+            <div key={cat.id}
+              draggable={!!onReorder}
+              onDragStart={() => setDraggedId(cat.id)}
+              onDragOver={(e) => { e.preventDefault(); setDragOverId(cat.id) }}
+              onDrop={() => {
+                if (draggedId && draggedId !== cat.id && onReorder) {
+                  onReorder(draggedId, cat.id)
+                }
+                setDraggedId(null); setDragOverId(null)
+              }}
+              onDragEnd={() => { setDraggedId(null); setDragOverId(null) }}
+              className={clsx(
+                'flex items-center gap-2 group',
+                onReorder && 'cursor-grab active:cursor-grabbing',
+                isDragging && 'opacity-40',
+                isOver && 'border-t-2 border-[var(--purple)]',
+              )}
             >
-              <Trash2 size={11} />
-            </button>
-          </div>
-        ))}
+              {onReorder && (
+                <GripVertical size={12} className="text-[var(--text-3)] opacity-0 group-hover:opacity-100 flex-shrink-0" />
+              )}
+              <div className="flex-1 min-w-0">
+                <Badge color={cat.color}>{cat.name}</Badge>
+              </div>
+              <button
+                onClick={() => onDelete(cat.id)}
+                className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-[var(--text-3)] hover:text-red-500 transition-all flex-shrink-0"
+              >
+                <Trash2 size={11} />
+              </button>
+            </div>
+          )
+        })}
       </div>
 
       {/* Inline add form */}

@@ -28,6 +28,9 @@ interface Props {
   onLinkGoalTask: (goalTaskId: string) => void
   onUnlinkGoalTask: (goalTaskId: string) => void
   onToggleLinkedTask: (goalId: string, taskId: string) => void
+  onLinkGoalSubtask?: (subtaskId: string) => void
+  onUnlinkGoalSubtask?: (subtaskId: string) => void
+  onToggleLinkedSubtask?: (goalId: string, taskId: string, subtaskId: string) => void
 }
 
 export function DayDetail({
@@ -35,6 +38,7 @@ export function DayDetail({
   onToggleTask, onAddTask, onDeleteTask, onUpdateTask, onMetaChange,
   onAddDayNote, onUpdateDayNote, onDeleteDayNote, onReorderTasks,
   onLinkGoalTask, onUnlinkGoalTask, onToggleLinkedTask,
+  onLinkGoalSubtask, onUnlinkGoalSubtask, onToggleLinkedSubtask,
 }: Props) {
   const [newTaskTexts, setNewTaskTexts] = useState<Record<string, string>>({})
   const [newSchedTime, setNewSchedTime] = useState('')
@@ -125,8 +129,9 @@ export function DayDetail({
   // ── Linked goal task helpers ───────────────────────────────────────────────
   const dateStr = formatDate(date)
   const linkedTaskIds = entry.meta.linkedGoalTaskIds ?? []
+  const linkedSubtaskIds = entry.meta.linkedGoalSubtaskIds ?? []
 
-  // All tasks from active goals that cover this date, keyed by task id
+  // All tasks from active goals that cover this date
   const activeGoalsForDay = goals.filter(g => g.date_from <= dateStr && g.date_to >= dateStr)
 
   function getLinkedTasksForCat(catId: string) {
@@ -134,6 +139,18 @@ export function DayDetail({
       g.tasks
         .filter(t => linkedTaskIds.includes(t.id) && t.category_id === catId)
         .map(t => ({ task: t, goalId: g.id, goalTitle: g.title }))
+    )
+  }
+
+  // Get linked subtasks for a category (subtasks from goal tasks that are individually linked)
+  function getLinkedSubtasksForCat(catId: string) {
+    return activeGoalsForDay.flatMap(g =>
+      g.tasks
+        .filter(t => t.category_id === catId)
+        .flatMap(t => (t.subtasks ?? [])
+          .filter(s => linkedSubtaskIds.includes(s.id))
+          .map(s => ({ subtask: s, task: t, goalId: g.id, goalTitle: g.title }))
+        )
     )
   }
 
@@ -355,10 +372,33 @@ export function DayDetail({
     )
   }
 
+  // ── Linked subtask row ──────────────────────────────────────────────────
+  function renderLinkedSubtaskRow(subtask: SubTask, task: Task, goalId: string, goalTitle: string) {
+    return (
+      <div key={`linked-sub-${subtask.id}`} className="flex items-center gap-1.5 group py-1 pl-4 border-l-2 border-[var(--teal)]">
+        <Checkbox checked={subtask.done} onChange={() => onToggleLinkedSubtask?.(goalId, task.id, subtask.id)} size="sm" />
+        <span className={clsx('flex-1 text-sm leading-snug', subtask.done && 'line-through text-[var(--text-3)]')}>
+          {subtask.text}
+        </span>
+        <span className="text-[10px] text-[var(--teal-text)] bg-[var(--teal-bg)] px-1 py-0.5 rounded-[4px] max-w-[70px] truncate flex-shrink-0">
+          {task.text}
+        </span>
+        <button
+          onClick={() => onUnlinkGoalSubtask?.(subtask.id)}
+          className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-3)] hover:text-red-500 hover:bg-red-50 transition-all flex-shrink-0"
+          title="연결 해제"
+        >
+          <X size={11} />
+        </button>
+      </div>
+    )
+  }
+
   function renderCategorySection(cat: Category) {
     const catId = cat.id
     const dayTasks = entry.tasks.filter(t => t.category_id === catId)
     const linked = getLinkedTasksForCat(catId)
+    const linkedSubs = getLinkedSubtasksForCat(catId)
     const available = getAvailableForImport(catId)
     const isPickerOpen = importPickerCatId === catId
 
@@ -371,27 +411,60 @@ export function DayDetail({
           </div>
         )}
 
+        {/* Linked individual subtasks */}
+        {linkedSubs.length > 0 && (
+          <div className="flex flex-col gap-0.5 mb-1">
+            {linkedSubs.map(({ subtask, task, goalId, goalTitle }) =>
+              renderLinkedSubtaskRow(subtask, task, goalId, goalTitle)
+            )}
+          </div>
+        )}
+
         {/* Regular day tasks (draggable) */}
         <div className="flex flex-col gap-0.5 mb-2">{dayTasks.map(t => renderTaskRow(t, false, true))}</div>
 
-        {/* Import picker */}
+        {/* Import picker — shows tasks and their subtasks */}
         {isPickerOpen && (
           <div className="mb-2 rounded-[10px] border border-[var(--teal)] bg-[var(--teal-bg)] p-2">
             {available.length > 0 ? (
               <>
                 <p className="text-[11px] font-semibold text-[var(--teal-text)] mb-1.5 px-1">단기 목표에서 불러오기</p>
                 <div className="flex flex-col gap-0.5">
-                  {available.map(({ task, goalId: _gid, goalTitle }) => (
-                    <button
-                      key={task.id}
-                      onClick={() => { onLinkGoalTask(task.id); }}
-                      className="flex items-center gap-2 py-1.5 px-2 rounded-[7px] hover:bg-white text-left w-full transition-colors"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--teal)] flex-shrink-0" />
-                      <span className={clsx('flex-1 text-sm', task.done && 'line-through opacity-50')}>{task.text}</span>
-                      <span className="text-[11px] text-[var(--teal-text)] truncate max-w-[80px] flex-shrink-0">{goalTitle}</span>
-                    </button>
-                  ))}
+                  {available.map(({ task, goalId: _gid, goalTitle }) => {
+                    const subtasks = task.subtasks ?? []
+                    const hasSubtasks = subtasks.length > 0
+                    return (
+                      <div key={task.id}>
+                        {/* Task-level import button */}
+                        <button
+                          onClick={() => { onLinkGoalTask(task.id); }}
+                          className="flex items-center gap-2 py-1.5 px-2 rounded-[7px] hover:bg-white text-left w-full transition-colors"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-[var(--teal)] flex-shrink-0" />
+                          <span className={clsx('flex-1 text-sm font-medium', task.done && 'line-through opacity-50')}>{task.text}</span>
+                          <span className="text-[11px] text-[var(--teal-text)] truncate max-w-[80px] flex-shrink-0">{goalTitle}</span>
+                        </button>
+                        {/* Subtask-level import buttons */}
+                        {hasSubtasks && (
+                          <div className="ml-5 border-l border-[var(--teal)] pl-2 mb-1">
+                            {subtasks
+                              .filter(s => !linkedSubtaskIds.includes(s.id))
+                              .map(s => (
+                                <button
+                                  key={s.id}
+                                  onClick={() => onLinkGoalSubtask?.(s.id)}
+                                  className="flex items-center gap-2 py-1 px-2 rounded-[6px] hover:bg-white text-left w-full transition-colors"
+                                >
+                                  <span className="w-1 h-1 rounded-full bg-[var(--teal)] opacity-60 flex-shrink-0" />
+                                  <span className={clsx('flex-1 text-[13px]', s.done && 'line-through opacity-50')}>{s.text}</span>
+                                  <span className="text-[10px] text-[var(--teal-text)] flex-shrink-0">세부</span>
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </>
             ) : (
@@ -459,6 +532,38 @@ export function DayDetail({
             ))}
           </div>
         </div>
+      </div>
+
+      {/* ── 카드 키워드 ── */}
+      <div className="p-3 rounded-[12px] bg-[var(--surface-2)] border border-[var(--border)]">
+        <label className="block text-[11px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-1.5">카드 키워드</label>
+        <p className="text-[10px] text-[var(--text-3)] mb-2">DayCard에 표시할 키워드 (최대 3개)</p>
+        <div className="flex flex-wrap gap-1 mb-2">
+          {(entry.meta.cardKeywords ?? []).map((kw, i) => (
+            <span key={i} className="px-2 py-0.5 rounded-full text-[11px] bg-[var(--purple-bg)] text-[var(--purple-text)] font-medium flex items-center gap-1">
+              {kw}
+              <button onClick={() => {
+                const next = (entry.meta.cardKeywords ?? []).filter((_, j) => j !== i)
+                onMetaChange({ cardKeywords: next })
+              }} className="text-[var(--text-3)] hover:text-[var(--coral)]">×</button>
+            </span>
+          ))}
+        </div>
+        {(entry.meta.cardKeywords ?? []).length < 3 && (
+          <input
+            placeholder="키워드 입력 후 Enter..."
+            className="w-full px-2 py-1 rounded-[8px] text-sm bg-white border border-[var(--border)] outline-none focus:border-[var(--purple)]"
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                const val = (e.target as HTMLInputElement).value.trim()
+                if (val) {
+                  onMetaChange({ cardKeywords: [...(entry.meta.cardKeywords ?? []), val] })
+                  ;(e.target as HTMLInputElement).value = ''
+                }
+              }
+            }}
+          />
+        )}
       </div>
 
       {/* Deadline */}

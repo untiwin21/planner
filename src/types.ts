@@ -40,8 +40,10 @@ export interface DayMeta {
   condition: number | null
   focus: number | null
   top3: string[]
+  cardKeywords?: string[]        // Custom keyword labels shown on DayCard
   notes?: JournalEntry[]
   linkedGoalTaskIds?: string[]   // IDs of short-goal tasks linked to this day
+  linkedGoalSubtaskIds?: string[] // IDs of specific subtasks linked to this day
 }
 
 export interface DayEntry {

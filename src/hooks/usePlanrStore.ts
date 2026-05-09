@@ -180,6 +180,86 @@ export function usePlanrStore(userId: string) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
+  // ── Periodic sync (every 30s) for cross-device updates ─────────────────────
+  useEffect(() => {
+    if (!userId) return
+    const interval = setInterval(async () => {
+      try {
+        const remoteData = await fetchAll(userId)
+        if (remoteData.days.length > 0) {
+          setDaysRaw(prev => {
+            const localMap = new Map(prev.map(d => [d.date, d]))
+            const remoteMap = new Map(remoteData.days.map((d: DayEntry) => [d.date, d]))
+            // Merge: remote wins for task done states
+            const merged = prev.map(d => {
+              const remote = remoteMap.get(d.date)
+              if (!remote) return d
+              // Merge tasks: update done/subtask states from remote
+              const remoteTasks = new Map(remote.tasks.map((t: Task) => [t.id, t]))
+              const mergedTasks = d.tasks.map(t => {
+                const rt = remoteTasks.get(t.id)
+                if (!rt) return t
+                return { ...t, done: rt.done, subtasks: rt.subtasks }
+              })
+              // Add remote-only tasks
+              const localTaskIds = new Set(d.tasks.map(t => t.id))
+              const remoteOnlyTasks = remote.tasks.filter((t: Task) => !localTaskIds.has(t.id))
+              return { ...d, tasks: [...mergedTasks, ...remoteOnlyTasks], meta: { ...d.meta, ...remote.meta } }
+            })
+            // Add remote-only days
+            const localDates = new Set(prev.map(d => d.date))
+            const remoteOnlyDays = remoteData.days.filter((d: DayEntry) => !localDates.has(d.date))
+            const result = [...merged, ...remoteOnlyDays]
+            save(STORAGE_KEYS.days, result)
+            return result
+          })
+        }
+        // Sync goal task states
+        if (remoteData.goals.length > 0) {
+          setGoalsRaw(prev => {
+            const remoteGoalMap = new Map(remoteData.goals.map((g: ShortGoal) => [g.id, g]))
+            const merged = prev.map(g => {
+              const rg = remoteGoalMap.get(g.id)
+              if (!rg) return g
+              const remoteTaskMap = new Map(rg.tasks.map((t: Task) => [t.id, t]))
+              const mergedTasks = g.tasks.map(t => {
+                const rt = remoteTaskMap.get(t.id)
+                if (!rt) return t
+                return { ...t, done: rt.done, subtasks: rt.subtasks }
+              })
+              const localTaskIds = new Set(g.tasks.map(t => t.id))
+              const remoteOnlyTasks = rg.tasks.filter((t: Task) => !localTaskIds.has(t.id))
+              return { ...g, tasks: [...mergedTasks, ...remoteOnlyTasks] }
+            })
+            const localIds = new Set(prev.map(g => g.id))
+            const remoteOnlyGoals = remoteData.goals.filter((g: ShortGoal) => !localIds.has(g.id))
+            const result = [...merged, ...remoteOnlyGoals]
+            save(STORAGE_KEYS.goals, result)
+            return result
+          })
+        }
+        // Sync routine logs
+        if (remoteData.logs.length > 0) {
+          setLogsRaw(prev => {
+            const key = (l: RoutineLog) => `${l.routine_id}_${l.date}`
+            const localMap = new Map(prev.map(l => [key(l), l]))
+            for (const rl of remoteData.logs) {
+              const k = key(rl)
+              localMap.set(k, rl) // remote wins
+            }
+            const result = Array.from(localMap.values())
+            save(STORAGE_KEYS.logs, result)
+            return result
+          })
+        }
+      } catch (e) {
+        // Silent fail for periodic sync
+      }
+    }, 30000)
+    return () => clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId])
+
   // ── Setters with auto-persist ──────────────────────────────────────────────
   const setDays = useCallback((v: DayEntry[] | ((p: DayEntry[]) => DayEntry[])) => {
     setDaysRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.days, next); return next })
@@ -317,6 +397,18 @@ export function usePlanrStore(userId: string) {
 
   function updateGlobalCategory(id: string, patch: Partial<Omit<Category, 'id'>>) {
     setCategories(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c))
+  }
+
+  function reorderCategory(draggedId: string, targetId: string) {
+    setCategories(prev => {
+      const dragIdx = prev.findIndex(c => c.id === draggedId)
+      const dropIdx = prev.findIndex(c => c.id === targetId)
+      if (dragIdx < 0 || dropIdx < 0) return prev
+      const reordered = [...prev]
+      const [moved] = reordered.splice(dragIdx, 1)
+      reordered.splice(dropIdx, 0, moved)
+      return reordered
+    })
   }
 
   // ── SHORT GOALS ────────────────────────────────────────────────────────────
@@ -574,6 +666,35 @@ export function usePlanrStore(userId: string) {
     upsertDay(updated)
   }
 
+  // ── SUBTASK LINKING ───────────────────────────────────────────────────────
+  function linkGoalSubtask(date: string, subtaskId: string) {
+    const entry = getDay(date)
+    const linked = entry.meta.linkedGoalSubtaskIds ?? []
+    if (linked.includes(subtaskId)) return
+    const updated = { ...entry, meta: { ...entry.meta, linkedGoalSubtaskIds: [...linked, subtaskId] } }
+    upsertDay(updated)
+  }
+  function unlinkGoalSubtask(date: string, subtaskId: string) {
+    const entry = getDay(date)
+    const linked = (entry.meta.linkedGoalSubtaskIds ?? []).filter((id: string) => id !== subtaskId)
+    const updated = { ...entry, meta: { ...entry.meta, linkedGoalSubtaskIds: linked } }
+    upsertDay(updated)
+  }
+  function toggleGoalSubtask(goalId: string, taskId: string, subtaskId: string) {
+    let updatedGoal: ShortGoal | undefined
+    setGoals(prev => prev.map(g => {
+      if (g.id !== goalId) return g
+      const tasks = g.tasks.map(t => {
+        if (t.id !== taskId) return t
+        const subtasks = (t.subtasks ?? []).map(s => s.id === subtaskId ? { ...s, done: !s.done } : s)
+        return { ...t, subtasks }
+      })
+      updatedGoal = { ...g, tasks }
+      return updatedGoal
+    }))
+    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+  }
+
   // ── LONG GOAL PROGRESS ─────────────────────────────────────────────────────
   function getLongGoalProgress(longGoalId: string): { done: number; total: number; pct: number } {
     const linked = goals.filter(g => g.long_goal_id === longGoalId)
@@ -601,11 +722,12 @@ export function usePlanrStore(userId: string) {
     addGoal, updateGoal, deleteGoal, toggleGoalTask, addGoalTask, deleteGoalTask, updateGoalTask,
     addGoalNote, updateGoalNote, deleteGoalNote,
     addLongGoal, updateLongGoal, deleteLongGoal,
-    addGlobalCategory, deleteGlobalCategory, updateGlobalCategory,
+    addGlobalCategory, deleteGlobalCategory, updateGlobalCategory, reorderCategory,
     addRoutine, setRoutineStatus, updateRoutineName, updateRoutine, reorderRoutine, deleteRoutine, toggleRoutineLog, isRoutineDone,
     quickAddTask,
     reorderDayTasks, reorderGoalTasks,
     linkGoalTask, unlinkGoalTask,
+    linkGoalSubtask, unlinkGoalSubtask, toggleGoalSubtask,
     getLongGoalProgress,
     getWeeklyReview, updateWeeklyReview,
   }

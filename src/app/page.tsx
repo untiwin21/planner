@@ -74,9 +74,13 @@ export default function Home() {
   const [qaGoalLongId, setQaGoalLongId] = useState('')
 
   const weekKey = useMemo(() => getWeekKey(weekBase), [weekBase])
-  const big3StorageKey = `planr_week_big3_${weekKey}`
+
+  // ── Big 3 — mantra sentence + text-based entries ──
+  const big3StorageKey = `planr_week_big3_v2_${weekKey}`
+  const mantraStorageKey = `planr_week_mantra_${weekKey}`
   const [weekBig3, setWeekBig3] = useState<string[]>([])
-  const [showBig3Picker, setShowBig3Picker] = useState(false)
+  const [weekMantra, setWeekMantra] = useState('')
+  const [showBig3Modal, setShowBig3Modal] = useState(false)
 
   const { syncReady, ...store } = usePlanrStore(userId)
   const weekDays = useMemo(() => getWeekDays(weekBase), [weekBase])
@@ -92,14 +96,23 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(big3StorageKey)
-      setWeekBig3(saved ? JSON.parse(saved) : [])
-    } catch { setWeekBig3([]) }
-  }, [big3StorageKey])
+      const savedBig3 = localStorage.getItem(big3StorageKey)
+      setWeekBig3(savedBig3 ? JSON.parse(savedBig3) : [])
+      const savedMantra = localStorage.getItem(mantraStorageKey)
+      setWeekMantra(savedMantra || '')
+    } catch {
+      setWeekBig3([])
+      setWeekMantra('')
+    }
+  }, [big3StorageKey, mantraStorageKey])
 
-  function saveBig3(ids: string[]) {
-    setWeekBig3(ids)
-    localStorage.setItem(big3StorageKey, JSON.stringify(ids))
+  function saveBig3(texts: string[]) {
+    setWeekBig3(texts)
+    localStorage.setItem(big3StorageKey, JSON.stringify(texts))
+  }
+  function saveMantra(text: string) {
+    setWeekMantra(text)
+    localStorage.setItem(mantraStorageKey, text)
   }
 
   const todayShortGoals = useMemo(
@@ -108,17 +121,6 @@ export default function Home() {
   )
   const todayGoalRoutines = todayShortGoals[0]?.routines ?? []
   const todayGoalLabel = todayShortGoals[0]?.title
-
-  const big3Candidates = useMemo(() => {
-    const ws = formatDate(weekDays[0])
-    const we = formatDate(weekDays[6])
-    const goalCands = store.goals
-      .filter(g => g.date_from <= we && g.date_to >= ws)
-      .map(g => ({ id: g.id, label: g.title, type: 'goal' as const, done: g.tasks.length > 0 && g.tasks.every(t => t.done) }))
-    const todayEntry = store.getDay(formatDate(new Date()))
-    const taskCands = todayEntry.tasks.map(t => ({ id: t.id, label: t.text, type: 'task' as const, done: t.done }))
-    return [...goalCands, ...taskCands]
-  }, [store.goals, store.days, weekDays])
 
   // Top bar stats (subtask-aware)
   const weekStats = useMemo(() => {
@@ -190,6 +192,11 @@ export default function Home() {
       }
     }
   }
+
+  // Big 3 mantra sentence display
+  const big3Summary = weekBig3.filter(t => t.trim()).length > 0
+    ? weekBig3.filter(t => t.trim()).join(' · ')
+    : ''
 
   return (
     <>
@@ -302,10 +309,7 @@ export default function Home() {
           <div className="flex flex-col gap-4 min-w-0">
             <GoalHierarchyView
               longGoals={store.longGoals}
-              shortGoals={store.goals}
               getLongGoalProgress={store.getLongGoalProgress}
-              selectedGoalId={selectedGoalId}
-              onSelectGoal={handleHierarchySelectGoal}
               onAddLongGoal={store.addLongGoal}
               onDeleteLongGoal={store.deleteLongGoal}
             />
@@ -337,6 +341,7 @@ export default function Home() {
               categories={store.categories}
               onAdd={store.addGlobalCategory}
               onDelete={store.deleteGlobalCategory}
+              onReorder={store.reorderCategory}
             />
 
             <RoutineSidebar
@@ -344,6 +349,7 @@ export default function Home() {
               logs={store.logs}
               goalRoutines={todayGoalRoutines}
               goalLabel={todayGoalLabel}
+              selectedDate={selectedDate}
               onToggleLog={store.toggleRoutineLog}
               onAddRoutine={store.addRoutine}
               onSetStatus={store.setRoutineStatus}
@@ -382,55 +388,91 @@ export default function Home() {
                 {/* Weekly prompt */}
                 <WeeklyPrompt
                   weekKey={weekKey}
-                  onGoToBig3={() => setView('week')}
+                  onGoToBig3={() => setShowBig3Modal(true)}
                   onGoToReview={() => setView('review')}
                 />
 
-                {/* Weekly Big 3 */}
-                <div className="bg-white border border-[var(--border)] rounded-[12px] px-4 py-2.5 flex items-center gap-3">
-                  <span className="text-xs font-semibold text-[var(--text-2)] flex-shrink-0">이번 주 Big 3</span>
-                  <div className="flex gap-1.5 flex-1 min-w-0 flex-wrap">
-                    {weekBig3.map((id, i) => {
-                      const cand = big3Candidates.find(c => c.id === id)
-                      if (!cand) return null
-                      return (
-                        <span key={id} className={clsx(
-                          'px-2 py-0.5 rounded-full text-[11px] font-medium truncate max-w-[140px]',
-                          cand.done ? 'bg-[var(--teal-bg)] text-[var(--teal-text)] line-through' : 'bg-[var(--purple-bg)] text-[var(--purple-text)]',
-                        )}>
-                          {cand.label}
-                          <button onClick={() => saveBig3(weekBig3.filter((_, j) => j !== i))}
-                            className="ml-1 text-[var(--text-3)] hover:text-[var(--coral)]">×</button>
-                        </span>
-                      )
-                    })}
-                    {weekBig3.length < 3 && (
-                      <div className="relative">
-                        <button onClick={() => setShowBig3Picker(v => !v)}
-                          className="px-2 py-0.5 rounded-full text-[11px] text-[var(--text-3)] border border-dashed border-[var(--border)] hover:bg-[var(--surface-2)]">
-                          + 추가
-                        </button>
-                        {showBig3Picker && (
-                          <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-[var(--border)] rounded-[10px] shadow-lg p-2 z-20 max-h-48 overflow-y-auto">
-                            {big3Candidates.filter(c => !weekBig3.includes(c.id)).map(c => (
-                              <button key={c.id}
-                                onClick={() => { saveBig3([...weekBig3, c.id]); setShowBig3Picker(false) }}
-                                className="w-full text-left px-2 py-1.5 rounded-[6px] text-[12px] hover:bg-[var(--surface-2)] truncate">
-                                <span className={clsx('mr-1 text-[10px]', c.type === 'goal' ? 'text-[var(--teal)]' : 'text-[var(--purple)]')}>
-                                  {c.type === 'goal' ? '목표' : '할일'}
-                                </span>
-                                {c.label}
-                              </button>
-                            ))}
-                            {big3Candidates.filter(c => !weekBig3.includes(c.id)).length === 0 && (
-                              <p className="text-[11px] text-[var(--text-3)] px-2 py-1">항목이 없습니다.</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                {/* Weekly Big 3 — Mantra Sentence */}
+                <button
+                  onClick={() => setShowBig3Modal(true)}
+                  className="bg-white border border-[var(--border)] rounded-[12px] px-4 py-3 text-left hover:border-[var(--purple)] hover:shadow-sm transition-all group w-full"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-semibold text-[var(--purple)]">이번 주 Big 3</span>
+                    <span className="text-[10px] text-[var(--text-3)] opacity-0 group-hover:opacity-100 transition-opacity">클릭하여 편집</span>
                   </div>
-                </div>
+                  {weekMantra ? (
+                    <p className="text-sm text-[var(--text)] italic leading-relaxed">&ldquo;{weekMantra}&rdquo;</p>
+                  ) : big3Summary ? (
+                    <p className="text-sm text-[var(--text-2)]">{big3Summary}</p>
+                  ) : (
+                    <p className="text-sm text-[var(--text-3)] italic">이번 주의 다짐과 Big 3를 설정해보세요</p>
+                  )}
+                  {big3Summary && weekMantra && (
+                    <div className="flex gap-2 mt-1.5">
+                      {weekBig3.filter(t => t.trim()).map((t, i) => (
+                        <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--purple-bg)] text-[var(--purple-text)] font-medium truncate max-w-[140px]">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </button>
+
+                {/* Big 3 Modal */}
+                {showBig3Modal && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowBig3Modal(false)}>
+                    <div className="bg-white rounded-[20px] shadow-xl w-full max-w-md p-6 mx-4" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-between mb-5">
+                        <h2 className="text-lg font-bold">이번 주 다짐 & Big 3</h2>
+                        <button onClick={() => setShowBig3Modal(false)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--surface-2)]">
+                          <X size={18} />
+                        </button>
+                      </div>
+
+                      <div className="mb-5">
+                        <label className="block text-xs font-semibold text-[var(--text-2)] mb-2">이번 주 다짐 (한 문장)</label>
+                        <input
+                          value={weekMantra}
+                          onChange={e => saveMantra(e.target.value)}
+                          placeholder="예: 이번 주는 집중력을 높이고 건강을 챙기자"
+                          className="w-full px-3 py-2.5 rounded-[10px] text-sm bg-[var(--surface-2)] border border-transparent outline-none focus:border-[var(--purple)] focus:bg-white"
+                        />
+                      </div>
+
+                      <div className="mb-4">
+                        <label className="block text-xs font-semibold text-[var(--text-2)] mb-2">Big 3 (가장 중요한 3가지)</label>
+                        <div className="flex flex-col gap-2">
+                          {[0, 1, 2].map(i => (
+                            <div key={i} className="flex items-center gap-2">
+                              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
+                                style={{ background: 'var(--purple)' }}>
+                                {i + 1}
+                              </span>
+                              <input
+                                value={weekBig3[i] ?? ''}
+                                onChange={e => {
+                                  const next = [...weekBig3]
+                                  while (next.length <= i) next.push('')
+                                  next[i] = e.target.value
+                                  saveBig3(next)
+                                }}
+                                placeholder={`Big ${i + 1}...`}
+                                className="flex-1 px-3 py-2 rounded-[8px] text-sm bg-[var(--surface-2)] border border-transparent outline-none focus:border-[var(--purple)] focus:bg-white"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button onClick={() => setShowBig3Modal(false)}
+                        className="w-full py-2 rounded-[10px] text-sm font-medium text-white hover:opacity-90 transition-opacity"
+                        style={{ background: 'var(--purple)' }}>
+                        완료
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Weekly grid */}
                 <div>
@@ -522,6 +564,9 @@ export default function Home() {
                       onLinkGoalTask={taskId => store.linkGoalTask(selectedDate, taskId)}
                       onUnlinkGoalTask={taskId => store.unlinkGoalTask(selectedDate, taskId)}
                       onToggleLinkedTask={(goalId, taskId) => store.toggleGoalTask(goalId, taskId)}
+                      onLinkGoalSubtask={subtaskId => store.linkGoalSubtask(selectedDate, subtaskId)}
+                      onUnlinkGoalSubtask={subtaskId => store.unlinkGoalSubtask(selectedDate, subtaskId)}
+                      onToggleLinkedSubtask={(goalId, taskId, subtaskId) => store.toggleGoalSubtask(goalId, taskId, subtaskId)}
                     />
                   )}
                 </Card>

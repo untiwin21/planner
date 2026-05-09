@@ -26,6 +26,7 @@ interface Props {
   logs: RoutineLog[]
   goalRoutines: Routine[]
   goalLabel?: string
+  selectedDate: string
   onToggleLog: (routineId: string, date: string) => void
   onAddRoutine: (name: string, time?: string, period?: RoutinePeriod) => void
   onSetStatus: (id: string, status: RoutineStatus) => void
@@ -80,10 +81,12 @@ function derivePeriodFromTime(time?: string): RoutinePeriod {
 }
 
 export function RoutineSidebar({
-  routines, logs, goalRoutines, goalLabel,
+  routines, logs, goalRoutines, goalLabel, selectedDate,
   onToggleLog, onAddRoutine, onSetStatus, onUpdateName, onUpdateRoutine, onReorderRoutine, onDeleteRoutine,
 }: Props) {
   const today = formatDate(new Date())
+  const viewDate = selectedDate || today
+  const isToday = viewDate === today
   const [showManage, setShowManage] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
@@ -98,7 +101,7 @@ export function RoutineSidebar({
   }, [goalRoutines, routines])
 
   const doneCnt = activeRoutines.filter(r =>
-    logs.find(l => l.routine_id === r.id && l.date === today && l.done)
+    logs.find(l => l.routine_id === r.id && l.date === viewDate && l.done)
   ).length
 
   const activeAll = routines.filter(r => r.status === 'active')
@@ -274,10 +277,10 @@ export function RoutineSidebar({
   return (
     <div className="flex flex-col gap-4">
 
-      {/* Zone A: 오늘 루틴 (check-only) — grouped by period */}
+      {/* Zone A: 루틴 (check-only) — grouped by period */}
       <div className="bg-white border border-[var(--border)] rounded-[16px] p-4">
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-sm font-semibold">오늘 루틴</h3>
+          <h3 className="text-sm font-semibold">{isToday ? '오늘 루틴' : `${viewDate.slice(5)} 루틴`}</h3>
           <span className="text-xs text-[var(--text-3)]">{doneCnt}/{activeRoutines.length}</span>
         </div>
         <div className="mb-3">
@@ -298,11 +301,11 @@ export function RoutineSidebar({
               <div key={period}>
                 {renderPeriodHeader(period)}
                 {group.map(r => {
-                  const done = !!logs.find(l => l.routine_id === r.id && l.date === today && l.done)
-                  const streak = calcStreak(r.id, today, logs)
+                  const done = !!logs.find(l => l.routine_id === r.id && l.date === viewDate && l.done)
+                  const streak = calcStreak(r.id, viewDate, logs)
                   return (
                     <div key={r.id} className="flex items-center gap-2 py-1.5">
-                      <CircleCheck checked={done} onChange={() => onToggleLog(r.id, today)} />
+                      <CircleCheck checked={done} onChange={() => onToggleLog(r.id, viewDate)} />
                       {r.time && (
                         <span className="text-[11px] text-[var(--text-3)] font-mono flex-shrink-0">{r.time}</span>
                       )}
