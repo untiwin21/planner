@@ -57,8 +57,13 @@ function derivePeriod(time?: string): RoutinePeriod {
 
 export function usePlanrStore(userId: string) {
   const [syncReady, setSyncReady] = useState(false)
-  // Track last local write to prevent periodic sync from overwriting recent changes
-  const lastWriteTs = useRef(0)
+  // Global pending-write counter: periodic sync is blocked while any Supabase write is in flight.
+  // This eliminates the race condition where sync reads stale remote state before a local write lands.
+  const pendingWrites = useRef(0)
+  function trackWrite(promise: Promise<void>) {
+    pendingWrites.current++
+    promise.finally(() => { pendingWrites.current = Math.max(0, pendingWrites.current - 1) })
+  }
   const [days, setDaysRaw] = useState<DayEntry[]>(() => load(STORAGE_KEYS.days, []))
   const [goals, setGoalsRaw] = useState<ShortGoal[]>(() => load(STORAGE_KEYS.goals, []))
   const [routines, setRoutinesRaw] = useState<Routine[]>(() => load(STORAGE_KEYS.routines, []))
@@ -200,8 +205,8 @@ export function usePlanrStore(userId: string) {
     if (!userId) return
     const interval = setInterval(async () => {
       try {
-        // Skip sync if a local write happened in the last 10 seconds to avoid overwriting
-        if (Date.now() - lastWriteTs.current < 10000) return
+        // Skip sync while any Supabase write is still in flight
+        if (pendingWrites.current > 0) return
         const remoteData = await fetchAll(userId)
         if (remoteData.days.length > 0) {
           setDaysRaw(prev => {
@@ -279,18 +284,15 @@ export function usePlanrStore(userId: string) {
 
   // ── Setters with auto-persist ──────────────────────────────────────────────
   const setDays = useCallback((v: DayEntry[] | ((p: DayEntry[]) => DayEntry[])) => {
-    lastWriteTs.current = Date.now()
     setDaysRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.days, next); return next })
   }, [])
   const setGoals = useCallback((v: ShortGoal[] | ((p: ShortGoal[]) => ShortGoal[])) => {
-    lastWriteTs.current = Date.now()
     setGoalsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.goals, next); return next })
   }, [])
   const setRoutines = useCallback((v: Routine[] | ((p: Routine[]) => Routine[])) => {
     setRoutinesRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.routines, next); return next })
   }, [])
   const setLogs = useCallback((v: RoutineLog[] | ((p: RoutineLog[]) => RoutineLog[])) => {
-    lastWriteTs.current = Date.now()
     setLogsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.logs, next); return next })
   }, [])
   const setLongGoals = useCallback((v: LongGoal[] | ((p: LongGoal[]) => LongGoal[])) => {
@@ -304,7 +306,7 @@ export function usePlanrStore(userId: string) {
       const next = typeof v === 'function' ? v(prev) : v
       save(STORAGE_KEYS.categories, next)
       // Sync categories to Supabase via special weekly_review key
-      if (userId) upsertWeeklyReview(userId, '__categories__', JSON.stringify(next))
+      if (userId) trackWrite(upsertWeeklyReview(userId, '__categories__', JSON.stringify(next)))
       return next
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -329,7 +331,7 @@ export function usePlanrStore(userId: string) {
       if (idx >= 0) { const n = [...prev]; n[idx] = entry; return n }
       return [...prev, entry]
     })
-    if (userId) upsertDayEntry(userId, entry)
+    if (userId) trackWrite(upsertDayEntry(userId, entry))
   }
 
   function toggleTask(date: string, taskId: string) {
@@ -338,7 +340,7 @@ export function usePlanrStore(userId: string) {
     if (task) {
       const updatedTask = { ...task, done: !task.done }
       upsertDay({ ...entry, tasks: entry.tasks.map(t => t.id === taskId ? updatedTask : t) })
-      if (userId) upsertTask(userId, updatedTask, date)
+      if (userId) trackWrite(upsertTask(userId, updatedTask, date))
     }
   }
 
@@ -356,13 +358,13 @@ export function usePlanrStore(userId: string) {
       ...(time ? { time } : {}),
     }
     upsertDay({ ...entry, tasks: [...entry.tasks, task] })
-    if (userId) upsertTask(userId, task, date)
+    if (userId) trackWrite(upsertTask(userId, task, date))
   }
 
   function deleteTask(date: string, taskId: string) {
     const entry = getDay(date)
     upsertDay({ ...entry, tasks: entry.tasks.filter(t => t.id !== taskId) })
-    if (userId) deleteTaskSync(userId, taskId)
+    if (userId) trackWrite(deleteTaskSync(userId, taskId))
   }
 
   function updateTask(date: string, taskId: string, patch: Partial<Task>) {
@@ -371,20 +373,20 @@ export function usePlanrStore(userId: string) {
     if (!task) return
     const updated = { ...task, ...patch }
     upsertDay({ ...entry, tasks: entry.tasks.map(t => t.id === taskId ? updated : t) })
-    if (userId) upsertTask(userId, updated, date)
+    if (userId) trackWrite(upsertTask(userId, updated, date))
   }
 
   function updateNote(date: string, note: string) {
     const updatedEntry = { ...getDay(date), note }
     upsertDay(updatedEntry)
-    if (userId) upsertDayEntry(userId, updatedEntry)
+    if (userId) trackWrite(upsertDayEntry(userId, updatedEntry))
   }
 
   function updateMeta(date: string, patch: Partial<DayMeta>) {
     const entry = getDay(date)
     const updatedEntry = { ...entry, meta: { ...entry.meta, ...patch } }
     upsertDay(updatedEntry)
-    if (userId) upsertDayEntry(userId, updatedEntry)
+    if (userId) trackWrite(upsertDayEntry(userId, updatedEntry))
   }
 
   // ── DAY NOTES (journal) ───────────────────────────────────────────────────
@@ -393,7 +395,7 @@ export function usePlanrStore(userId: string) {
     const note: JournalEntry = { id: uid(), title, body, createdAt: new Date().toISOString() }
     const updatedEntry = { ...entry, meta: { ...entry.meta, notes: [note, ...(entry.meta.notes ?? [])] } }
     upsertDay(updatedEntry)
-    if (userId) upsertDayEntry(userId, updatedEntry)
+    if (userId) trackWrite(upsertDayEntry(userId, updatedEntry))
   }
 
   function updateDayNote(date: string, noteId: string, title: string, body: string) {
@@ -401,7 +403,7 @@ export function usePlanrStore(userId: string) {
     const notes = (entry.meta.notes ?? []).map(n => n.id === noteId ? { ...n, title, body } : n)
     const updatedEntry = { ...entry, meta: { ...entry.meta, notes } }
     upsertDay(updatedEntry)
-    if (userId) upsertDayEntry(userId, updatedEntry)
+    if (userId) trackWrite(upsertDayEntry(userId, updatedEntry))
   }
 
   function deleteDayNote(date: string, noteId: string) {
@@ -409,7 +411,7 @@ export function usePlanrStore(userId: string) {
     const notes = (entry.meta.notes ?? []).filter(n => n.id !== noteId)
     const updatedEntry = { ...entry, meta: { ...entry.meta, notes } }
     upsertDay(updatedEntry)
-    if (userId) upsertDayEntry(userId, updatedEntry)
+    if (userId) trackWrite(upsertDayEntry(userId, updatedEntry))
   }
 
   // ── GLOBAL CATEGORIES ─────────────────────────────────────────────────────
@@ -442,16 +444,16 @@ export function usePlanrStore(userId: string) {
   function addGoal(g: Omit<ShortGoal, 'id'>) {
     const newGoal = { ...g, id: uid() }
     setGoals(prev => [...prev, newGoal])
-    if (userId) upsertShortGoal(userId, newGoal)
+    if (userId) trackWrite(upsertShortGoal(userId, newGoal))
   }
   function updateGoal(id: string, patch: Partial<ShortGoal>) {
     let updatedGoal: ShortGoal | undefined
     setGoals(prev => prev.map(g => { if (g.id === id) { updatedGoal = { ...g, ...patch }; return updatedGoal } return g }))
-    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
   }
   function deleteGoal(id: string) {
     setGoals(prev => prev.filter(g => g.id !== id))
-    if (userId) deleteShortGoalSync(userId, id)
+    if (userId) trackWrite(deleteShortGoalSync(userId, id))
   }
   function toggleGoalTask(goalId: string, taskId: string) {
     let updatedGoal: ShortGoal | undefined
@@ -462,7 +464,7 @@ export function usePlanrStore(userId: string) {
       return updatedGoal
     }))
     // Embed the full goal (including updated tasks) so tasks sync reliably
-    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
   }
   function addGoalTask(goalId: string, categoryId: string, text: string) {
     let updatedGoal: ShortGoal | undefined
@@ -478,7 +480,7 @@ export function usePlanrStore(userId: string) {
       return updatedGoal
     }))
     // Embed the full goal so tasks sync reliably
-    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
   }
 
   function deleteGoalTask(goalId: string, taskId: string) {
@@ -488,8 +490,8 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, tasks: g.tasks.filter(t => t.id !== taskId) }
       return updatedGoal
     }))
-    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
-    if (userId) deleteTaskSync(userId, taskId)
+    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
+    if (userId) trackWrite(deleteTaskSync(userId, taskId))
   }
 
   function updateGoalTask(goalId: string, taskId: string, patch: Partial<Task>) {
@@ -503,7 +505,7 @@ export function usePlanrStore(userId: string) {
       return updatedGoal
     }))
     // Embed the full goal so tasks sync reliably
-    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
   }
 
   // ── GOAL NOTES ─────────────────────────────────────────────────────────────
@@ -515,7 +517,7 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, notes: [newNote, ...(g.notes ?? [])] }
       return updatedGoal
     }))
-    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
   }
 
   function updateGoalNote(goalId: string, noteId: string, text: string) {
@@ -525,7 +527,7 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, notes: (g.notes ?? []).map(n => n.id === noteId ? { ...n, text } : n) }
       return updatedGoal
     }))
-    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
   }
 
   function deleteGoalNote(goalId: string, noteId: string) {
@@ -535,23 +537,23 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, notes: (g.notes ?? []).filter(n => n.id !== noteId) }
       return updatedGoal
     }))
-    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
   }
 
   // ── LONG GOALS ─────────────────────────────────────────────────────────────
   function addLongGoal(g: Omit<LongGoal, 'id'>) {
     const newGoal = { ...g, id: uid() }
     setLongGoals(prev => [...prev, newGoal])
-    if (userId) upsertLongGoal(userId, newGoal)
+    if (userId) trackWrite(upsertLongGoal(userId, newGoal))
   }
   function updateLongGoal(id: string, patch: Partial<LongGoal>) {
     let updatedGoal: LongGoal | undefined
     setLongGoals(prev => prev.map(g => { if (g.id === id) { updatedGoal = { ...g, ...patch }; return updatedGoal } return g }))
-    if (userId && updatedGoal) upsertLongGoal(userId, updatedGoal)
+    if (userId && updatedGoal) trackWrite(upsertLongGoal(userId, updatedGoal))
   }
   function deleteLongGoal(id: string) {
     setLongGoals(prev => prev.filter(g => g.id !== id))
-    if (userId) deleteLongGoalSync(userId, id)
+    if (userId) trackWrite(deleteLongGoalSync(userId, id))
   }
 
   // ── QUICK ADD ──────────────────────────────────────────────────────────────
@@ -561,7 +563,7 @@ export function usePlanrStore(userId: string) {
     if (targetCat) {
       const task: Task = { id: uid(), text, done: false, category_id: targetCat.id, day_id: entry.id, category_name: targetCat.name, category_color: targetCat.color }
       upsertDay({ ...entry, tasks: [...entry.tasks, task] })
-      if (userId) upsertTask(userId, task, date)
+      if (userId) trackWrite(upsertTask(userId, task, date))
     } else {
       // Fallback: create a default category on-the-fly
       const catId = uid()
@@ -569,7 +571,7 @@ export function usePlanrStore(userId: string) {
       setCategories(prev => [...prev, newCat])
       const task: Task = { id: uid(), text, done: false, category_id: catId, day_id: entry.id, category_name: newCat.name, category_color: newCat.color }
       upsertDay({ ...entry, tasks: [...entry.tasks, task] })
-      if (userId) upsertTask(userId, task, date)
+      if (userId) trackWrite(upsertTask(userId, task, date))
     }
   }
 
@@ -578,17 +580,17 @@ export function usePlanrStore(userId: string) {
     const derivedPeriod = period ?? derivePeriod(time)
     const newRoutine: Routine = { id: uid(), name, status: 'active' as RoutineStatus, created_at: formatDate(new Date()), time, order: 0, period: derivedPeriod }
     setRoutines(prev => [...prev, newRoutine])
-    if (userId) upsertRoutine(userId, newRoutine)
+    if (userId) trackWrite(upsertRoutine(userId, newRoutine))
   }
   function setRoutineStatus(id: string, status: RoutineStatus) {
     let updatedRoutine: Routine | undefined
     setRoutines(prev => prev.map(r => { if (r.id === id) { updatedRoutine = { ...r, status }; return updatedRoutine } return r }))
-    if (userId && updatedRoutine) upsertRoutine(userId, updatedRoutine)
+    if (userId && updatedRoutine) trackWrite(upsertRoutine(userId, updatedRoutine))
   }
   function updateRoutineName(id: string, name: string) {
     let updatedRoutine: Routine | undefined
     setRoutines(prev => prev.map(r => { if (r.id === id) { updatedRoutine = { ...r, name }; return updatedRoutine } return r }))
-    if (userId && updatedRoutine) upsertRoutine(userId, updatedRoutine)
+    if (userId && updatedRoutine) trackWrite(upsertRoutine(userId, updatedRoutine))
   }
   function updateRoutine(id: string, patch: Partial<Omit<Routine, 'id'>>) {
     if (patch.time !== undefined && !patch.period) {
@@ -596,7 +598,7 @@ export function usePlanrStore(userId: string) {
     }
     let updatedRoutine: Routine | undefined
     setRoutines(prev => prev.map(r => { if (r.id === id) { updatedRoutine = { ...r, ...patch }; return updatedRoutine } return r }))
-    if (userId && updatedRoutine) upsertRoutine(userId, updatedRoutine)
+    if (userId && updatedRoutine) trackWrite(upsertRoutine(userId, updatedRoutine))
   }
   function reorderRoutine(id: string, direction: 'up' | 'down') {
     setRoutines(prev => {
@@ -612,14 +614,14 @@ export function usePlanrStore(userId: string) {
       const orderMap = new Map<string, number>()
       reordered.forEach((r, i) => orderMap.set(r.id, i))
       const next = prev.map(r => orderMap.has(r.id) ? { ...r, order: orderMap.get(r.id)! } : r)
-      next.filter(r => orderMap.has(r.id)).forEach(r => { if (userId) upsertRoutine(userId, r) })
+      next.filter(r => orderMap.has(r.id)).forEach(r => { if (userId) trackWrite(upsertRoutine(userId, r)) })
       return next
     })
   }
   function deleteRoutine(id: string) {
     setRoutines(prev => prev.filter(r => r.id !== id))
     setLogs(prev => prev.filter(l => l.routine_id !== id))
-    if (userId) deleteRoutineSync(userId, id)
+    if (userId) trackWrite(deleteRoutineSync(userId, id))
   }
   function toggleRoutineLog(routineId: string, date: string) {
     let updatedLog: RoutineLog | undefined
@@ -632,7 +634,7 @@ export function usePlanrStore(userId: string) {
       updatedLog = { id: uid(), routine_id: routineId, date, done: true }
       return [...prev, updatedLog]
     })
-    if (userId && updatedLog) upsertRoutineLog(userId, updatedLog)
+    if (userId && updatedLog) trackWrite(upsertRoutineLog(userId, updatedLog))
   }
   function isRoutineDone(routineId: string, date: string): boolean {
     return logs.find(l => l.routine_id === routineId && l.date === date)?.done ?? false
@@ -655,7 +657,7 @@ export function usePlanrStore(userId: string) {
       updatedEntry = { ...d, tasks: [...rest, ...reordered] }
       return prev.map(day => day.date === date ? updatedEntry! : day)
     })
-    if (userId && updatedEntry) upsertDayEntry(userId, updatedEntry)
+    if (userId && updatedEntry) trackWrite(upsertDayEntry(userId, updatedEntry))
   }
 
   function reorderGoalTasks(goalId: string, categoryId: string, draggedId: string, targetId: string) {
@@ -674,7 +676,7 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, tasks: [...rest, ...reordered] }
       return prev.map(goal => goal.id === goalId ? updatedGoal! : goal)
     })
-    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
   }
 
   // ── GOAL TASK LINKING ──────────────────────────────────────────────────────
@@ -719,7 +721,7 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, tasks }
       return updatedGoal
     }))
-    if (userId && updatedGoal) upsertShortGoal(userId, updatedGoal)
+    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
   }
 
   // ── LONG GOAL PROGRESS ─────────────────────────────────────────────────────
@@ -738,7 +740,7 @@ export function usePlanrStore(userId: string) {
   function getWeeklyReview(weekKey: string): string { return weeklyReviews[weekKey] || '' }
   function updateWeeklyReview(weekKey: string, content: string) {
     setWeeklyReviews(prev => ({ ...prev, [weekKey]: content }))
-    if (userId) upsertWeeklyReview(userId, weekKey, content)
+    if (userId) trackWrite(upsertWeeklyReview(userId, weekKey, content))
   }
 
   return {
