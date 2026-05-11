@@ -290,7 +290,7 @@ export function DayDetail({
         <span className={clsx('flex-1 text-sm leading-snug', task.done && 'line-through text-[var(--text-3)]')}>
           {task.text}
         </span>
-        <span className="text-[11px] text-[var(--teal-text)] bg-[var(--teal-bg)] px-1.5 py-0.5 rounded-[4px] max-w-[90px] truncate flex-shrink-0">
+        <span className="text-[11px] text-[var(--teal-text)] bg-[var(--teal-bg)] px-1.5 py-0.5 rounded-[4px] flex-shrink-0 whitespace-nowrap">
           {goalTitle}
         </span>
         <button
@@ -380,7 +380,7 @@ export function DayDetail({
         <span className={clsx('flex-1 text-sm leading-snug', subtask.done && 'line-through text-[var(--text-3)]')}>
           {subtask.text}
         </span>
-        <span className="text-[10px] text-[var(--teal-text)] bg-[var(--teal-bg)] px-1 py-0.5 rounded-[4px] max-w-[70px] truncate flex-shrink-0">
+        <span className="text-[10px] text-[var(--teal-text)] bg-[var(--teal-bg)] px-1 py-0.5 rounded-[4px] flex-shrink-0 whitespace-nowrap">
           {task.text}
         </span>
         <button

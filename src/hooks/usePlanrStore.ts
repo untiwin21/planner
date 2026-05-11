@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { DayEntry, ShortGoal, Routine, RoutineLog, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod } from '@/types'
 import { tasksProgress } from '@/lib/taskProgress'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
@@ -57,6 +57,8 @@ function derivePeriod(time?: string): RoutinePeriod {
 
 export function usePlanrStore(userId: string) {
   const [syncReady, setSyncReady] = useState(false)
+  // Track last local write to prevent periodic sync from overwriting recent changes
+  const lastWriteTs = useRef(0)
   const [days, setDaysRaw] = useState<DayEntry[]>(() => load(STORAGE_KEYS.days, []))
   const [goals, setGoalsRaw] = useState<ShortGoal[]>(() => load(STORAGE_KEYS.goals, []))
   const [routines, setRoutinesRaw] = useState<Routine[]>(() => load(STORAGE_KEYS.routines, []))
@@ -129,11 +131,24 @@ export function usePlanrStore(userId: string) {
         if (remoteData.longGoals.length > 0) setLongGoalsRaw(remoteData.longGoals)
         if (Object.keys(remoteData.weeklyReviews).length > 0) setWeeklyReviewsRaw(remoteData.weeklyReviews)
 
-        // ── Restore categories on new devices ────────────────────────────────
-        // Global categories are localStorage-only. On a new PC they're empty,
-        // so we reconstruct them from the category fields embedded in every task.
+        // ── Restore categories on new/other devices ─────────────────────────
+        // Try loading from Supabase first (synced via __categories__ key),
+        // then fall back to reconstructing from task data.
         const localCats = load<Category[]>(STORAGE_KEYS.categories, [])
-        if (localCats.length === 0) {
+        const remoteCatsJson = remoteData.weeklyReviews['__categories__']
+        if (remoteCatsJson) {
+          try {
+            const remoteCats: Category[] = JSON.parse(remoteCatsJson)
+            if (remoteCats.length > 0) {
+              // Merge: keep all remote categories, add any local-only ones
+              const remoteCatIds = new Set(remoteCats.map(c => c.id))
+              const localOnly = localCats.filter(c => !remoteCatIds.has(c.id))
+              const merged = [...remoteCats, ...localOnly]
+              setCategoriesRaw(() => { save(STORAGE_KEYS.categories, merged); return merged })
+            }
+          } catch { /* ignore parse errors */ }
+        } else if (localCats.length === 0) {
+          // Fallback: reconstruct from task data
           const catMap = new Map<string, Category>()
           for (const day of mergedDays) {
             for (const task of day.tasks) {
@@ -151,7 +166,7 @@ export function usePlanrStore(userId: string) {
           }
           if (catMap.size > 0) {
             const derived = Array.from(catMap.values())
-            setCategoriesRaw(prev => { save(STORAGE_KEYS.categories, derived); return derived })
+            setCategoriesRaw(() => { save(STORAGE_KEYS.categories, derived); return derived })
           }
         }
 
@@ -185,6 +200,8 @@ export function usePlanrStore(userId: string) {
     if (!userId) return
     const interval = setInterval(async () => {
       try {
+        // Skip sync if a local write happened in the last 10 seconds to avoid overwriting
+        if (Date.now() - lastWriteTs.current < 10000) return
         const remoteData = await fetchAll(userId)
         if (remoteData.days.length > 0) {
           setDaysRaw(prev => {
@@ -262,15 +279,18 @@ export function usePlanrStore(userId: string) {
 
   // ── Setters with auto-persist ──────────────────────────────────────────────
   const setDays = useCallback((v: DayEntry[] | ((p: DayEntry[]) => DayEntry[])) => {
+    lastWriteTs.current = Date.now()
     setDaysRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.days, next); return next })
   }, [])
   const setGoals = useCallback((v: ShortGoal[] | ((p: ShortGoal[]) => ShortGoal[])) => {
+    lastWriteTs.current = Date.now()
     setGoalsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.goals, next); return next })
   }, [])
   const setRoutines = useCallback((v: Routine[] | ((p: Routine[]) => Routine[])) => {
     setRoutinesRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.routines, next); return next })
   }, [])
   const setLogs = useCallback((v: RoutineLog[] | ((p: RoutineLog[]) => RoutineLog[])) => {
+    lastWriteTs.current = Date.now()
     setLogsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.logs, next); return next })
   }, [])
   const setLongGoals = useCallback((v: LongGoal[] | ((p: LongGoal[]) => LongGoal[])) => {
@@ -280,8 +300,15 @@ export function usePlanrStore(userId: string) {
     setWeeklyReviewsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.weeklyReviews, next); return next })
   }, [])
   const setCategories = useCallback((v: Category[] | ((p: Category[]) => Category[])) => {
-    setCategoriesRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.categories, next); return next })
-  }, [])
+    setCategoriesRaw(prev => {
+      const next = typeof v === 'function' ? v(prev) : v
+      save(STORAGE_KEYS.categories, next)
+      // Sync categories to Supabase via special weekly_review key
+      if (userId) upsertWeeklyReview(userId, '__categories__', JSON.stringify(next))
+      return next
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId])
 
   // ── DAY ENTRY ──────────────────────────────────────────────────────────────
   function getDay(date: string): DayEntry {
