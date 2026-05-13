@@ -1,6 +1,7 @@
 'use client'
 import clsx from 'clsx'
 import { dayRangeLabel } from '@/lib/dates'
+import { tasksProgress } from '@/lib/taskProgress'
 import type { ShortGoal } from '@/types'
 
 interface Props {
@@ -10,8 +11,9 @@ interface Props {
 }
 
 export function GoalCard({ goal, isSelected, onClick }: Props) {
-  const total = goal.tasks.length
-  const done = goal.tasks.filter(t => t.done).length
+  const progress = tasksProgress(goal.tasks)
+  const total = progress.total
+  const pct = progress.pct
 
   return (
     <button
@@ -30,16 +32,14 @@ export function GoalCard({ goal, isSelected, onClick }: Props) {
         {goal.title}
       </span>
       {total > 0 && (
-        <div className="flex items-center gap-1.5 mt-auto">
-          <div className="flex gap-1">
-            {Array.from({ length: total }, (_, i) => (
-              <span
-                key={i}
-                className={clsx('w-2 h-2 rounded-full transition-all', i < done ? 'bg-[var(--teal)]' : 'bg-[var(--border)]')}
-              />
-            ))}
+        <div className="flex flex-col gap-1 w-full mt-auto">
+          <div className="flex items-center justify-between">
+            <span className={clsx('text-[10px] font-medium', isSelected ? 'text-[var(--teal-text)]' : 'text-[var(--text-3)]')}>진행률</span>
+            <span className="text-[11px] font-semibold tabular-nums text-[var(--text-2)]">{pct}%</span>
           </div>
-          <span className="text-[11px] text-[var(--text-3)]">{done}/{total}</span>
+          <div className="w-full h-1 rounded-full bg-[var(--border)]">
+            <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, background: pct === 100 ? 'var(--teal)' : 'var(--purple)' }} />
+          </div>
         </div>
       )}
     </button>

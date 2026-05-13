@@ -28,6 +28,8 @@ const STORAGE_KEYS = {
   weeklyReviews: 'planr_weekly_reviews',
   categories: 'planr_categories',
   lastSync: 'planr_last_sync',
+  dirtyGoals: 'planr_dirty_goals',
+  dirtyDays: 'planr_dirty_days',
 }
 
 function load<T>(key: string, fallback: T): T {
@@ -58,11 +60,26 @@ function derivePeriod(time?: string): RoutinePeriod {
 export function usePlanrStore(userId: string) {
   const [syncReady, setSyncReady] = useState(false)
   // Global pending-write counter: periodic sync is blocked while any Supabase write is in flight.
-  // This eliminates the race condition where sync reads stale remote state before a local write lands.
   const pendingWrites = useRef(0)
-  function trackWrite(promise: Promise<void>) {
+  // Per-entity dirty tracking: entities modified locally are protected from "remote wins"
+  // merge UNTIL their write is confirmed successful. Persisted to localStorage so dirty state
+  // survives reloads (e.g. offline edit → reload → still protected from stale remote).
+  const dirtyGoalIds = useRef<Set<string>>(new Set(load<string[]>(STORAGE_KEYS.dirtyGoals, [])))
+  const dirtyDayDates = useRef<Set<string>>(new Set(load<string[]>(STORAGE_KEYS.dirtyDays, [])))
+  function persistDirtyGoals() { save(STORAGE_KEYS.dirtyGoals, Array.from(dirtyGoalIds.current)) }
+  function persistDirtyDays() { save(STORAGE_KEYS.dirtyDays, Array.from(dirtyDayDates.current)) }
+  function markGoalDirty(id: string) { dirtyGoalIds.current.add(id); persistDirtyGoals() }
+  function markDayDirty(date: string) { dirtyDayDates.current.add(date); persistDirtyDays() }
+  function clearGoalDirty(id: string) { dirtyGoalIds.current.delete(id); persistDirtyGoals() }
+  function clearDayDirty(date: string) { dirtyDayDates.current.delete(date); persistDirtyDays() }
+  function trackWrite(promise: Promise<void>, onSuccess?: () => void) {
     pendingWrites.current++
-    promise.finally(() => { pendingWrites.current = Math.max(0, pendingWrites.current - 1) })
+    promise.then(
+      () => { onSuccess?.() },          // success → clear dirty
+      (err) => { console.warn('[Planr] Supabase write failed, keeping dirty:', err) }, // failure → keep dirty
+    ).finally(() => {
+      pendingWrites.current = Math.max(0, pendingWrites.current - 1)
+    })
   }
   const [days, setDaysRaw] = useState<DayEntry[]>(() => load(STORAGE_KEYS.days, []))
   const [goals, setGoalsRaw] = useState<ShortGoal[]>(() => load(STORAGE_KEYS.goals, []))
@@ -76,6 +93,22 @@ export function usePlanrStore(userId: string) {
     if (!userId) { setSyncReady(true); return }
     async function sync() {
       try {
+        // Diagnostic: verify short_goals.tasks column exists by doing a test upsert with empty tasks
+        // This will surface the 42703 error in console immediately if SQL migration wasn't applied.
+        try {
+          const { supabase: sb } = await import('@/lib/supabase')
+          if (sb) {
+            const db = sb as any
+            const { error: testErr } = await db.from('short_goals').select('tasks').limit(1)
+            if (testErr && (testErr.code === '42703' || testErr.message?.includes('column'))) {
+              console.error('[Planr] ❌ short_goals.tasks 컬럼이 없습니다!')
+              console.error('[Planr] Supabase SQL Editor에서 실행하세요:')
+              console.error("[Planr]   alter table short_goals add column if not exists tasks jsonb default '[]';")
+            } else if (!testErr) {
+              console.log('[Planr] ✓ short_goals.tasks 컬럼 확인됨')
+            }
+          }
+        } catch (e) { /* ignore diagnostic errors */ }
         const remoteData = await fetchAll(userId)
 
         // ── Merge helpers (pure functions) ────────────────────────────────────
@@ -86,6 +119,8 @@ export function usePlanrStore(userId: string) {
           const merged = remote.map((rem: DayEntry) => {
             const loc = localMap.get(rem.date)
             if (!loc) return rem
+            // If this day is locally dirty (unsynced edit), local wins entirely
+            if (dirtyDayDates.current.has(rem.date)) return loc
             const remoteTaskIds = new Set(rem.tasks.map((t: Task) => t.id))
             const localOnlyTasks = loc.tasks.filter((t: Task) => !remoteTaskIds.has(t.id))
             const remNotes = rem.meta?.notes ?? []
@@ -109,6 +144,8 @@ export function usePlanrStore(userId: string) {
           const merged = remote.map((rem: ShortGoal) => {
             const loc = localMap.get(rem.id)
             if (!loc) return rem
+            // If this goal is locally dirty (unsynced edit), local wins entirely
+            if (dirtyGoalIds.current.has(rem.id)) return loc
             const remTaskIds = new Set(rem.tasks.map((t: Task) => t.id))
             const localOnlyTasks = loc.tasks.filter((t: Task) => !remTaskIds.has(t.id))
             const remNoteIds = new Set((rem.notes ?? []).map((n: any) => n.id))
@@ -131,9 +168,37 @@ export function usePlanrStore(userId: string) {
         setDaysRaw(() => { save(STORAGE_KEYS.days, mergedDays); return mergedDays })
         setGoalsRaw(() => { save(STORAGE_KEYS.goals, mergedGoals); return mergedGoals })
 
-        if (remoteData.routines.length > 0)  setRoutinesRaw(remoteData.routines)
-        if (remoteData.logs.length > 0)      setLogsRaw(remoteData.logs)
-        if (remoteData.longGoals.length > 0) setLongGoalsRaw(remoteData.longGoals)
+        // Merge routines: keep local-only, remote wins for shared IDs
+        if (remoteData.routines.length > 0) {
+          setRoutinesRaw(prev => {
+            const remoteIds = new Set(remoteData.routines.map((r: Routine) => r.id))
+            const localOnly = prev.filter(r => !remoteIds.has(r.id))
+            const merged = [...remoteData.routines, ...localOnly]
+            save(STORAGE_KEYS.routines, merged)
+            return merged
+          })
+        }
+        // Merge routine logs: keep local-only, remote wins for shared keys
+        if (remoteData.logs.length > 0) {
+          setLogsRaw(prev => {
+            const key = (l: RoutineLog) => `${l.routine_id}_${l.date}`
+            const remoteKeys = new Set(remoteData.logs.map((l: RoutineLog) => key(l)))
+            const localOnly = prev.filter(l => !remoteKeys.has(key(l)))
+            const merged = [...remoteData.logs, ...localOnly]
+            save(STORAGE_KEYS.logs, merged)
+            return merged
+          })
+        }
+        // Merge long goals: keep local-only, remote wins for shared IDs
+        if (remoteData.longGoals.length > 0) {
+          setLongGoalsRaw(prev => {
+            const remoteIds = new Set(remoteData.longGoals.map((g: LongGoal) => g.id))
+            const localOnly = prev.filter(g => !remoteIds.has(g.id))
+            const merged = [...remoteData.longGoals, ...localOnly]
+            save(STORAGE_KEYS.longGoals, merged)
+            return merged
+          })
+        }
         if (Object.keys(remoteData.weeklyReviews).length > 0) setWeeklyReviewsRaw(remoteData.weeklyReviews)
 
         // ── Restore categories on new/other devices ─────────────────────────
@@ -176,17 +241,42 @@ export function usePlanrStore(userId: string) {
         }
 
         // ── One-time backfill: re-push ALL data in new embedded format ────────
-        // Existing Supabase rows have no meta._tasks / short_goals.tasks yet.
-        // This runs once per device, migrating all local tasks into the parent records.
         const BACKFILL_KEY = 'planr_backfill_v1'
         if (!localStorage.getItem(BACKFILL_KEY)) {
           console.log('[Planr] 백필 동기화 시작...')
-          await Promise.all([
+          const results = await Promise.allSettled([
             ...mergedDays.map(d => upsertDayEntry(userId, d)),
             ...mergedGoals.map(g => upsertShortGoal(userId, g)),
           ])
-          localStorage.setItem(BACKFILL_KEY, '1')
-          console.log('[Planr] 백필 동기화 완료.')
+          const failures = results.filter(r => r.status === 'rejected').length
+          if (failures === 0) {
+            localStorage.setItem(BACKFILL_KEY, '1')
+            console.log('[Planr] 백필 동기화 완료.')
+          } else {
+            console.warn(`[Planr] 백필 ${failures}건 실패. 다음 로드 때 재시도합니다.`)
+          }
+        }
+
+        // ── Retry dirty entities from previous sessions ─────────────────────
+        // If a write failed (network/error) and the user reloaded, the dirty flag is still set.
+        // Retry the write now so eventually local state syncs to remote.
+        for (const goalId of Array.from(dirtyGoalIds.current)) {
+          const goal = mergedGoals.find(g => g.id === goalId)
+          if (goal) {
+            console.log('[Planr] dirty goal 재시도:', goalId)
+            trackWrite(upsertShortGoal(userId, goal), () => clearGoalDirty(goalId))
+          } else {
+            clearGoalDirty(goalId) // goal no longer exists locally; drop dirty marker
+          }
+        }
+        for (const date of Array.from(dirtyDayDates.current)) {
+          const day = mergedDays.find(d => d.date === date)
+          if (day) {
+            console.log('[Planr] dirty day 재시도:', date)
+            trackWrite(upsertDayEntry(userId, day), () => clearDayDirty(date))
+          } else {
+            clearDayDirty(date)
+          }
         }
 
         save(STORAGE_KEYS.lastSync, new Date().toISOString())
@@ -206,70 +296,67 @@ export function usePlanrStore(userId: string) {
     const interval = setInterval(async () => {
       try {
         // Skip sync while any Supabase write is still in flight
-        if (pendingWrites.current > 0) return
+        if (pendingWrites.current > 0) {
+          console.log('[Planr] periodic sync: skipping (writes in flight)')
+          return
+        }
+        const dirtyCount = dirtyGoalIds.current.size + dirtyDayDates.current.size
+        if (dirtyCount > 0) {
+          console.log(`[Planr] periodic sync: ${dirtyCount} dirty entities will be skipped from remote merge`)
+        }
         const remoteData = await fetchAll(userId)
+        // Periodic sync: ONLY add new days / new tasks from remote. Never overwrite
+        // existing task done states. This eliminates the revert race condition entirely.
+        // Cross-device done state updates are picked up on next page load (initial sync).
         if (remoteData.days.length > 0) {
           setDaysRaw(prev => {
-            const localMap = new Map(prev.map(d => [d.date, d]))
             const remoteMap = new Map(remoteData.days.map((d: DayEntry) => [d.date, d]))
-            // Merge: remote wins for task done states
             const merged = prev.map(d => {
               const remote = remoteMap.get(d.date)
               if (!remote) return d
-              // Merge tasks: update done/subtask states from remote
-              const remoteTasks = new Map(remote.tasks.map((t: Task) => [t.id, t]))
-              const mergedTasks = d.tasks.map(t => {
-                const rt = remoteTasks.get(t.id)
-                if (!rt) return t
-                return { ...t, done: rt.done, subtasks: rt.subtasks }
-              })
-              // Add remote-only tasks
+              // Add remote-only tasks (new tasks created on another device); keep local task states
               const localTaskIds = new Set(d.tasks.map(t => t.id))
               const remoteOnlyTasks = remote.tasks.filter((t: Task) => !localTaskIds.has(t.id))
-              return { ...d, tasks: [...mergedTasks, ...remoteOnlyTasks], meta: { ...d.meta, ...remote.meta } }
+              if (remoteOnlyTasks.length === 0) return d
+              return { ...d, tasks: [...d.tasks, ...remoteOnlyTasks] }
             })
-            // Add remote-only days
             const localDates = new Set(prev.map(d => d.date))
             const remoteOnlyDays = remoteData.days.filter((d: DayEntry) => !localDates.has(d.date))
+            if (remoteOnlyDays.length === 0 && merged === prev) return prev
             const result = [...merged, ...remoteOnlyDays]
             save(STORAGE_KEYS.days, result)
             return result
           })
         }
-        // Sync goal task states
+        // Sync goal tasks: ONLY add new tasks from remote. Never overwrite existing task done states.
+        // This eliminates the toggle-revert race. Cross-device done updates flow on next page load.
         if (remoteData.goals.length > 0) {
           setGoalsRaw(prev => {
             const remoteGoalMap = new Map(remoteData.goals.map((g: ShortGoal) => [g.id, g]))
             const merged = prev.map(g => {
               const rg = remoteGoalMap.get(g.id)
               if (!rg) return g
-              const remoteTaskMap = new Map(rg.tasks.map((t: Task) => [t.id, t]))
-              const mergedTasks = g.tasks.map(t => {
-                const rt = remoteTaskMap.get(t.id)
-                if (!rt) return t
-                return { ...t, done: rt.done, subtasks: rt.subtasks }
-              })
               const localTaskIds = new Set(g.tasks.map(t => t.id))
               const remoteOnlyTasks = rg.tasks.filter((t: Task) => !localTaskIds.has(t.id))
-              return { ...g, tasks: [...mergedTasks, ...remoteOnlyTasks] }
+              if (remoteOnlyTasks.length === 0) return g
+              return { ...g, tasks: [...g.tasks, ...remoteOnlyTasks] }
             })
             const localIds = new Set(prev.map(g => g.id))
             const remoteOnlyGoals = remoteData.goals.filter((g: ShortGoal) => !localIds.has(g.id))
+            if (remoteOnlyGoals.length === 0 && merged === prev) return prev
             const result = [...merged, ...remoteOnlyGoals]
             save(STORAGE_KEYS.goals, result)
             return result
           })
         }
-        // Sync routine logs
+        // Sync routine logs: ONLY add new logs from remote. Never overwrite existing log states.
         if (remoteData.logs.length > 0) {
           setLogsRaw(prev => {
             const key = (l: RoutineLog) => `${l.routine_id}_${l.date}`
-            const localMap = new Map(prev.map(l => [key(l), l]))
-            for (const rl of remoteData.logs) {
-              const k = key(rl)
-              localMap.set(k, rl) // remote wins
-            }
-            const result = Array.from(localMap.values())
+            const localKeys = new Set(prev.map(l => key(l)))
+            const newLogs = remoteData.logs.filter((rl: RoutineLog) => !localKeys.has(key(rl)))
+            if (newLogs.length === 0) return prev
+            const result = [...prev, ...newLogs]
             save(STORAGE_KEYS.logs, result)
             return result
           })
@@ -331,7 +418,10 @@ export function usePlanrStore(userId: string) {
       if (idx >= 0) { const n = [...prev]; n[idx] = entry; return n }
       return [...prev, entry]
     })
-    if (userId) trackWrite(upsertDayEntry(userId, entry))
+    if (userId) {
+      markDayDirty(entry.date)
+      trackWrite(upsertDayEntry(userId, entry), () => clearDayDirty(entry.date))
+    }
   }
 
   function toggleTask(date: string, taskId: string) {
@@ -444,12 +534,18 @@ export function usePlanrStore(userId: string) {
   function addGoal(g: Omit<ShortGoal, 'id'>) {
     const newGoal = { ...g, id: uid() }
     setGoals(prev => [...prev, newGoal])
-    if (userId) trackWrite(upsertShortGoal(userId, newGoal))
+    if (userId) {
+      markGoalDirty(newGoal.id)
+      trackWrite(upsertShortGoal(userId, newGoal), () => clearGoalDirty(newGoal.id))
+    }
   }
   function updateGoal(id: string, patch: Partial<ShortGoal>) {
     let updatedGoal: ShortGoal | undefined
     setGoals(prev => prev.map(g => { if (g.id === id) { updatedGoal = { ...g, ...patch }; return updatedGoal } return g }))
-    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
+    if (userId && updatedGoal) {
+      markGoalDirty(id)
+      trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(id))
+    }
   }
   function deleteGoal(id: string) {
     setGoals(prev => prev.filter(g => g.id !== id))
@@ -457,20 +553,33 @@ export function usePlanrStore(userId: string) {
   }
   function toggleGoalTask(goalId: string, taskId: string) {
     let updatedGoal: ShortGoal | undefined
+    let toggledDone: boolean | undefined
     setGoals(prev => prev.map(g => {
       if (g.id !== goalId) return g
-      const tasks = g.tasks.map(t => t.id === taskId ? { ...t, done: !t.done } : t)
+      const tasks = g.tasks.map(t => {
+        if (t.id !== taskId) return t
+        toggledDone = !t.done
+        return { ...t, done: toggledDone }
+      })
       updatedGoal = { ...g, tasks }
       return updatedGoal
     }))
-    // Embed the full goal (including updated tasks) so tasks sync reliably
-    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
+    console.log(`[Planr] toggleGoalTask: goal=${goalId} task=${taskId} → done=${toggledDone}`)
+    if (userId && updatedGoal) {
+      markGoalDirty(goalId)
+      trackWrite(upsertShortGoal(userId, updatedGoal), () => {
+        console.log(`[Planr] ✓ goal write confirmed, clearing dirty: ${goalId}`)
+        clearGoalDirty(goalId)
+      })
+      // Also write the toggled task to legacy tasks table (idempotent backup)
+      const toggledTask = updatedGoal.tasks.find(t => t.id === taskId)
+      if (toggledTask) trackWrite(upsertTask(userId, toggledTask, goalId))
+    }
   }
   function addGoalTask(goalId: string, categoryId: string, text: string) {
     let updatedGoal: ShortGoal | undefined
     setGoals(prev => prev.map(g => {
       if (g.id !== goalId) return g
-      // look in per-goal categories first, then global categories
       const category =
         g.categories.find((c: Category) => c.id === categoryId) ||
         categories.find(c => c.id === categoryId)
@@ -479,8 +588,10 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, tasks: [...g.tasks, newTask] }
       return updatedGoal
     }))
-    // Embed the full goal so tasks sync reliably
-    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
+    if (userId && updatedGoal) {
+      markGoalDirty(goalId)
+      trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(goalId))
+    }
   }
 
   function deleteGoalTask(goalId: string, taskId: string) {
@@ -490,7 +601,10 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, tasks: g.tasks.filter(t => t.id !== taskId) }
       return updatedGoal
     }))
-    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
+    if (userId && updatedGoal) {
+      markGoalDirty(goalId)
+      trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(goalId))
+    }
     if (userId) trackWrite(deleteTaskSync(userId, taskId))
   }
 
@@ -504,8 +618,10 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, tasks: g.tasks.map(t => t.id === taskId ? updated : t) }
       return updatedGoal
     }))
-    // Embed the full goal so tasks sync reliably
-    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
+    if (userId && updatedGoal) {
+      markGoalDirty(goalId)
+      trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(goalId))
+    }
   }
 
   // ── GOAL NOTES ─────────────────────────────────────────────────────────────
@@ -517,7 +633,10 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, notes: [newNote, ...(g.notes ?? [])] }
       return updatedGoal
     }))
-    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
+    if (userId && updatedGoal) {
+      markGoalDirty(goalId)
+      trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(goalId))
+    }
   }
 
   function updateGoalNote(goalId: string, noteId: string, text: string) {
@@ -527,7 +646,10 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, notes: (g.notes ?? []).map(n => n.id === noteId ? { ...n, text } : n) }
       return updatedGoal
     }))
-    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
+    if (userId && updatedGoal) {
+      markGoalDirty(goalId)
+      trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(goalId))
+    }
   }
 
   function deleteGoalNote(goalId: string, noteId: string) {
@@ -537,7 +659,10 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, notes: (g.notes ?? []).filter(n => n.id !== noteId) }
       return updatedGoal
     }))
-    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
+    if (userId && updatedGoal) {
+      markGoalDirty(goalId)
+      trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(goalId))
+    }
   }
 
   // ── LONG GOALS ─────────────────────────────────────────────────────────────
@@ -676,7 +801,10 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, tasks: [...rest, ...reordered] }
       return prev.map(goal => goal.id === goalId ? updatedGoal! : goal)
     })
-    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
+    if (userId && updatedGoal) {
+      markGoalDirty(goalId)
+      trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(goalId))
+    }
   }
 
   // ── GOAL TASK LINKING ──────────────────────────────────────────────────────
@@ -721,7 +849,10 @@ export function usePlanrStore(userId: string) {
       updatedGoal = { ...g, tasks }
       return updatedGoal
     }))
-    if (userId && updatedGoal) trackWrite(upsertShortGoal(userId, updatedGoal))
+    if (userId && updatedGoal) {
+      markGoalDirty(goalId)
+      trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(goalId))
+    }
   }
 
   // ── LONG GOAL PROGRESS ─────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Plus, X } from 'lucide-react'
 import { addWeeks, subWeeks, parseISO } from 'date-fns'
 import clsx from 'clsx'
 import { getWeekDays, formatDate, isToday, DAY_NAMES } from '@/lib/dates'
+import { tasksProgress } from '@/lib/taskProgress'
 import type { DayEntry, Category, ShortGoal, Routine, RoutineLog, DayMeta, Task } from '@/types'
 import { MobileToday } from './MobileToday'
 
@@ -132,15 +133,14 @@ export function MobileWeekly({
             <div key={rowIdx} className="flex gap-1">
               {row.map((goal, i) => {
                 const colorClass = GOAL_COLORS[i % GOAL_COLORS.length]
-                const done = goal.tasks.filter(t => t.done).length
-                const total = goal.tasks.length
+                const prog = tasksProgress(goal.tasks)
                 return (
                   <div key={goal.id}
                     className={clsx('flex-1 px-2 py-1 rounded-[8px] border-l-2', colorClass)}
                   >
                     <p className="text-[11px] font-semibold truncate">{goal.title}</p>
-                    {total > 0 && (
-                      <p className="text-[10px] opacity-70">{done}/{total}</p>
+                    {prog.total > 0 && (
+                      <p className="text-[10px] opacity-70 tabular-nums">{prog.pct}%</p>
                     )}
                   </div>
                 )

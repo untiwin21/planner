@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { addWeeks, subWeeks } from 'date-fns'
 import clsx from 'clsx'
 import { getWeekDays, formatDate, DAY_NAMES } from '@/lib/dates'
+import { tasksProgress } from '@/lib/taskProgress'
 import type { DayEntry, ShortGoal, Routine, RoutineLog } from '@/types'
 
 interface Props {
@@ -143,14 +144,14 @@ export function MobileReview({ days, goals, routines, logs, getWeeklyReview, upd
           <p className="text-xs font-semibold mb-2">이번 주 목표</p>
           <div className="flex flex-col gap-2">
             {weekGoals.map(g => {
-              const done = g.tasks.filter(t => t.done).length
-              const total = g.tasks.length
-              const pct = total > 0 ? Math.round((done / total) * 100) : 0
+              const prog = tasksProgress(g.tasks)
+              const total = prog.total
+              const pct = prog.pct
               return (
                 <div key={g.id}>
                   <div className="flex justify-between items-center mb-0.5">
                     <p className="text-xs truncate flex-1">{g.title}</p>
-                    {total > 0 && <span className="text-[10px] text-[var(--text-3)] ml-2">{done}/{total}</span>}
+                    {total > 0 && <span className="text-[10px] text-[var(--text-3)] ml-2 tabular-nums">{pct}%</span>}
                   </div>
                   {total > 0 && (
                     <div className="h-1.5 rounded-full bg-[var(--border)]">

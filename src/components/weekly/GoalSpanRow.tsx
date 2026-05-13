@@ -2,6 +2,7 @@
 import clsx from 'clsx'
 import { parseISO } from 'date-fns'
 import { formatDate } from '@/lib/dates'
+import { tasksProgress } from '@/lib/taskProgress'
 import type { ShortGoal } from '@/types'
 
 interface Props {
@@ -62,9 +63,9 @@ function buildRowCells(
       col++
     }
 
-    const done = goal.tasks.filter(t => t.done).length
-    const total = goal.tasks.length
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0
+    const progress = tasksProgress(goal.tasks)
+    const total = progress.total
+    const pct = progress.pct
     const isSelected = selectedGoalId === goal.id
 
     cells.push(
@@ -94,7 +95,7 @@ function buildRowCells(
                   style={{ width: `${pct}%`, background: isSelected ? 'var(--teal)' : 'var(--purple)' }}
                 />
               </div>
-              <span className="text-[11px] text-[var(--text-3)] flex-shrink-0">{done}/{total}</span>
+              <span className="text-[11px] text-[var(--text-3)] flex-shrink-0 tabular-nums">{pct}%</span>
             </div>
           )}
         </div>

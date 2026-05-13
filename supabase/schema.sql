@@ -93,3 +93,7 @@ create policy "users own their data" on weekly_reviews for all using (auth.uid()
 alter table routines add column if not exists time text;
 alter table routines add column if not exists "order" integer default 0;
 alter table routines add column if not exists period text default 'anytime';
+
+-- Migration: embed tasks inside short_goals row so goal task done states
+-- sync reliably across devices (REQUIRED for cross-device task completion).
+alter table short_goals add column if not exists tasks jsonb default '[]';

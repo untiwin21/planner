@@ -4,6 +4,7 @@ import { Plus, ChevronDown, ChevronUp, Check, X } from 'lucide-react'
 import clsx from 'clsx'
 import { parseISO } from 'date-fns'
 import { isGoalActive, dayRangeLabel } from '@/lib/dates'
+import { tasksProgress } from '@/lib/taskProgress'
 import type { ShortGoal, Category, Task } from '@/types'
 
 interface Props {
@@ -54,9 +55,9 @@ export function MobileGoals({
 
   function renderGoalCard(goal: ShortGoal) {
     const isExpanded = expandedId === goal.id
-    const done = goal.tasks.filter(t => t.done).length
-    const total = goal.tasks.length
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0
+    const progress = tasksProgress(goal.tasks)
+    const total = progress.total
+    const pct = progress.pct
 
     // Get unique categories used in this goal's tasks
     const usedCatIds = [...new Set(goal.tasks.map(t => t.category_id))]
@@ -77,7 +78,7 @@ export function MobileGoals({
                 <div className="flex-1 h-1 rounded-full bg-[var(--border)]">
                   <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: 'var(--teal)' }} />
                 </div>
-                <span className="text-[10px] text-[var(--text-3)] tabular-nums">{done}/{total}</span>
+                <span className="text-[10px] text-[var(--text-3)] tabular-nums">{pct}%</span>
               </div>
             )}
           </div>

@@ -5,6 +5,7 @@ import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { dayRangeLabel } from '@/lib/dates'
 import { Badge, Checkbox, CircleCheck, Input, Textarea, IconBtn, ProgressBar } from '@/components/ui'
+import { tasksProgress } from '@/lib/taskProgress'
 import type { ShortGoal, Category, Routine, Task, SubTask, NoteEntry } from '@/types'
 import clsx from 'clsx'
 
@@ -83,7 +84,7 @@ export function GoalDetail({
   }
 
   const notes = [...(goal.notes ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const done = goal.tasks.filter(t => t.done).length
+  const progress = tasksProgress(goal.tasks)
 
   // ── Routine helpers ──────────────────────────────────────────────────────
   function handleToggleRoutine(routineId: string) {
@@ -235,9 +236,9 @@ export function GoalDetail({
       {goal.tasks.length > 0 && (
         <div>
           <div className="flex justify-between text-xs text-[var(--text-3)] mb-1.5">
-            <span>진행률</span><span>{done}/{goal.tasks.length}</span>
+            <span>진행률</span><span className="tabular-nums">{progress.pct}%</span>
           </div>
-          <ProgressBar value={done} max={goal.tasks.length} color="teal" />
+          <ProgressBar value={progress.pct} max={100} color="teal" />
         </div>
       )}
 
