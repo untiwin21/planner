@@ -125,6 +125,13 @@ export function usePlanrStore(userId: string) {
   const [weeklyReviews, setWeeklyReviewsRaw] = useState<Record<string, string>>(() => load(STORAGE_KEYS.weeklyReviews, {}))
   const [categories, setCategoriesRaw] = useState<Category[]>(() => load(STORAGE_KEYS.categories, []))
 
+  // Refs that mirror state — used by sync/retry logic that runs outside render cycles
+  // and needs the latest committed state without going through a setState callback.
+  const daysRef = useRef(days)
+  const goalsRef = useRef(goals)
+  daysRef.current = days
+  goalsRef.current = goals
+
   useEffect(() => {
     if (!userId) { setSyncReady(true); return }
     async function sync() {
@@ -176,11 +183,25 @@ export function usePlanrStore(userId: string) {
           return result
         }
 
-        const mergedDays = mergeDaysList(days, remoteData.days)
-        const mergedGoals = mergeGoalsList(goals, remoteData.goals)
-
-        setDaysRaw(() => { save(STORAGE_KEYS.days, mergedDays); return mergedDays })
-        setGoalsRaw(() => { save(STORAGE_KEYS.goals, mergedGoals); return mergedGoals })
+        // CRITICAL: must merge with LATEST state via `prev`, not the captured `days`/`goals`
+        // from useEffect closure. Otherwise a user toggle during sync window is lost:
+        //   1. sync starts, captures stale `goals`
+        //   2. user toggles task → state updates, dirty marked
+        //   3. mergeGoalsList(stale, remote) uses stale `loc` for dirty check → toggle absent
+        //   4. setGoalsRaw(() => merged) replaces state, toggle lost
+        // Using `prev` makes the merge see the user's in-flight changes.
+        let mergedDays: DayEntry[] = []
+        let mergedGoals: ShortGoal[] = []
+        setDaysRaw(prev => {
+          mergedDays = mergeDaysList(prev, remoteData.days)
+          save(STORAGE_KEYS.days, mergedDays)
+          return mergedDays
+        })
+        setGoalsRaw(prev => {
+          mergedGoals = mergeGoalsList(prev, remoteData.goals)
+          save(STORAGE_KEYS.goals, mergedGoals)
+          return mergedGoals
+        })
 
         // Routines: LWW by updated_at
         if (remoteData.routines.length > 0) {
@@ -275,16 +296,21 @@ export function usePlanrStore(userId: string) {
         }
 
         // ── Retry dirty entities (failed writes from previous session) ──────
-        for (const goalId of Array.from(dirtyGoalIds.current)) {
-          const goal = mergedGoals.find(g => g.id === goalId)
-          if (goal) trackWrite(upsertShortGoal(userId, goal), () => clearGoalDirty(goalId))
-          else clearGoalDirty(goalId)
-        }
-        for (const date of Array.from(dirtyDayDates.current)) {
-          const day = mergedDays.find(d => d.date === date)
-          if (day) trackWrite(upsertDayEntry(userId, day), () => clearDayDirty(date))
-          else clearDayDirty(date)
-        }
+        // Deferred via setTimeout so React commits the merge setState first, ensuring
+        // refs reflect the merged state. Without the defer, refs may still hold the
+        // pre-merge state and `goal.find(...)` could miss entities or use stale done states.
+        setTimeout(() => {
+          for (const goalId of Array.from(dirtyGoalIds.current)) {
+            const goal = goalsRef.current.find(g => g.id === goalId)
+            if (goal) trackWrite(upsertShortGoal(userId, goal), () => clearGoalDirty(goalId))
+            else clearGoalDirty(goalId)
+          }
+          for (const date of Array.from(dirtyDayDates.current)) {
+            const day = daysRef.current.find(d => d.date === date)
+            if (day) trackWrite(upsertDayEntry(userId, day), () => clearDayDirty(date))
+            else clearDayDirty(date)
+          }
+        }, 0)
 
         save(STORAGE_KEYS.lastSync, new Date().toISOString())
       } catch (e) {
@@ -297,15 +323,39 @@ export function usePlanrStore(userId: string) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
-  // ── Periodic sync (every 30s) — full LWW merge across all entities ─────────
+  // ── Periodic sync (every 30s) + focus/visibility triggers ──────────────────
   // Cross-device done-state updates flow because per-task updated_at picks the newer
   // copy. In-flight local writes are protected via the pendingWrites guard, so the
   // window where remote could be stale-vs-local is closed.
+  // Focus/visibility triggers run sync immediately when user returns to the tab,
+  // so switching devices and coming back doesn't require waiting up to 30s.
   useEffect(() => {
     if (!userId) return
-    const interval = setInterval(async () => {
+    let syncing = false
+    async function runSync() {
+      if (syncing) return
+      syncing = true
       try {
         if (pendingWrites.current > 0) return
+
+        // Retry any entities that failed to write previously (dirty flag still set).
+        // Without this, a single failed write never reaches Supabase until reload,
+        // and other devices never see the change.
+        if (dirtyGoalIds.current.size > 0) {
+          for (const goalId of Array.from(dirtyGoalIds.current)) {
+            const goal = goalsRef.current.find(g => g.id === goalId)
+            if (goal) trackWrite(upsertShortGoal(userId, goal), () => clearGoalDirty(goalId))
+            else clearGoalDirty(goalId)
+          }
+        }
+        if (dirtyDayDates.current.size > 0) {
+          for (const date of Array.from(dirtyDayDates.current)) {
+            const day = daysRef.current.find(d => d.date === date)
+            if (day) trackWrite(upsertDayEntry(userId, day), () => clearDayDirty(date))
+            else clearDayDirty(date)
+          }
+        }
+
         const remoteData = await fetchAll(userId)
 
         // ── Days ─────────────────────────────────────────────────────────────
@@ -397,9 +447,21 @@ export function usePlanrStore(userId: string) {
         }
       } catch {
         // Silent fail for periodic sync
+      } finally {
+        syncing = false
       }
-    }, 30000)
-    return () => clearInterval(interval)
+    }
+    const interval = setInterval(runSync, 30000)
+    // Sync immediately when user returns to the tab (no waiting up to 30s)
+    function onVisible() { if (document.visibilityState === 'visible') runSync() }
+    function onFocus() { runSync() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onFocus)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
