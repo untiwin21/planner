@@ -7,6 +7,7 @@ export interface SubTask {
   id: string
   text: string
   done: boolean
+  updated_at?: number
 }
 
 export interface Task {
@@ -20,6 +21,8 @@ export interface Task {
   category_color: BadgeColor
   time?: string
   subtasks?: SubTask[]
+  // Last-write-wins timestamp (ms epoch). Set on every mutation; merge takes newer.
+  updated_at?: number
 }
 
 export interface Category {
@@ -44,6 +47,9 @@ export interface DayMeta {
   notes?: JournalEntry[]
   linkedGoalTaskIds?: string[]   // IDs of short-goal tasks linked to this day
   linkedGoalSubtaskIds?: string[] // IDs of specific subtasks linked to this day
+  // Last-write-wins timestamp (ms epoch) for non-task meta fields (sleep/condition/focus/top3/note links etc.)
+  // Per-task fields use Task.updated_at directly; this covers everything else in the day entry.
+  updated_at?: number
 }
 
 export interface DayEntry {
@@ -72,6 +78,9 @@ export interface ShortGoal {
   routines: any[]
   categories: any[]
   notes?: NoteEntry[]
+  // Last-write-wins timestamp for goal-level fields (title, dates, note, routines, categories, notes).
+  // Tasks have their own per-task updated_at and are merged independently.
+  updated_at?: number
 }
 
 export interface LongGoal {
@@ -95,6 +104,7 @@ export interface Routine {
   time?: string
   order?: number
   period?: RoutinePeriod
+  updated_at?: number
 }
 
 export interface RoutineLog {
@@ -102,6 +112,7 @@ export interface RoutineLog {
   routine_id: string
   date: string
   done: boolean
+  updated_at?: number
 }
 
 export interface WeeklyReview {

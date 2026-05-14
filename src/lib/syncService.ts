@@ -127,10 +127,11 @@ export async function deleteTask(userId: string, taskId: string): Promise<void> 
 export async function upsertRoutine(userId: string, routine: Routine): Promise<void> {
   if (!supabase) return
   const db = supabase as any
-  const { id, name, status, created_at, time, order, period } = routine
+  const { id, name, status, created_at, time, order, period, updated_at } = routine
   const { error } = await db.from('routines').upsert({
     id, user_id: userId, name, status, created_at,
     time: time ?? null, order: order ?? 0, period: period ?? 'anytime',
+    updated_at: updated_at ?? null,
   })
   if (error) {
     if (error.code === '42703' || (error.message && error.message.includes('column'))) {
@@ -159,9 +160,21 @@ export async function deleteRoutine(userId: string, routineId: string): Promise<
 export async function upsertRoutineLog(userId: string, log: RoutineLog): Promise<void> {
   if (!supabase) return
   const db = supabase as any
-  const { id, routine_id, date, done } = log
-  const { error } = await db.from('routine_logs').upsert({ id, user_id: userId, routine_id, date, done })
+  const { id, routine_id, date, done, updated_at } = log
+  const { error } = await db.from('routine_logs').upsert({
+    id, user_id: userId, routine_id, date, done,
+    updated_at: updated_at ?? null,
+  })
   if (error) {
+    if (error.code === '42703' || (error.message && error.message.includes('column'))) {
+      // Fallback for instances where updated_at column hasn't been added yet.
+      const { error: e2 } = await db.from('routine_logs').upsert({ id, user_id: userId, routine_id, date, done })
+      if (e2) {
+        console.error('Error upserting routine log (fallback):', e2.message, e2)
+        throw new Error(`upsertRoutineLog fallback failed: ${e2.message}`)
+      }
+      return
+    }
     console.error('Error upserting routine log:', error.message, error)
     throw new Error(`upsertRoutineLog failed: ${error.message}`)
   }

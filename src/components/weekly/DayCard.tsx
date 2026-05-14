@@ -1,13 +1,14 @@
 'use client'
 import clsx from 'clsx'
-import { isToday, DAY_NAMES, formatSleepMin } from '@/lib/dates'
+import { isToday, DAY_NAMES, formatSleepMin, formatDate } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
-import type { DayEntry } from '@/types'
+import type { DayEntry, ShortGoal, Task } from '@/types'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 
 interface DayCardProps {
   date: Date
   entry?: DayEntry
+  goals: ShortGoal[]
   isSelected: boolean
   onClick: () => void
 }
@@ -23,7 +24,7 @@ const DOT_COLORS: Record<string, string> = {
 
 const LEVEL_EMOJI: Record<number, string> = { 1: '😞', 2: '😕', 3: '😐', 4: '🙂', 5: '😄' }
 
-export function DayCard({ date, entry, isSelected, onClick }: DayCardProps) {
+export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProps) {
   const today = isToday(date)
   const dayIdx = (date.getDay() + 6) % 7
   const tasks = entry?.tasks ?? []
@@ -42,17 +43,40 @@ export function DayCard({ date, entry, isSelected, onClick }: DayCardProps) {
     })
     .slice(0, 4)
 
-  // Non-schedule/non-deadline tasks for progress + top3 (subtask-aware)
+  // Day-native tasks that count toward progress (everything except schedule/deadline).
   const workTasks = tasks.filter(t => t.category_id !== SCHEDULE_CAT_ID && t.category_id !== DEADLINE_CAT_ID)
-  const progress = tasksProgress(workTasks)
-  const doneCnt = progress.done
+
+  // Linked goal tasks/subtasks imported into this day also count — they belong to a
+  // user-managed category just like native tasks. Synthesize standalone Task records
+  // for linked individual subtasks so `tasksProgress` treats each as one unit.
+  const dateStr = formatDate(date)
+  const activeGoals = goals.filter(g => g.date_from <= dateStr && g.date_to >= dateStr)
+  const linkedTaskIds = new Set(meta?.linkedGoalTaskIds ?? [])
+  const linkedSubIds = new Set(meta?.linkedGoalSubtaskIds ?? [])
+  const linkedTasks: Task[] = []
+  for (const g of activeGoals) {
+    for (const t of g.tasks) {
+      if (linkedTaskIds.has(t.id)) linkedTasks.push(t)
+      for (const s of t.subtasks ?? []) {
+        if (linkedSubIds.has(s.id)) {
+          linkedTasks.push({
+            id: s.id, text: s.text, done: s.done,
+            day_id: t.day_id, goal_id: t.goal_id,
+            category_id: t.category_id, category_name: t.category_name, category_color: t.category_color,
+          })
+        }
+      }
+    }
+  }
+  const allCountedTasks = [...workTasks, ...linkedTasks]
+  const progress = tasksProgress(allCountedTasks)
   const totalCnt = progress.total
   const pct = progress.pct
 
   const top3Ids = meta?.top3 ?? []
   const top3 = top3Ids.length > 0
-    ? top3Ids.map(id => workTasks.find(t => t.id === id)).filter(Boolean)
-    : workTasks.filter(t => !t.done).slice(0, 3)
+    ? top3Ids.map(id => allCountedTasks.find(t => t.id === id)).filter(Boolean)
+    : allCountedTasks.filter(t => !t.done).slice(0, 3)
   const cardKeywords = meta?.cardKeywords ?? []
 
   return (

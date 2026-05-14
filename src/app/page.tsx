@@ -18,7 +18,8 @@ import { JournalView } from '@/components/journal/JournalView'
 import { WeeklyPrompt } from '@/components/system/WeeklyPrompt'
 import { FocusTimer } from '@/components/system/FocusTimer'
 import { Card } from '@/components/ui'
-import type { ShortGoal } from '@/types'
+import type { ShortGoal, Task } from '@/types'
+import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import clsx from 'clsx'
 import { useUserId } from '@/context/UserContext'
 import { supabase } from '@/lib/supabase'
@@ -122,13 +123,33 @@ export default function Home() {
   const todayGoalRoutines = todayShortGoals[0]?.routines ?? []
   const todayGoalLabel = todayShortGoals[0]?.title
 
-  // Top bar stats (subtask-aware)
+  // Top bar stats (subtask-aware) — excludes schedule/deadline, includes linked goal tasks/subtasks.
   const weekStats = useMemo(() => {
     let taskTotal = 0, taskDone = 0
     for (const d of weekDays) {
-      const entry = store.days.find(e => e.date === formatDate(d))
+      const ds = formatDate(d)
+      const entry = store.days.find(e => e.date === ds)
       if (!entry) continue
-      const p = tasksProgress(entry.tasks)
+      const workTasks = entry.tasks.filter(t => t.category_id !== SCHEDULE_CAT_ID && t.category_id !== DEADLINE_CAT_ID)
+      const linkedIds = new Set(entry.meta?.linkedGoalTaskIds ?? [])
+      const linkedSubIds = new Set(entry.meta?.linkedGoalSubtaskIds ?? [])
+      const activeGoals = store.goals.filter(g => g.date_from <= ds && g.date_to >= ds)
+      const linkedTasks: Task[] = []
+      for (const g of activeGoals) {
+        for (const t of g.tasks) {
+          if (linkedIds.has(t.id)) linkedTasks.push(t)
+          for (const s of t.subtasks ?? []) {
+            if (linkedSubIds.has(s.id)) {
+              linkedTasks.push({
+                id: s.id, text: s.text, done: s.done,
+                day_id: t.day_id, goal_id: t.goal_id,
+                category_id: t.category_id, category_name: t.category_name, category_color: t.category_color,
+              })
+            }
+          }
+        }
+      }
+      const p = tasksProgress([...workTasks, ...linkedTasks])
       taskTotal += p.total
       taskDone += p.done
     }
@@ -480,6 +501,7 @@ export default function Home() {
                     {weekDays.map(date => (
                       <DayCard key={formatDate(date)} date={date}
                         entry={store.days.find(d => d.date === formatDate(date))}
+                        goals={store.goals}
                         isSelected={selectedDate === formatDate(date) && !selectedGoalId}
                         onClick={() => { setSelectedDate(formatDate(date)); setSelectedGoalId(null) }}
                       />
