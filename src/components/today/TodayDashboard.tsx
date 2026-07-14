@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CalendarClock,
@@ -109,7 +109,9 @@ export function TodayDashboard({
   const [durationText, setDurationText] = useState('60')
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [dragPreviewMinute, setDragPreviewMinute] = useState<number | null>(null)
-  const selectableCategories = categories.filter(category => category.id !== SCHEDULE_CAT_ID && category.id !== DEADLINE_CAT_ID)
+  const timelineRef = useRef<HTMLDivElement>(null)
+  const pointerTaskIdRef = useRef<string | null>(null)
+  const selectableCategories = useMemo(() => categories.filter(category => category.id !== SCHEDULE_CAT_ID && category.id !== DEADLINE_CAT_ID), [categories])
   const [categoryId, setCategoryId] = useState(selectableCategories[0]?.id ?? '')
 
   const dateObject = parseISO(date)
@@ -211,6 +213,25 @@ export function TodayDashboard({
     setDragPreviewMinute(null)
   }
 
+  function timelineMinuteAtPoint(clientX: number, clientY: number) {
+    const element = timelineRef.current
+    if (!element) return null
+    const rect = element.getBoundingClientRect()
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null
+    return timelineMinuteFromPointer(clientY, element)
+  }
+
+  function finishPointerDrag(clientX: number, clientY: number) {
+    const taskId = pointerTaskIdRef.current
+    const minute = timelineMinuteAtPoint(clientX, clientY)
+    pointerTaskIdRef.current = null
+    if (taskId && minute !== null) placeTask(taskId, minute)
+    else {
+      setDraggedTaskId(null)
+      setDragPreviewMinute(null)
+    }
+  }
+
   return (
     <section className={clsx('w-full', compact ? 'px-4 pt-4' : '')}>
       <div className={clsx('flex items-center justify-between gap-3', compact ? 'mb-4' : 'mb-5')}>
@@ -304,6 +325,7 @@ export function TodayDashboard({
           </div>
           <div className="max-h-[680px] overflow-y-auto scrollbar-thin">
             <div
+              ref={timelineRef}
               className={clsx('relative ml-14 mr-3 transition-colors', draggedTaskId && 'bg-[var(--purple-bg)]/20')}
               style={{ height: TIMELINE_HEIGHT }}
               onDragOver={event => {
@@ -459,7 +481,28 @@ export function TodayDashboard({
                       className={clsx('rounded-[12px] border px-3 py-2.5 group', task.done ? 'bg-[var(--surface-2)] border-transparent opacity-60' : 'bg-white border-[var(--border)] cursor-grab active:cursor-grabbing', draggedTaskId === task.id && 'opacity-50 ring-2 ring-[var(--purple)]')}
                     >
                       <div className="flex items-start gap-2.5">
-                        <GripVertical size={15} className="mt-1 text-[var(--text-3)] shrink-0" aria-hidden="true" />
+                        <button
+                          type="button"
+                          aria-label={`${task.text} 타임라인에 배치`}
+                          draggable={false}
+                          onDragStart={event => event.preventDefault()}
+                          className="mt-0.5 -ml-1 h-6 w-6 touch-none rounded-[6px] text-[var(--text-3)] hover:bg-[var(--surface-2)] flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing"
+                          onPointerDown={event => {
+                            if (task.done || !event.isPrimary) return
+                            pointerTaskIdRef.current = task.id
+                            setDraggedTaskId(task.id)
+                            event.currentTarget.setPointerCapture(event.pointerId)
+                          }}
+                          onPointerMove={event => {
+                            if (pointerTaskIdRef.current !== task.id) return
+                            event.preventDefault()
+                            setDragPreviewMinute(timelineMinuteAtPoint(event.clientX, event.clientY))
+                          }}
+                          onPointerUp={event => finishPointerDrag(event.clientX, event.clientY)}
+                          onPointerCancel={() => finishPointerDrag(-1, -1)}
+                        >
+                          <GripVertical size={15} aria-hidden="true" />
+                        </button>
                         <button type="button" aria-label={task.done ? '완료 취소' : '완료'} onClick={() => onToggleTask(task.id)} className={clsx('mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', task.done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : 'border-[var(--border-strong)]')}>{task.done && <Check size={11} strokeWidth={3} />}</button>
                         <div className="flex-1 min-w-0">
                           <p className={clsx('text-sm font-medium truncate', task.done && 'line-through')}>{task.text}</p>
