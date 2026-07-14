@@ -23,6 +23,8 @@ interface Props {
   onToggleLinkedTask: (goalId: string, taskId: string) => void
   onLinkGoalTask: (taskId: string) => void
   onUnlinkGoalTask: (taskId: string) => void
+  onAddCategory?: (category: Omit<Category, 'id'>) => void
+  onDeleteCategory?: (categoryId: string) => void
 }
 
 export function MobileToday({
@@ -42,6 +44,8 @@ export function MobileToday({
   onToggleLinkedTask,
   onLinkGoalTask,
   onUnlinkGoalTask,
+  onAddCategory,
+  onDeleteCategory,
 }: Props) {
   const [showGoalPicker, setShowGoalPicker] = useState(false)
   const activeRoutines = useMemo(
@@ -82,6 +86,8 @@ export function MobileToday({
         onUpdateTask={onUpdateTask}
         onDeleteTask={onDeleteTask}
         onMetaChange={onMetaChange}
+        onAddCategory={onAddCategory}
+        onDeleteCategory={onDeleteCategory}
       />
 
       {linkedTasks.length > 0 && (

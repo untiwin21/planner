@@ -31,6 +31,9 @@ interface Props {
   unlinkGoalTask: (date: string, taskId: string) => void
   getWeeklyReview: (weekKey: string) => string
   updateWeeklyReview: (weekKey: string, content: string) => void
+  addCategory: (category: Omit<Category, 'id'>) => void
+  deleteCategory: (categoryId: string) => void
+  updateGoal: (goalId: string, patch: Partial<ShortGoal>) => void
 }
 
 export function MobileLayout({
@@ -39,6 +42,7 @@ export function MobileLayout({
   toggleRoutineLog, toggleGoalTask, addGoalTask, deleteGoalTask,
   addGoal, deleteGoal, linkGoalTask, unlinkGoalTask,
   getWeeklyReview, updateWeeklyReview,
+  addCategory, deleteCategory, updateGoal,
 }: Props) {
   const [activeTab, setActiveTab] = useState<MobileTab>('today')
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()))
@@ -67,6 +71,8 @@ export function MobileLayout({
             onToggleLinkedTask={toggleGoalTask}
             onLinkGoalTask={taskId => linkGoalTask(selectedDate, taskId)}
             onUnlinkGoalTask={taskId => unlinkGoalTask(selectedDate, taskId)}
+            onAddCategory={addCategory}
+            onDeleteCategory={deleteCategory}
           />
         )}
         {activeTab === 'weekly' && (
@@ -89,6 +95,7 @@ export function MobileLayout({
             onLinkGoalTask={linkGoalTask}
             onUnlinkGoalTask={unlinkGoalTask}
             onAddGoal={addGoal}
+            onUpdateGoal={updateGoal}
           />
         )}
         {activeTab === 'goals' && (

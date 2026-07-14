@@ -4,7 +4,7 @@ import { Plus, Pause, Play, Archive, Trash2, Check, X, ChevronUp, ChevronDown } 
 import { formatDate, getWeekDays } from '@/lib/dates'
 import { CircleCheck, ProgressBar } from '@/components/ui'
 import type { Routine, RoutineLog, RoutineStatus, RoutinePeriod } from '@/types'
-import { subDays, parseISO, startOfMonth, endOfMonth, format } from 'date-fns'
+import { subDays, parseISO } from 'date-fns'
 import clsx from 'clsx'
 
 const PERIOD_ORDER: RoutinePeriod[] = ['morning', 'afternoon', 'evening', 'anytime']
@@ -34,13 +34,6 @@ interface Props {
   onUpdateRoutine: (id: string, patch: Partial<Omit<Routine, 'id'>>) => void
   onReorderRoutine: (id: string, direction: 'up' | 'down') => void
   onDeleteRoutine: (id: string) => void
-  runTracker: RunTrackerData
-  onRunTrackerChange: (value: RunTrackerData) => void
-}
-
-export interface RunTrackerData {
-  enabled: boolean
-  entries: Array<{ date: string; km: number }>
 }
 
 function calcStreak(routineId: string, todayStr: string, logs: RoutineLog[]): number {
@@ -90,7 +83,6 @@ function derivePeriodFromTime(time?: string): RoutinePeriod {
 export function RoutineSidebar({
   routines, logs, goalRoutines, goalLabel, selectedDate,
   onToggleLog, onAddRoutine, onSetStatus, onUpdateName, onUpdateRoutine, onReorderRoutine, onDeleteRoutine,
-  runTracker, onRunTrackerChange,
 }: Props) {
   const today = formatDate(new Date())
   const viewDate = selectedDate || today
@@ -514,79 +506,6 @@ export function RoutineSidebar({
           )}
         </div>
       </div>
-
-      {/* Running tracker */}
-      <RunningTracker value={runTracker} onChange={onRunTrackerChange} />
-    </div>
-  )
-}
-
-function RunningTracker({ value, onChange }: { value: RunTrackerData; onChange: (value: RunTrackerData) => void }) {
-  const { enabled, entries: runLog } = value
-  const [kmInput, setKmInput] = useState('')
-  const [showTracker, setShowTracker] = useState(false)
-
-  const now = new Date()
-  const monthStart = startOfMonth(now)
-  const monthEnd = endOfMonth(now)
-  const monthLabel = format(now, 'M월')
-
-  const monthTotal = useMemo(() => {
-    return runLog
-      .filter(e => {
-        const d = parseISO(e.date)
-        return d >= monthStart && d <= monthEnd
-      })
-      .reduce((sum, e) => sum + e.km, 0)
-  }, [runLog, monthStart, monthEnd])
-
-  function toggleEnabled() {
-    onChange({ ...value, enabled: !enabled })
-  }
-
-  function addRun() {
-    const km = parseFloat(kmInput)
-    if (isNaN(km) || km <= 0) return
-    const entry = { date: formatDate(new Date()), km }
-    const next = [...runLog, entry]
-    onChange({ ...value, entries: next })
-    setKmInput('')
-  }
-
-  if (!enabled) {
-    return (
-      <div className="bg-white border border-[var(--border)] rounded-[16px] p-3 flex items-center justify-between">
-        <span className="text-xs text-[var(--text-3)]">달리기 트래커</span>
-        <button onClick={toggleEnabled} className="text-[11px] text-[var(--teal)] hover:underline">켜기</button>
-      </div>
-    )
-  }
-
-  const target = 50
-  const pct = Math.min(Math.round((monthTotal / target) * 100), 100)
-
-  return (
-    <div className="bg-white border border-[var(--border)] rounded-[16px] p-4">
-      <div className="flex items-center justify-between mb-2">
-        <button onClick={() => setShowTracker(v => !v)} className="text-sm font-semibold">
-          {monthLabel} 달리기 {showTracker ? '▲' : '▼'}
-        </button>
-        <button onClick={toggleEnabled} className="text-[10px] text-[var(--text-3)] hover:text-[var(--coral)]">끄기</button>
-      </div>
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs font-medium text-[var(--text-2)]">{monthTotal.toFixed(1)} / {target} km ({pct}%)</span>
-      </div>
-      <div className="h-1.5 rounded-full bg-[var(--border)] mb-2">
-        <div className="h-full rounded-full bg-[var(--teal)] transition-all" style={{ width: `${pct}%` }} />
-      </div>
-      {showTracker && (
-        <div className="flex gap-2 mt-2">
-          <input value={kmInput} onChange={e => setKmInput(e.target.value)}
-            placeholder="km" type="number" step="0.1"
-            className="flex-1 px-2 py-1 rounded-[8px] text-sm bg-[var(--surface-2)] outline-none focus:ring-1 focus:ring-[var(--teal)]" />
-          <button onClick={addRun} className="px-2 py-1 rounded-[8px] text-sm bg-[var(--teal)] text-white">+</button>
-        </div>
-      )}
     </div>
   )
 }

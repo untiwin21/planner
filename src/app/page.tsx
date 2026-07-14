@@ -6,13 +6,11 @@ import { getWeekDays, formatDate, formatMonth, isGoalActive } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
 import { usePlanrStore } from '@/hooks/usePlanrStore'
 import { DayCard } from '@/components/weekly/DayCard'
-import { DayDetail } from '@/components/weekly/DayDetail'
 import { GoalSpanRow } from '@/components/weekly/GoalSpanRow'
 import { GoalDetail } from '@/components/goals/GoalDetail'
 import { GoalHierarchyView } from '@/components/goals/GoalHierarchyView'
-import { RoutineSidebar, type RunTrackerData } from '@/components/routine/RoutineSidebar'
+import { RoutineSidebar } from '@/components/routine/RoutineSidebar'
 import { RightSidebar } from '@/components/layout/RightSidebar'
-import { CategoryPanel } from '@/components/layout/CategoryPanel'
 import { WeeklyReview } from '@/components/review/WeeklyReview'
 import { JournalView } from '@/components/journal/JournalView'
 import { WeeklyPrompt } from '@/components/system/WeeklyPrompt'
@@ -27,6 +25,8 @@ import { signOut } from '@/lib/auth'
 import { DataPanel } from '@/components/settings/DataPanel'
 import { MobileLayout } from '@/components/mobile/MobileLayout'
 import { TodayDashboard } from '@/components/today/TodayDashboard'
+import { WeeklyScheduleEditor } from '@/components/weekly/WeeklyScheduleEditor'
+import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
 
 function packGoalsIntoRows(goals: ShortGoal[], weekDays: Date[]) {
   const weekStart = formatDate(weekDays[0])
@@ -57,6 +57,7 @@ export default function Home() {
   const userId = useUserId()
   const [user, setUser] = useState<any>(null)
   const [weekBase, setWeekBase] = useState(new Date())
+  const [monthBase, setMonthBase] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()))
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null)
   const [showGoalForm, setShowGoalForm] = useState(false)
@@ -87,7 +88,6 @@ export default function Home() {
   const big3SyncKey = `__big3__:${weekKey}`
   const mantraSyncKey = `__mantra__:${weekKey}`
   const journalSyncKey = `__journal__:${weekKey}`
-  const runTrackerSyncKey = '__run_tracker__'
   const weekBig3 = useMemo(() => {
     try {
       const value = JSON.parse(store.getWeeklyReview(big3SyncKey) || '[]')
@@ -101,15 +101,6 @@ export default function Home() {
       return Array.isArray(value) ? value as JournalEntry[] : []
     } catch { return [] }
   }, [store.weeklyReviews, journalSyncKey])
-  const runTracker = useMemo<RunTrackerData>(() => {
-    try {
-      const value = JSON.parse(store.getWeeklyReview(runTrackerSyncKey) || '{}')
-      return {
-        enabled: value?.enabled === true,
-        entries: Array.isArray(value?.entries) ? value.entries : [],
-      }
-    } catch { return { enabled: false, entries: [] } }
-  }, [store.weeklyReviews])
 
   useEffect(() => {
     if (supabase) {
@@ -143,17 +134,6 @@ export default function Home() {
   // The week keys and server snapshot are the only inputs; store methods are intentionally omitted.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncReady, weekKey, big3SyncKey, mantraSyncKey, journalSyncKey, store.weeklyReviews])
-
-  useEffect(() => {
-    if (!syncReady || typeof window === 'undefined' || store.getWeeklyReview(runTrackerSyncKey)) return
-    let entries: RunTrackerData['entries'] = []
-    try { entries = JSON.parse(localStorage.getItem('planr_run_log') ?? '[]') } catch { /* ignore legacy value */ }
-    const enabled = localStorage.getItem('planr_run_tracker_enabled') === 'true'
-    if (enabled || entries.length > 0) {
-      store.updateWeeklyReview(runTrackerSyncKey, JSON.stringify({ enabled, entries }))
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncReady, store.weeklyReviews])
 
   const todayShortGoals = useMemo(
     () => store.goals.filter(g => isGoalActive(g, new Date())),
@@ -284,6 +264,9 @@ export default function Home() {
         unlinkGoalTask={store.unlinkGoalTask}
         getWeeklyReview={store.getWeeklyReview}
         updateWeeklyReview={store.updateWeeklyReview}
+        addCategory={store.addGlobalCategory}
+        deleteCategory={store.deleteGlobalCategory}
+        updateGoal={store.updateGoal}
       />
     </div>
 
@@ -416,13 +399,6 @@ export default function Home() {
               )}
             </div>
 
-            <CategoryPanel
-              categories={store.categories}
-              onAdd={store.addGlobalCategory}
-              onDelete={store.deleteGlobalCategory}
-              onReorder={store.reorderCategory}
-            />
-
             <RoutineSidebar
               routines={store.routines}
               logs={store.logs}
@@ -436,8 +412,6 @@ export default function Home() {
               onUpdateRoutine={store.updateRoutine}
               onReorderRoutine={store.reorderRoutine}
               onDeleteRoutine={store.deleteRoutine}
-              runTracker={runTracker}
-              onRunTrackerChange={value => store.updateWeeklyReview(runTrackerSyncKey, JSON.stringify(value))}
             />
           </div>
 
@@ -454,6 +428,8 @@ export default function Home() {
                 onUpdateTask={(taskId, patch) => store.updateTask(selectedDate, taskId, patch)}
                 onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
                 onMetaChange={patch => store.updateMeta(selectedDate, patch)}
+                onAddCategory={store.addGlobalCategory}
+                onDeleteCategory={store.deleteGlobalCategory}
               />
             ) : view === 'journal' ? (
               <Card className="p-5">
@@ -626,7 +602,7 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* Detail panel */}
+                {/* Weekly input is intentionally limited to schedules and deadlines. */}
                 <Card className="p-5">
                   {selectedGoal ? (
                     <GoalDetail
@@ -646,29 +622,25 @@ export default function Home() {
                       onReorderTasks={(catId, dId, tId) => store.reorderGoalTasks(selectedGoal.id, catId, dId, tId)}
                     />
                   ) : (
-                    <DayDetail
-                      date={parseISO(selectedDate)}
+                    <WeeklyScheduleEditor
                       entry={selectedEntry}
-                      categories={store.categories}
-                      goals={store.goals}
                       onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
-                      onAddTask={(catId, text, time) => store.addTask(selectedDate, catId, text, time)}
+                      onAddTask={(catId, text, schedule) => store.addTask(selectedDate, catId, text, schedule)}
                       onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
                       onUpdateTask={(taskId, patch) => store.updateTask(selectedDate, taskId, patch)}
-                      onMetaChange={patch => store.updateMeta(selectedDate, patch)}
-                      onAddDayNote={(title, body) => store.addDayNote(selectedDate, title, body)}
-                      onUpdateDayNote={(noteId, title, body) => store.updateDayNote(selectedDate, noteId, title, body)}
-                      onDeleteDayNote={noteId => store.deleteDayNote(selectedDate, noteId)}
-                      onReorderTasks={(catId, dId, tId) => store.reorderDayTasks(selectedDate, catId, dId, tId)}
-                      onLinkGoalTask={taskId => store.linkGoalTask(selectedDate, taskId)}
-                      onUnlinkGoalTask={taskId => store.unlinkGoalTask(selectedDate, taskId)}
-                      onToggleLinkedTask={(goalId, taskId) => store.toggleGoalTask(goalId, taskId)}
-                      onLinkGoalSubtask={subtaskId => store.linkGoalSubtask(selectedDate, subtaskId)}
-                      onUnlinkGoalSubtask={subtaskId => store.unlinkGoalSubtask(selectedDate, subtaskId)}
-                      onToggleLinkedSubtask={(goalId, taskId, subtaskId) => store.toggleGoalSubtask(goalId, taskId, subtaskId)}
                     />
                   )}
                 </Card>
+
+                <MonthlyGoalCalendar
+                  monthBase={monthBase}
+                  goals={store.goals}
+                  selectedDate={selectedDate}
+                  onMonthChange={setMonthBase}
+                  onSelectDate={date => { setSelectedDate(date); setSelectedGoalId(null) }}
+                  onAddGoal={store.addGoal}
+                  onUpdateGoal={store.updateGoal}
+                />
               </>
             )}
           </div>

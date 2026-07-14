@@ -1,12 +1,13 @@
 'use client'
 import { useState, useMemo } from 'react'
 import { ChevronLeft, ChevronRight, Plus, X } from 'lucide-react'
-import { addWeeks, subWeeks, parseISO } from 'date-fns'
+import { addWeeks, subWeeks } from 'date-fns'
 import clsx from 'clsx'
 import { getWeekDays, formatDate, isToday, DAY_NAMES } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
 import type { DayEntry, Category, ShortGoal, Routine, RoutineLog, DayMeta, Task, TaskScheduleInput } from '@/types'
-import { MobileToday } from './MobileToday'
+import { WeeklyScheduleEditor } from '@/components/weekly/WeeklyScheduleEditor'
+import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
 
 interface Props {
   selectedDate: string
@@ -27,6 +28,7 @@ interface Props {
   onLinkGoalTask: (date: string, taskId: string) => void
   onUnlinkGoalTask: (date: string, taskId: string) => void
   onAddGoal: (g: Omit<ShortGoal, 'id'>) => void
+  onUpdateGoal: (goalId: string, patch: Partial<ShortGoal>) => void
 }
 
 function packGoalsIntoRows(goals: ShortGoal[], weekDays: Date[]) {
@@ -62,8 +64,10 @@ export function MobileWeekly({
   onSelectDate, getDay, onToggleTask, onAddTask, onUpdateTask, onDeleteTask,
   onMetaChange, onToggleRoutine, onToggleLinkedTask, onLinkGoalTask, onUnlinkGoalTask,
   onAddGoal,
+  onUpdateGoal,
 }: Props) {
   const [weekBase, setWeekBase] = useState(new Date())
+  const [monthBase, setMonthBase] = useState(new Date())
   const [showGoalForm, setShowGoalForm] = useState(false)
   const [newGoalTitle, setNewGoalTitle] = useState('')
   const [newGoalFrom, setNewGoalFrom] = useState('')
@@ -185,26 +189,32 @@ export function MobileWeekly({
       {/* Divider */}
       <div className="border-t border-[var(--border)] mx-4 my-2" />
 
-      {/* Inline day detail */}
-      <MobileToday
+      {/* Weekly input stays focused on schedules and deadlines. */}
+      <div className="mx-4">
+        <WeeklyScheduleEditor
         key={selectedDate}
-        date={selectedDate}
+        compact
         entry={entry}
-        categories={categories}
-        goals={goals}
-        routines={routines}
-        logs={logs}
-        onDateChange={onSelectDate}
         onToggleTask={taskId => onToggleTask(selectedDate, taskId)}
         onAddTask={(catId, text, schedule) => onAddTask(selectedDate, catId, text, schedule)}
         onUpdateTask={(taskId, patch) => onUpdateTask(selectedDate, taskId, patch)}
         onDeleteTask={taskId => onDeleteTask(selectedDate, taskId)}
-        onMetaChange={patch => onMetaChange(selectedDate, patch)}
-        onToggleRoutine={onToggleRoutine}
-        onToggleLinkedTask={onToggleLinkedTask}
-        onLinkGoalTask={taskId => onLinkGoalTask(selectedDate, taskId)}
-        onUnlinkGoalTask={taskId => onUnlinkGoalTask(selectedDate, taskId)}
-      />
+        />
+      </div>
+
+      <div className="mx-4 mt-4 overflow-x-auto rounded-[18px]">
+        <div className="min-w-[700px]">
+          <MonthlyGoalCalendar
+            monthBase={monthBase}
+            goals={goals}
+            selectedDate={selectedDate}
+            onMonthChange={setMonthBase}
+            onSelectDate={onSelectDate}
+            onAddGoal={onAddGoal}
+            onUpdateGoal={onUpdateGoal}
+          />
+        </div>
+      </div>
     </div>
   )
 }
