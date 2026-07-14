@@ -1,8 +1,8 @@
 import type { Task } from '@/types'
 import { SCHEDULE_CAT_ID } from '@/types'
 
-export const DEFAULT_DAY_START = '07:00'
-export const DEFAULT_DAY_END = '24:00'
+export const DEFAULT_DAY_START = '05:00'
+export const DEFAULT_DAY_END = '25:00'
 export const DEFAULT_FLEX_DURATION = 60
 export const DEFAULT_FIXED_DURATION = 60
 
@@ -10,14 +10,14 @@ export function timeToMinutes(value?: string): number | null {
   if (!value) return null
   const [hours, minutes] = value.split(':').map(Number)
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
-  if (hours < 0 || hours > 24 || minutes < 0 || minutes > 59) return null
-  if (hours === 24 && minutes !== 0) return null
+  if (hours < 0 || hours > 25 || minutes < 0 || minutes > 59) return null
+  if (hours >= 24 && minutes !== 0) return null
   return hours * 60 + minutes
 }
 
 export function minutesToTime(value: number): string {
-  const clamped = Math.max(0, Math.min(24 * 60, Math.round(value)))
-  const hours = Math.floor(clamped / 60)
+  const clamped = Math.max(0, Math.min(25 * 60, Math.round(value)))
+  const hours = Math.floor(clamped / 60) % 24
   const minutes = clamped % 60
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
 }
@@ -48,7 +48,7 @@ export function getTaskEnd(task: Task): number | null {
   const start = getTaskStart(task)
   if (start === null) return null
   const explicit = timeToMinutes(task.end_time)
-  return explicit !== null && explicit > start ? explicit : Math.min(24 * 60, start + getTaskDuration(task))
+  return explicit !== null && explicit > start ? explicit : Math.min(25 * 60, start + getTaskDuration(task))
 }
 
 export function isFixedTask(task: Task): boolean {
@@ -70,9 +70,12 @@ export function fixedBlocks(tasks: Task[], windowStart: number, windowEnd: numbe
   return tasks
     .filter(task => !task.done && isFixedTask(task))
     .map(task => {
-      const start = getTaskStart(task)
-      const end = getTaskEnd(task)
-      if (start === null || end === null) return null
+      const rawStart = getTaskStart(task)
+      const rawEnd = getTaskEnd(task)
+      if (rawStart === null || rawEnd === null) return null
+      const crossesMidnightWindow = windowEnd > 24 * 60 && rawStart < windowStart
+      const start = crossesMidnightWindow ? rawStart + 24 * 60 : rawStart
+      const end = crossesMidnightWindow ? rawEnd + 24 * 60 : rawEnd
       const clippedStart = Math.max(windowStart, start)
       const clippedEnd = Math.min(windowEnd, end)
       if (clippedEnd <= clippedStart) return null
@@ -111,7 +114,10 @@ export function remainingCapacity(
 ) {
   const start = timeToMinutes(dayStart) ?? timeToMinutes(DEFAULT_DAY_START)!
   const end = timeToMinutes(dayEnd) ?? timeToMinutes(DEFAULT_DAY_END)!
-  const effectiveStart = Math.min(end, Math.max(start, nowMinutes ?? start))
+  const normalizedNow = nowMinutes !== undefined && end > 24 * 60 && nowMinutes < end - 24 * 60
+    ? nowMinutes + 24 * 60
+    : nowMinutes
+  const effectiveStart = Math.min(end, Math.max(start, normalizedNow ?? start))
   const free = freeBlocks(tasks, effectiveStart, end)
   const availableMinutes = free.reduce((sum, block) => sum + block.end - block.start, 0)
   const flexibleTasks = tasks.filter(task => !task.done && !isFixedTask(task))

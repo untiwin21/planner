@@ -31,6 +31,13 @@ interface Props {
   onUpdateGoal: (goalId: string, patch: Partial<ShortGoal>) => void
 }
 
+interface WeekGoalSegment {
+  goal: ShortGoal
+  startColumn: number
+  endColumn: number
+  lane: number
+}
+
 const GOAL_COLORS = [
   'bg-[var(--purple-bg)] text-[var(--purple-text)] border-purple-200',
   'bg-[var(--teal-bg)] text-[var(--teal-text)] border-teal-200',
@@ -41,6 +48,27 @@ const GOAL_COLORS = [
 
 function orderedRange(a: string, b: string) {
   return a <= b ? { from: a, to: b } : { from: b, to: a }
+}
+
+function packWeekGoals(week: Date[], goals: ShortGoal[]): WeekGoalSegment[] {
+  const weekStart = formatDate(week[0])
+  const weekEnd = formatDate(week[6])
+  const candidates = goals
+    .filter(goal => goal.date_from <= weekEnd && goal.date_to >= weekStart)
+    .map(goal => ({
+      goal,
+      startColumn: Math.max(0, differenceInCalendarDays(parseISO(goal.date_from), week[0])),
+      endColumn: Math.min(6, differenceInCalendarDays(parseISO(goal.date_to), week[0])),
+    }))
+    .sort((a, b) => a.startColumn - b.startColumn || b.endColumn - a.endColumn)
+
+  const laneEnds: number[] = []
+  return candidates.map(candidate => {
+    let lane = laneEnds.findIndex(end => end < candidate.startColumn)
+    if (lane < 0) lane = laneEnds.length
+    laneEnds[lane] = candidate.endColumn
+    return { ...candidate, lane }
+  })
 }
 
 export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthChange, onSelectDate, onAddGoal, onUpdateGoal }: Props) {
@@ -55,7 +83,7 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
     const end = endOfWeek(endOfMonth(monthBase), { weekStartsOn: 1 })
     return eachDayOfInterval({ start, end })
   }, [monthBase])
-
+  const weeks = useMemo(() => Array.from({ length: Math.ceil(days.length / 7) }, (_, index) => days.slice(index * 7, index * 7 + 7)), [days])
   const goalColor = useMemo(() => new Map(goals.map((goal, index) => [goal.id, GOAL_COLORS[index % GOAL_COLORS.length]])), [goals])
   const selectedRange = dragStart && dragEnd ? orderedRange(dragStart, dragEnd) : null
 
@@ -92,12 +120,12 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border)]">
         <div>
           <h3 className="text-sm font-bold">월간 단기 일정</h3>
-          <p className="text-xs text-[var(--text-3)] mt-0.5">빈 날짜를 드래그해 단기 일정을 만들고, 일정 바를 다른 날짜로 옮길 수 있습니다.</p>
+          <p className="text-xs text-[var(--text-3)] mt-0.5">빈 날짜를 드래그해 만들고, 연속된 일정 바를 다른 날짜로 옮길 수 있습니다.</p>
         </div>
         <div className="flex items-center gap-1">
-          <button type="button" onClick={() => onMonthChange(subMonths(monthBase, 1))} className="w-8 h-8 rounded-[8px] hover:bg-[var(--surface-2)] flex items-center justify-center"><ChevronLeft size={15} /></button>
+          <button type="button" aria-label="이전 달" onClick={() => onMonthChange(subMonths(monthBase, 1))} className="w-8 h-8 rounded-[8px] hover:bg-[var(--surface-2)] flex items-center justify-center"><ChevronLeft size={15} /></button>
           <button type="button" onClick={() => onMonthChange(new Date())} className="px-3 h-8 rounded-[8px] hover:bg-[var(--surface-2)] text-sm font-semibold min-w-24">{format(monthBase, 'yyyy년 M월', { locale: ko })}</button>
-          <button type="button" onClick={() => onMonthChange(addMonths(monthBase, 1))} className="w-8 h-8 rounded-[8px] hover:bg-[var(--surface-2)] flex items-center justify-center"><ChevronRight size={15} /></button>
+          <button type="button" aria-label="다음 달" onClick={() => onMonthChange(addMonths(monthBase, 1))} className="w-8 h-8 rounded-[8px] hover:bg-[var(--surface-2)] flex items-center justify-center"><ChevronRight size={15} /></button>
         </div>
       </div>
 
@@ -105,58 +133,73 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
         {['월', '화', '수', '목', '금', '토', '일'].map((day, index) => <div key={day} className={clsx('px-2 py-2 text-center text-[11px] font-semibold text-[var(--text-3)]', index > 0 && 'border-l border-[var(--border)]')}>{day}</div>)}
       </div>
 
-      <div className="grid grid-cols-7 select-none">
-        {days.map((day, index) => {
-          const date = formatDate(day)
-          const dayGoals = goals.filter(goal => goal.date_from <= date && goal.date_to >= date)
-          const inSelection = selectedRange && date >= selectedRange.from && date <= selectedRange.to
+      <div className="select-none">
+        {weeks.map((week, weekIndex) => {
+          const segments = packWeekGoals(week, goals)
+          const laneCount = segments.reduce((max, segment) => Math.max(max, segment.lane + 1), 0)
+          const rowHeight = Math.max(112, 44 + laneCount * 25 + 10)
           return (
-            <div
-              key={date}
-              onMouseDown={event => {
-                if (event.button !== 0 || draggedGoalId) return
-                setDragStart(date)
-                setDragEnd(date)
-              }}
-              onMouseEnter={() => { if (dragStart && !showCreate && !draggedGoalId) setDragEnd(date) }}
-              onMouseUp={() => finishRange(date)}
-              onDragOver={event => event.preventDefault()}
-              onDrop={event => {
-                event.preventDefault()
-                if (draggedGoalId) moveGoal(draggedGoalId, date)
-              }}
-              className={clsx(
-                'relative min-h-28 p-1.5 border-b border-[var(--border)] transition-colors',
-                index % 7 !== 0 && 'border-l border-[var(--border)]',
-                !isSameMonth(day, monthBase) && 'bg-[var(--surface-2)]/35',
-                inSelection && 'bg-[var(--purple-bg)]',
-              )}
-            >
-              <button
-                type="button"
-                onMouseDown={event => event.stopPropagation()}
-                onMouseUp={event => event.stopPropagation()}
-                onClick={() => onSelectDate(date)}
-                className={clsx('w-7 h-7 rounded-full text-xs font-semibold flex items-center justify-center mb-1', selectedDate === date ? 'bg-[var(--purple)] text-white' : isSameMonth(day, monthBase) ? 'hover:bg-[var(--surface-2)]' : 'text-[var(--text-3)]')}
-              >
-                {day.getDate()}
-              </button>
-              <div className="flex flex-col gap-1">
-                {dayGoals.slice(0, 3).map(goal => (
+            <div key={formatDate(week[0])} className={clsx('relative', weekIndex > 0 && 'border-t border-[var(--border)]')} style={{ height: rowHeight }}>
+              <div className="absolute inset-0 grid grid-cols-7">
+                {week.map((day, dayIndex) => {
+                  const date = formatDate(day)
+                  const inSelection = selectedRange && date >= selectedRange.from && date <= selectedRange.to
+                  return (
+                    <div
+                      key={date}
+                      onMouseDown={event => {
+                        if (event.button !== 0 || draggedGoalId) return
+                        setDragStart(date)
+                        setDragEnd(date)
+                      }}
+                      onMouseEnter={() => { if (dragStart && !showCreate && !draggedGoalId) setDragEnd(date) }}
+                      onMouseUp={() => finishRange(date)}
+                      onDragOver={event => event.preventDefault()}
+                      onDrop={event => {
+                        event.preventDefault()
+                        if (draggedGoalId) moveGoal(draggedGoalId, date)
+                      }}
+                      className={clsx(
+                        'relative p-1.5 transition-colors',
+                        dayIndex > 0 && 'border-l border-[var(--border)]',
+                        !isSameMonth(day, monthBase) && 'bg-[var(--surface-2)]/35',
+                        inSelection && 'bg-[var(--purple-bg)]',
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onMouseDown={event => event.stopPropagation()}
+                        onMouseUp={event => event.stopPropagation()}
+                        onClick={() => onSelectDate(date)}
+                        className={clsx('w-7 h-7 rounded-full text-xs font-semibold flex items-center justify-center', selectedDate === date ? 'bg-[var(--purple)] text-white' : isSameMonth(day, monthBase) ? 'hover:bg-[var(--surface-2)]' : 'text-[var(--text-3)]')}
+                      >
+                        {day.getDate()}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="pointer-events-none absolute inset-x-0 top-10 grid grid-cols-7 gap-y-1 px-1" style={{ gridAutoRows: '21px' }}>
+                {segments.map(segment => (
                   <div
-                    key={goal.id}
+                    key={segment.goal.id}
                     draggable
                     onMouseDown={event => event.stopPropagation()}
-                    onDragStart={event => { event.stopPropagation(); setDraggedGoalId(goal.id); event.dataTransfer.effectAllowed = 'move' }}
+                    onDragStart={event => {
+                      event.stopPropagation()
+                      setDraggedGoalId(segment.goal.id)
+                      event.dataTransfer.effectAllowed = 'move'
+                    }}
                     onDragEnd={() => setDraggedGoalId(null)}
-                    className={clsx('px-1.5 py-1 rounded-[6px] border text-[10px] font-semibold truncate cursor-grab active:cursor-grabbing flex items-center gap-1', goalColor.get(goal.id))}
-                    title={`${goal.title} (${goal.date_from} ~ ${goal.date_to})`}
+                    className={clsx('pointer-events-auto mx-0.5 px-2 rounded-[6px] border text-[10px] font-semibold truncate cursor-grab active:cursor-grabbing flex items-center gap-1 shadow-[0_1px_2px_rgba(0,0,0,0.04)]', goalColor.get(segment.goal.id))}
+                    style={{ gridColumn: `${segment.startColumn + 1} / ${segment.endColumn + 2}`, gridRow: segment.lane + 1 }}
+                    title={`${segment.goal.title} (${segment.goal.date_from} ~ ${segment.goal.date_to})`}
                   >
-                    {goal.date_from === date && <GripHorizontal size={9} className="shrink-0" />}
-                    <span className="truncate">{goal.title}</span>
+                    <GripHorizontal size={10} className="shrink-0" />
+                    <span className="truncate">{segment.goal.title}</span>
                   </div>
                 ))}
-                {dayGoals.length > 3 && <span className="text-[10px] text-[var(--text-3)] px-1">+{dayGoals.length - 3}개</span>}
               </div>
             </div>
           )

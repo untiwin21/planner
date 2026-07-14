@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  GripVertical,
   HeartPulse,
   Moon,
   Pencil,
@@ -59,6 +60,11 @@ const CONDITION_LABELS: Record<number, string> = {
   5: '매우 좋음',
 }
 const CONDITION_EMOJI: Record<number, string> = { 1: '😞', 2: '😕', 3: '😐', 4: '🙂', 5: '😄' }
+const TIMELINE_START = 5 * 60
+const TIMELINE_END = 25 * 60
+const TIMELINE_HOUR_HEIGHT = 48
+const TIMELINE_HEIGHT = ((TIMELINE_END - TIMELINE_START) / 60) * TIMELINE_HOUR_HEIGHT
+const TIMELINE_HOURS = Array.from({ length: 21 }, (_, index) => TIMELINE_START + index * 60)
 
 function nowAsMinutes() {
   const date = new Date()
@@ -101,13 +107,15 @@ export function TodayDashboard({
   const [newCategoryColor, setNewCategoryColor] = useState<BadgeColor>('purple')
   const [taskText, setTaskText] = useState('')
   const [durationText, setDurationText] = useState('60')
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
+  const [dragPreviewMinute, setDragPreviewMinute] = useState<number | null>(null)
   const selectableCategories = categories.filter(category => category.id !== SCHEDULE_CAT_ID && category.id !== DEADLINE_CAT_ID)
   const [categoryId, setCategoryId] = useState(selectableCategories[0]?.id ?? '')
 
   const dateObject = parseISO(date)
   const isToday = date === formatDate(new Date())
-  const dayStart = entry.meta.dayStart ?? DEFAULT_DAY_START
-  const dayEnd = entry.meta.dayEnd ?? DEFAULT_DAY_END
+  const dayStart = DEFAULT_DAY_START
+  const dayEnd = DEFAULT_DAY_END
 
   useEffect(() => {
     if (!isToday) return
@@ -131,17 +139,37 @@ export function TodayDashboard({
   const chronological = useMemo(() => entry.tasks
     .filter(task => isFixedTask(task) || getTaskStart(task) !== null)
     .map(task => {
-      const start = getTaskStart(task)
-      if (start === null) return null
-      const end = getTaskEnd(task) ?? Math.min(24 * 60, start + getTaskDuration(task))
+      const rawStart = getTaskStart(task)
+      if (rawStart === null) return null
+      const start = rawStart < TIMELINE_START ? rawStart + 24 * 60 : rawStart
+      const rawEnd = getTaskEnd(task) ?? rawStart + getTaskDuration(task)
+      const normalizedEnd = rawEnd < TIMELINE_START ? rawEnd + 24 * 60 : rawEnd
+      const end = normalizedEnd > start ? normalizedEnd : start + getTaskDuration(task)
       return { task, start, end, fixed: isFixedTask(task) }
     })
-    .filter((item): item is { task: Task; start: number; end: number; fixed: boolean } => item !== null)
+    .filter((item): item is { task: Task; start: number; end: number; fixed: boolean } => item !== null && item.end > TIMELINE_START && item.start < TIMELINE_END)
+    .map(item => ({ ...item, start: Math.max(TIMELINE_START, item.start), end: Math.min(TIMELINE_END, item.end) }))
     .sort((a, b) => a.start - b.start || Number(b.fixed) - Number(a.fixed)), [entry.tasks])
 
   const flexible = useMemo(() => entry.tasks
     .filter(task => !isFixedTask(task) && task.category_id !== DEADLINE_CAT_ID)
     .sort((a, b) => Number(a.done) - Number(b.done) || (a.updated_at ?? 0) - (b.updated_at ?? 0)), [entry.tasks])
+
+  const taskGroups = useMemo(() => {
+    const byCategory = new Map<string, Task[]>()
+    flexible.forEach(task => byCategory.set(task.category_id, [...(byCategory.get(task.category_id) ?? []), task]))
+    const knownIds = new Set(selectableCategories.map(category => category.id))
+    const knownGroups = selectableCategories
+      .map(category => ({ category, tasks: byCategory.get(category.id) ?? [] }))
+      .filter(group => group.tasks.length > 0)
+    const unknownGroups = [...byCategory.entries()]
+      .filter(([id]) => !knownIds.has(id))
+      .map(([id, tasks]) => ({
+        category: { id, name: tasks[0]?.category_name ?? '기타', color: tasks[0]?.category_color ?? 'gray' } as Category,
+        tasks,
+      }))
+    return [...knownGroups, ...unknownGroups]
+  }, [flexible, selectableCategories])
 
   const currentCategory = selectableCategories.find(category => category.id === categoryId)
   const filledTop3 = (entry.meta.top3 ?? []).filter(item => item.trim())
@@ -167,6 +195,20 @@ export function TodayDashboard({
     while (next.length <= index) next.push('')
     next[index] = value
     onMetaChange({ top3: next })
+  }
+
+  function timelineMinuteFromPointer(clientY: number, element: HTMLDivElement) {
+    const rect = element.getBoundingClientRect()
+    const position = Math.max(0, Math.min(rect.height, clientY - rect.top))
+    const rawMinute = TIMELINE_START + (position / rect.height) * (TIMELINE_END - TIMELINE_START)
+    return Math.max(TIMELINE_START, Math.min(TIMELINE_END - 15, Math.round(rawMinute / 15) * 15))
+  }
+
+  function placeTask(taskId: string, minute: number) {
+    const time = minutesToTime(minute)
+    onUpdateTask(taskId, { start_time: time, time })
+    setDraggedTaskId(null)
+    setDragPreviewMinute(null)
   }
 
   return (
@@ -258,47 +300,88 @@ export function TodayDashboard({
         <div className="bg-white border border-[var(--border)] rounded-[18px] overflow-hidden">
           <div className="px-4 py-3 border-b border-[var(--border)]">
             <h3 className="text-sm font-bold">오늘의 타임라인</h3>
-            <p className="text-xs text-[var(--text-3)] mt-0.5">일정은 주간 페이지에서 입력하고, 여기서는 하루 전체 흐름을 확인합니다.</p>
+            <p className="text-xs text-[var(--text-3)] mt-0.5">05:00부터 다음 날 01:00까지 · 오른쪽 할 일을 끌어서 배치하세요.</p>
           </div>
-          <div className="px-4 py-3 flex items-center gap-2 border-b border-[var(--border)] bg-[var(--surface-2)]/50">
-            <span className="text-[11px] text-[var(--text-3)]">활동 시간</span>
-            <input aria-label="활동 시작 시간" type="time" value={dayStart === '24:00' ? '23:59' : dayStart} onChange={event => onMetaChange({ dayStart: event.target.value })} className="px-2 py-1 rounded-[7px] bg-white border border-[var(--border)] text-xs outline-none" />
-            <span className="text-[var(--text-3)]">–</span>
-            <input aria-label="활동 종료 시간" type="time" value={dayEnd === '24:00' ? '23:59' : dayEnd} onChange={event => onMetaChange({ dayEnd: event.target.value })} className="px-2 py-1 rounded-[7px] bg-white border border-[var(--border)] text-xs outline-none" />
-          </div>
-          <div className="p-4">
-            {chronological.length === 0 ? (
-              <div className="min-h-36 rounded-[14px] border border-dashed border-[var(--border-strong)] flex flex-col items-center justify-center text-center">
-                <CalendarClock size={24} className="text-[var(--text-3)] mb-2" />
-                <span className="text-sm font-medium">아직 배치된 일정이 없습니다.</span>
-                <span className="text-xs text-[var(--text-3)] mt-1">주간 페이지에서 일정 시간을 입력하거나 할 일에 시작 시간을 지정하세요.</span>
-              </div>
-            ) : (
-              <div className="relative pl-16">
-                <div className="absolute left-[52px] top-2 bottom-2 w-px bg-[var(--border)]" />
-                {chronological.map(({ task, start, end, fixed }) => (
-                  <div key={task.id} className="relative pb-3 last:pb-0">
-                    <span className="absolute -left-16 top-2 w-12 text-right text-[11px] font-medium text-[var(--text-3)]">{minutesToTime(start)}</span>
-                    <span className={clsx('absolute -left-[17px] top-2.5 h-2.5 w-2.5 rounded-full ring-4 ring-white', fixed ? 'bg-[var(--blue)]' : 'bg-[var(--purple)]')} />
-                    <div className={clsx('w-full rounded-[12px] px-3 py-2.5 border', task.done && 'opacity-50', fixed ? 'bg-[var(--blue-bg)] border-blue-200' : `cat-${task.category_color} border-transparent`)}>
-                      <div className="flex items-center gap-2">
-                        {!fixed && <CategoryDot color={task.category_color} />}
-                        <span className={clsx('text-sm font-semibold flex-1 min-w-0 truncate', task.done && 'line-through')}>{task.text}</span>
-                        <span className="text-[10px] opacity-65">{fixed ? '일정' : task.category_name}</span>
-                      </div>
-                      <p className="text-[11px] opacity-70 mt-1">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>
-                    </div>
+          <div className="max-h-[680px] overflow-y-auto scrollbar-thin">
+            <div
+              className={clsx('relative ml-14 mr-3 transition-colors', draggedTaskId && 'bg-[var(--purple-bg)]/20')}
+              style={{ height: TIMELINE_HEIGHT }}
+              onDragOver={event => {
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                setDragPreviewMinute(timelineMinuteFromPointer(event.clientY, event.currentTarget))
+              }}
+              onDragLeave={event => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragPreviewMinute(null)
+              }}
+              onDrop={event => {
+                event.preventDefault()
+                const taskId = draggedTaskId ?? event.dataTransfer.getData('text/plain')
+                if (taskId) placeTask(taskId, timelineMinuteFromPointer(event.clientY, event.currentTarget))
+              }}
+            >
+              {TIMELINE_HOURS.map(minute => {
+                const top = ((minute - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
+                return (
+                  <div key={minute} className="absolute left-0 right-0 border-t border-[var(--border)]" style={{ top }}>
+                    <span className="absolute right-full -translate-y-1/2 pr-2 text-[10px] font-medium text-[var(--text-3)] tabular-nums">{minutesToTime(minute)}</span>
                   </div>
-                ))}
-              </div>
-            )}
+                )
+              })}
+
+              {isToday && (() => {
+                const normalizedNow = nowMinute < TIMELINE_START ? nowMinute + 24 * 60 : nowMinute
+                if (normalizedNow < TIMELINE_START || normalizedNow > TIMELINE_END) return null
+                const top = ((normalizedNow - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
+                return <div className="absolute left-0 right-0 z-20 border-t border-[var(--red)]" style={{ top }}><span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-[var(--red)]" /></div>
+              })()}
+
+              {dragPreviewMinute !== null && (
+                <div className="absolute left-0 right-0 z-30 border-t-2 border-dashed border-[var(--purple)] pointer-events-none" style={{ top: ((dragPreviewMinute - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT }}>
+                  <span className="absolute left-2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-[var(--purple)] text-white text-[10px] font-bold">{minutesToTime(dragPreviewMinute)}</span>
+                </div>
+              )}
+
+              {chronological.map(({ task, start, end, fixed }) => {
+                const top = ((start - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
+                const height = Math.max(30, ((end - start) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
+                return (
+                  <div
+                    key={task.id}
+                    draggable={!fixed && !task.done}
+                    onDragStart={event => {
+                      if (fixed || task.done) return
+                      setDraggedTaskId(task.id)
+                      event.dataTransfer.setData('text/plain', task.id)
+                      event.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
+                    className={clsx('absolute left-1 right-1 z-10 rounded-[9px] border px-2 py-1.5 overflow-hidden shadow-sm', task.done && 'opacity-50', !fixed && !task.done && 'cursor-grab active:cursor-grabbing', fixed ? 'bg-[var(--blue-bg)] border-blue-200' : `cat-${task.category_color} border-transparent`)}
+                    style={{ top, height }}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className={clsx('text-xs font-semibold flex-1 min-w-0 truncate', task.done && 'line-through')}>{task.text}</span>
+                      <span className="text-[9px] opacity-65 shrink-0">{fixed ? '일정' : task.category_name}</span>
+                    </div>
+                    {height >= 42 && <p className="text-[10px] opacity-70 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>}
+                  </div>
+                )
+              })}
+
+              {chronological.length === 0 && !draggedTaskId && (
+                <div className="absolute inset-x-3 top-16 rounded-[12px] border border-dashed border-[var(--border-strong)] py-5 flex flex-col items-center text-center pointer-events-none">
+                  <CalendarClock size={20} className="text-[var(--text-3)] mb-1.5" />
+                  <span className="text-xs font-medium">할 일을 이 시간축으로 끌어오세요.</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="bg-white border border-[var(--border)] rounded-[18px] overflow-visible self-start">
           <div className="px-4 py-3 border-b border-[var(--border)]">
             <h3 className="text-sm font-bold">오늘 할 일</h3>
-            <p className="text-xs text-[var(--text-3)] mt-0.5">카테고리, 할 일, 예상 시간을 한 번에 입력하세요.</p>
+            <p className="text-xs text-[var(--text-3)] mt-0.5">카테고리별로 모아보고, 드래그해 왼쪽 타임라인에 배치하세요.</p>
           </div>
           <div className="p-3 border-b border-[var(--border)] bg-[var(--surface-2)]/45">
             <div className={clsx('grid gap-2', compact ? 'grid-cols-[auto_1fr_76px_auto]' : 'grid-cols-[minmax(104px,auto)_1fr_92px_auto]')}>
@@ -351,29 +434,52 @@ export function TodayDashboard({
             </div>
           </div>
 
-          <div className="p-3 flex flex-col gap-2 max-h-[520px] overflow-y-auto scrollbar-thin">
+          <div className="p-3 flex flex-col gap-4 max-h-[680px] overflow-y-auto scrollbar-thin">
             {flexible.length === 0 ? (
               <div className="py-10 text-center text-sm text-[var(--text-3)]">오늘 할 일을 추가해보세요.</div>
-            ) : flexible.map(task => (
-              <div key={task.id} className={clsx('rounded-[12px] border px-3 py-2.5 group', task.done ? 'bg-[var(--surface-2)] border-transparent opacity-60' : 'bg-white border-[var(--border)]')}>
-                <div className="flex items-start gap-2.5">
-                  <button type="button" aria-label={task.done ? '완료 취소' : '완료'} onClick={() => onToggleTask(task.id)} className={clsx('mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', task.done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : 'border-[var(--border-strong)]')}>{task.done && <Check size={11} strokeWidth={3} />}</button>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5"><CategoryDot color={task.category_color} /><p className={clsx('text-sm font-medium truncate', task.done && 'line-through')}>{task.text}</p></div>
-                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                      <label className="flex items-center gap-1 text-[11px] text-[var(--text-3)]">
-                        예상
-                        <input key={`${task.id}:${task.duration_min ?? ''}`} inputMode="numeric" defaultValue={getTaskDuration(task)} onBlur={event => { const value = Number.parseInt(event.target.value, 10); if (value > 0 && value !== getTaskDuration(task)) onUpdateTask(task.id, { duration_min: value }) }} className="w-14 px-1.5 py-1 rounded-[6px] bg-[var(--surface-2)] text-right text-xs font-semibold outline-none focus:bg-white focus:ring-1 focus:ring-[var(--purple)]" />분
-                      </label>
-                      <label className="flex items-center gap-1 text-[11px] text-[var(--text-3)]">
-                        타임라인
-                        <input type="time" value={task.start_time ?? task.time ?? ''} onChange={event => onUpdateTask(task.id, { start_time: event.target.value || undefined, time: event.target.value || undefined })} className="px-1.5 py-1 rounded-[6px] bg-[var(--surface-2)] text-xs outline-none focus:bg-white focus:ring-1 focus:ring-[var(--purple)]" />
-                      </label>
-                    </div>
-                  </div>
-                  <button type="button" onClick={() => onDeleteTask(task.id)} aria-label={`${task.text} 삭제`} className="w-7 h-7 rounded-[7px] opacity-40 group-hover:opacity-100 text-[var(--text-3)] hover:text-[var(--red)] hover:bg-[var(--red-bg)] flex items-center justify-center"><Trash2 size={13} /></button>
+            ) : taskGroups.map(({ category, tasks }) => (
+              <section key={category.id}>
+                <div className="flex items-center gap-2 px-1 mb-2">
+                  <CategoryDot color={category.color} />
+                  <h4 className="text-xs font-bold text-[var(--text-2)]">{category.name}</h4>
+                  <span className="text-[10px] text-[var(--text-3)]">{tasks.length}개</span>
                 </div>
-              </div>
+                <div className="flex flex-col gap-2">
+                  {tasks.map(task => (
+                    <div
+                      key={task.id}
+                      draggable={!task.done}
+                      onDragStart={event => {
+                        if (task.done) return
+                        setDraggedTaskId(task.id)
+                        event.dataTransfer.setData('text/plain', task.id)
+                        event.dataTransfer.effectAllowed = 'move'
+                      }}
+                      onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
+                      className={clsx('rounded-[12px] border px-3 py-2.5 group', task.done ? 'bg-[var(--surface-2)] border-transparent opacity-60' : 'bg-white border-[var(--border)] cursor-grab active:cursor-grabbing', draggedTaskId === task.id && 'opacity-50 ring-2 ring-[var(--purple)]')}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <GripVertical size={15} className="mt-1 text-[var(--text-3)] shrink-0" aria-hidden="true" />
+                        <button type="button" aria-label={task.done ? '완료 취소' : '완료'} onClick={() => onToggleTask(task.id)} className={clsx('mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', task.done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : 'border-[var(--border-strong)]')}>{task.done && <Check size={11} strokeWidth={3} />}</button>
+                        <div className="flex-1 min-w-0">
+                          <p className={clsx('text-sm font-medium truncate', task.done && 'line-through')}>{task.text}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            <label className="flex items-center gap-1 text-[11px] text-[var(--text-3)]">
+                              예상
+                              <input key={`${task.id}:${task.duration_min ?? ''}`} inputMode="numeric" defaultValue={getTaskDuration(task)} onBlur={event => { const value = Number.parseInt(event.target.value, 10); if (value > 0 && value !== getTaskDuration(task)) onUpdateTask(task.id, { duration_min: value }) }} className="w-14 px-1.5 py-1 rounded-[6px] bg-[var(--surface-2)] text-right text-xs font-semibold outline-none focus:bg-white focus:ring-1 focus:ring-[var(--purple)]" />분
+                            </label>
+                            <label className="flex items-center gap-1 text-[11px] text-[var(--text-3)]">
+                              타임라인
+                              <input type="time" value={task.start_time ?? task.time ?? ''} onChange={event => onUpdateTask(task.id, { start_time: event.target.value || undefined, time: event.target.value || undefined })} className="px-1.5 py-1 rounded-[6px] bg-[var(--surface-2)] text-xs outline-none focus:bg-white focus:ring-1 focus:ring-[var(--purple)]" />
+                            </label>
+                          </div>
+                        </div>
+                        <button type="button" onClick={() => onDeleteTask(task.id)} aria-label={`${task.text} 삭제`} className="w-7 h-7 rounded-[7px] opacity-40 group-hover:opacity-100 text-[var(--text-3)] hover:text-[var(--red)] hover:bg-[var(--red-bg)] flex items-center justify-center"><Trash2 size={13} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         </div>
