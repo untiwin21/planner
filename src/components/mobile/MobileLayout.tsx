@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { formatDate } from '@/lib/dates'
-import type { DayEntry, Category, ShortGoal, Routine, RoutineLog, LongGoal, DayMeta } from '@/types'
+import type { DayEntry, Category, ShortGoal, Routine, RoutineLog, LongGoal, DayMeta, Task, TaskScheduleInput } from '@/types'
 import { BottomTabBar, type MobileTab } from './BottomTabBar'
 import { MobileToday } from './MobileToday'
 import { MobileWeekly } from './MobileWeekly'
@@ -17,7 +17,8 @@ interface Props {
   logs: RoutineLog[]
   getDay: (date: string) => DayEntry
   toggleTask: (date: string, taskId: string) => void
-  addTask: (date: string, catId: string, text: string, time?: string) => void
+  addTask: (date: string, catId: string, text: string, schedule?: string | TaskScheduleInput) => void
+  updateTask: (date: string, taskId: string, patch: Partial<Task>) => void
   deleteTask: (date: string, taskId: string) => void
   updateMeta: (date: string, patch: Partial<DayMeta>) => void
   toggleRoutineLog: (routineId: string, date: string) => void
@@ -34,7 +35,7 @@ interface Props {
 
 export function MobileLayout({
   days, goals, categories, routines, logs,
-  getDay, toggleTask, addTask, deleteTask, updateMeta,
+  getDay, toggleTask, addTask, updateTask, deleteTask, updateMeta,
   toggleRoutineLog, toggleGoalTask, addGoalTask, deleteGoalTask,
   addGoal, deleteGoal, linkGoalTask, unlinkGoalTask,
   getWeeklyReview, updateWeeklyReview,
@@ -58,7 +59,8 @@ export function MobileLayout({
             logs={logs}
             onDateChange={setSelectedDate}
             onToggleTask={taskId => toggleTask(selectedDate, taskId)}
-            onAddTask={(catId, text, time) => addTask(selectedDate, catId, text, time)}
+            onAddTask={(catId, text, schedule) => addTask(selectedDate, catId, text, schedule)}
+            onUpdateTask={(taskId, patch) => updateTask(selectedDate, taskId, patch)}
             onDeleteTask={taskId => deleteTask(selectedDate, taskId)}
             onMetaChange={patch => updateMeta(selectedDate, patch)}
             onToggleRoutine={toggleRoutineLog}
@@ -79,6 +81,7 @@ export function MobileLayout({
             getDay={getDay}
             onToggleTask={toggleTask}
             onAddTask={addTask}
+            onUpdateTask={updateTask}
             onDeleteTask={deleteTask}
             onMetaChange={updateMeta}
             onToggleRoutine={toggleRoutineLog}

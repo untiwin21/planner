@@ -5,7 +5,7 @@ import { addWeeks, subWeeks, parseISO } from 'date-fns'
 import clsx from 'clsx'
 import { getWeekDays, formatDate, isToday, DAY_NAMES } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
-import type { DayEntry, Category, ShortGoal, Routine, RoutineLog, DayMeta, Task } from '@/types'
+import type { DayEntry, Category, ShortGoal, Routine, RoutineLog, DayMeta, Task, TaskScheduleInput } from '@/types'
 import { MobileToday } from './MobileToday'
 
 interface Props {
@@ -18,7 +18,8 @@ interface Props {
   onSelectDate: (date: string) => void
   getDay: (date: string) => DayEntry
   onToggleTask: (date: string, taskId: string) => void
-  onAddTask: (date: string, catId: string, text: string, time?: string) => void
+  onAddTask: (date: string, catId: string, text: string, schedule?: string | TaskScheduleInput) => void
+  onUpdateTask: (date: string, taskId: string, patch: Partial<Task>) => void
   onDeleteTask: (date: string, taskId: string) => void
   onMetaChange: (date: string, patch: Partial<DayMeta>) => void
   onToggleRoutine: (routineId: string, date: string) => void
@@ -58,7 +59,7 @@ const GOAL_COLORS = [
 
 export function MobileWeekly({
   selectedDate, days, categories, goals, routines, logs,
-  onSelectDate, getDay, onToggleTask, onAddTask, onDeleteTask,
+  onSelectDate, getDay, onToggleTask, onAddTask, onUpdateTask, onDeleteTask,
   onMetaChange, onToggleRoutine, onToggleLinkedTask, onLinkGoalTask, onUnlinkGoalTask,
   onAddGoal,
 }: Props) {
@@ -195,7 +196,8 @@ export function MobileWeekly({
         logs={logs}
         onDateChange={onSelectDate}
         onToggleTask={taskId => onToggleTask(selectedDate, taskId)}
-        onAddTask={(catId, text, time) => onAddTask(selectedDate, catId, text, time)}
+        onAddTask={(catId, text, schedule) => onAddTask(selectedDate, catId, text, schedule)}
+        onUpdateTask={(taskId, patch) => onUpdateTask(selectedDate, taskId, patch)}
         onDeleteTask={taskId => onDeleteTask(selectedDate, taskId)}
         onMetaChange={patch => onMetaChange(selectedDate, patch)}
         onToggleRoutine={onToggleRoutine}

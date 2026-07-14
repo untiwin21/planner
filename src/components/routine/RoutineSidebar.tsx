@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { Plus, Pause, Play, Archive, Trash2, Check, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { formatDate, getWeekDays } from '@/lib/dates'
 import { CircleCheck, ProgressBar } from '@/components/ui'
@@ -34,6 +34,13 @@ interface Props {
   onUpdateRoutine: (id: string, patch: Partial<Omit<Routine, 'id'>>) => void
   onReorderRoutine: (id: string, direction: 'up' | 'down') => void
   onDeleteRoutine: (id: string) => void
+  runTracker: RunTrackerData
+  onRunTrackerChange: (value: RunTrackerData) => void
+}
+
+export interface RunTrackerData {
+  enabled: boolean
+  entries: Array<{ date: string; km: number }>
 }
 
 function calcStreak(routineId: string, todayStr: string, logs: RoutineLog[]): number {
@@ -83,6 +90,7 @@ function derivePeriodFromTime(time?: string): RoutinePeriod {
 export function RoutineSidebar({
   routines, logs, goalRoutines, goalLabel, selectedDate,
   onToggleLog, onAddRoutine, onSetStatus, onUpdateName, onUpdateRoutine, onReorderRoutine, onDeleteRoutine,
+  runTracker, onRunTrackerChange,
 }: Props) {
   const today = formatDate(new Date())
   const viewDate = selectedDate || today
@@ -508,22 +516,15 @@ export function RoutineSidebar({
       </div>
 
       {/* Running tracker */}
-      <RunningTracker />
+      <RunningTracker value={runTracker} onChange={onRunTrackerChange} />
     </div>
   )
 }
 
-function RunningTracker() {
-  const [enabled, setEnabled] = useState(false)
-  const [runLog, setRunLog] = useState<Array<{ date: string; km: number }>>([])
+function RunningTracker({ value, onChange }: { value: RunTrackerData; onChange: (value: RunTrackerData) => void }) {
+  const { enabled, entries: runLog } = value
   const [kmInput, setKmInput] = useState('')
   const [showTracker, setShowTracker] = useState(false)
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    setEnabled(localStorage.getItem('planr_run_tracker_enabled') === 'true')
-    try { setRunLog(JSON.parse(localStorage.getItem('planr_run_log') ?? '[]')) } catch { setRunLog([]) }
-  }, [])
 
   const now = new Date()
   const monthStart = startOfMonth(now)
@@ -540,9 +541,7 @@ function RunningTracker() {
   }, [runLog, monthStart, monthEnd])
 
   function toggleEnabled() {
-    const next = !enabled
-    setEnabled(next)
-    localStorage.setItem('planr_run_tracker_enabled', String(next))
+    onChange({ ...value, enabled: !enabled })
   }
 
   function addRun() {
@@ -550,8 +549,7 @@ function RunningTracker() {
     if (isNaN(km) || km <= 0) return
     const entry = { date: formatDate(new Date()), km }
     const next = [...runLog, entry]
-    setRunLog(next)
-    localStorage.setItem('planr_run_log', JSON.stringify(next))
+    onChange({ ...value, entries: next })
     setKmInput('')
   }
 
