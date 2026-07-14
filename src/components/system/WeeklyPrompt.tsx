@@ -5,11 +5,13 @@ import { X } from 'lucide-react'
 
 interface Props {
   weekKey: string
+  hasBig3: boolean
+  hasJournal: boolean
   onGoToBig3: () => void
   onGoToReview: () => void
 }
 
-export function WeeklyPrompt({ weekKey, onGoToBig3, onGoToReview }: Props) {
+export function WeeklyPrompt({ weekKey, hasBig3, hasJournal, onGoToBig3, onGoToReview }: Props) {
   const [dismissed, setDismissed] = useState(true)
   const [promptType, setPromptType] = useState<'monday' | 'sunday' | null>(null)
 
@@ -19,27 +21,21 @@ export function WeeklyPrompt({ weekKey, onGoToBig3, onGoToReview }: Props) {
     const dayOfWeek = today.getDay()
     const dismissKey = `planr_prompt_dismissed_${formatDate(today)}`
     if (localStorage.getItem(dismissKey)) { setDismissed(true); return }
+    setDismissed(true)
+    setPromptType(null)
 
     if (dayOfWeek === 1) {
-      const big3Key = `planr_week_big3_${weekKey}`
-      if (!localStorage.getItem(big3Key)) {
+      if (!hasBig3) {
         setPromptType('monday')
         setDismissed(false)
       }
     } else if (dayOfWeek === 0) {
-      const journalKey = `planr_weekly_review_${weekKey}_journal`
-      try {
-        const entries = JSON.parse(localStorage.getItem(journalKey) ?? '[]')
-        if (entries.length === 0) {
-          setPromptType('sunday')
-          setDismissed(false)
-        }
-      } catch {
+      if (!hasJournal) {
         setPromptType('sunday')
         setDismissed(false)
       }
     }
-  }, [weekKey])
+  }, [weekKey, hasBig3, hasJournal])
 
   function handleDismiss() {
     setDismissed(true)

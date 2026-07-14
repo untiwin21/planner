@@ -72,6 +72,10 @@ create table if not exists weekly_reviews (
   unique(user_id, week_key)
 );
 
+-- Required for deterministic cross-device preference/review upserts.
+create unique index if not exists weekly_reviews_user_week_key_idx
+  on weekly_reviews(user_id, week_key);
+
 -- RLS policies
 alter table day_entries enable row level security;
 alter table tasks enable row level security;
@@ -81,6 +85,13 @@ alter table short_goals enable row level security;
 alter table long_goals enable row level security;
 alter table weekly_reviews enable row level security;
 
+drop policy if exists "users own their data" on day_entries;
+drop policy if exists "users own their data" on tasks;
+drop policy if exists "users own their data" on routines;
+drop policy if exists "users own their data" on routine_logs;
+drop policy if exists "users own their data" on short_goals;
+drop policy if exists "users own their data" on long_goals;
+drop policy if exists "users own their data" on weekly_reviews;
 create policy "users own their data" on day_entries for all using (auth.uid() = user_id);
 create policy "users own their data" on tasks for all using (auth.uid() = user_id);
 create policy "users own their data" on routines for all using (auth.uid() = user_id);
@@ -93,7 +104,12 @@ create policy "users own their data" on weekly_reviews for all using (auth.uid()
 alter table routines add column if not exists time text;
 alter table routines add column if not exists "order" integer default 0;
 alter table routines add column if not exists period text default 'anytime';
+alter table routines add column if not exists updated_at bigint;
+alter table routine_logs add column if not exists updated_at bigint;
+alter table short_goals add column if not exists updated_at bigint;
+alter table long_goals add column if not exists updated_at bigint;
 
 -- Migration: embed tasks inside short_goals row so goal task done states
 -- sync reliably across devices (REQUIRED for cross-device task completion).
 alter table short_goals add column if not exists tasks jsonb default '[]';
+alter table short_goals add column if not exists notes jsonb default '[]';

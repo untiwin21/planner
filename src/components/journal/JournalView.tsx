@@ -1,10 +1,10 @@
 'use client'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { Search, Trash2 } from 'lucide-react'
 import { Textarea } from '@/components/ui'
-import type { DayEntry, ShortGoal, JournalEntry, NoteEntry } from '@/types'
+import type { DayEntry, ShortGoal, JournalEntry } from '@/types'
 import clsx from 'clsx'
 
 type JournalSource = 'day' | 'goal' | 'week'
@@ -27,6 +27,8 @@ interface Props {
   onDeleteDayNote: (date: string, noteId: string) => void
   onUpdateGoalNote: (goalId: string, noteId: string, text: string) => void
   onDeleteGoalNote: (goalId: string, noteId: string) => void
+  weeklyReviews: Record<string, string>
+  onUpdateWeeklyReview: (key: string, content: string) => void
 }
 
 function highlightText(text: string, query: string) {
@@ -39,7 +41,7 @@ function highlightText(text: string, query: string) {
   )
 }
 
-export function JournalView({ days, goals, onUpdateDayNote, onDeleteDayNote, onUpdateGoalNote, onDeleteGoalNote }: Props) {
+export function JournalView({ days, goals, onUpdateDayNote, onDeleteDayNote, onUpdateGoalNote, onDeleteGoalNote, weeklyReviews, onUpdateWeeklyReview }: Props) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<JournalSource | 'all'>('all')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -77,33 +79,29 @@ export function JournalView({ days, goals, onUpdateDayNote, onDeleteDayNote, onU
       }
     }
 
-    if (typeof window !== 'undefined') {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key?.startsWith('planr_weekly_review_') && key.endsWith('_journal')) {
-          try {
-            const entries: JournalEntry[] = JSON.parse(localStorage.getItem(key) ?? '[]')
-            const weekLabel = key.replace('planr_weekly_review_', '').replace('_journal', '')
-            for (const entry of entries) {
-              items.push({
-                id: entry.id,
-                title: entry.title,
-                body: entry.body,
-                createdAt: entry.createdAt,
-                source: 'week',
-                sourceLabel: weekLabel,
-                sourceId: key,
-                secondaryId: entry.id,
-              })
-            }
-          } catch { /* ignore */ }
+    for (const [key, content] of Object.entries(weeklyReviews)) {
+      if (!key.startsWith('__journal__:')) continue
+      try {
+        const entries: JournalEntry[] = JSON.parse(content || '[]')
+        const weekLabel = key.replace('__journal__:', '')
+        for (const entry of entries) {
+          items.push({
+            id: entry.id,
+            title: entry.title,
+            body: entry.body,
+            createdAt: entry.createdAt,
+            source: 'week',
+            sourceLabel: weekLabel,
+            sourceId: key,
+            secondaryId: entry.id,
+          })
         }
-      }
+      } catch { /* ignore malformed legacy entry */ }
     }
 
     items.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     return items
-  }, [days, goals])
+  }, [days, goals, weeklyReviews])
 
   const filtered = useMemo(() => {
     let result = allItems
@@ -122,6 +120,14 @@ export function JournalView({ days, goals, onUpdateDayNote, onDeleteDayNote, onU
       onUpdateDayNote(item.sourceId, item.id, editTitle.trim(), editBody.trim())
     } else if (item.source === 'goal') {
       onUpdateGoalNote(item.sourceId, item.id, editBody.trim())
+    } else {
+      try {
+        const entries: JournalEntry[] = JSON.parse(weeklyReviews[item.sourceId] || '[]')
+        const next = entries.map(entry => entry.id === item.id
+          ? { ...entry, title: editTitle.trim(), body: editBody.trim() }
+          : entry)
+        onUpdateWeeklyReview(item.sourceId, JSON.stringify(next))
+      } catch { /* ignore malformed legacy entry */ }
     }
     setEditingId(null)
   }
@@ -131,6 +137,11 @@ export function JournalView({ days, goals, onUpdateDayNote, onDeleteDayNote, onU
       onDeleteDayNote(item.sourceId, item.id)
     } else if (item.source === 'goal') {
       onDeleteGoalNote(item.sourceId, item.id)
+    } else {
+      try {
+        const entries: JournalEntry[] = JSON.parse(weeklyReviews[item.sourceId] || '[]')
+        onUpdateWeeklyReview(item.sourceId, JSON.stringify(entries.filter(entry => entry.id !== item.id)))
+      } catch { /* ignore malformed legacy entry */ }
     }
   }
 
@@ -200,7 +211,7 @@ export function JournalView({ days, goals, onUpdateDayNote, onDeleteDayNote, onU
 
                 {isEditing ? (
                   <div className="p-4 rounded-[14px] bg-white border border-[var(--purple)] shadow-sm">
-                    {item.source === 'day' && (
+                    {item.source !== 'goal' && (
                       <input value={editTitle} onChange={e => setEditTitle(e.target.value)} placeholder="제목"
                         className="w-full px-3 py-2 mb-2 rounded-[10px] text-sm font-medium bg-[var(--surface-2)] outline-none" />
                     )}
@@ -217,21 +228,17 @@ export function JournalView({ days, goals, onUpdateDayNote, onDeleteDayNote, onU
                       <h4 className="text-sm font-semibold text-[var(--text)] mb-1">{search ? highlightText(item.title, search) : item.title}</h4>
                     )}
                     <p onClick={() => {
-                      if (item.source !== 'week') {
-                        setEditingId(item.id)
-                        setEditTitle(item.title)
-                        setEditBody(item.body)
-                      }
+                      setEditingId(item.id)
+                      setEditTitle(item.title)
+                      setEditBody(item.body)
                     }}
-                      className={clsx('text-sm text-[var(--text)] leading-relaxed whitespace-pre-wrap', item.source !== 'week' && 'cursor-text')}>
+                      className="text-sm text-[var(--text)] leading-relaxed whitespace-pre-wrap cursor-text">
                       {search ? highlightText(item.body, search) : item.body}
                     </p>
-                    {item.source !== 'week' && (
-                      <button onClick={() => handleDelete(item)}
-                        className="absolute top-8 right-3 opacity-0 group-hover/item:opacity-100 w-6 h-6 flex items-center justify-center text-[var(--text-3)] hover:text-[var(--coral)] rounded-[6px] hover:bg-[var(--coral-bg)] transition-all">
-                        <Trash2 size={12} />
-                      </button>
-                    )}
+                    <button onClick={() => handleDelete(item)}
+                      className="absolute top-8 right-3 opacity-0 group-hover/item:opacity-100 w-6 h-6 flex items-center justify-center text-[var(--text-3)] hover:text-[var(--coral)] rounded-[6px] hover:bg-[var(--coral-bg)] transition-all">
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 )}
               </div>

@@ -76,6 +76,7 @@
   .cat-coral  { background: var(--coral-bg);  color: var(--coral-text); }
   .cat-blue   { background: var(--blue-bg);   color: var(--blue-text); }
   .cat-red    { background: var(--red-bg);    color: var(--red-text); }
+  .cat-gray   { background: var(--surface-2);  color: var(--text-2); }
 
   .scrollbar-thin::-webkit-scrollbar { width: 4px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }

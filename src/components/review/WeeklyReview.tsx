@@ -1,20 +1,21 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { Plus, Trash2 } from 'lucide-react'
 import { formatDate, DAY_NAMES } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
 import { Textarea } from '@/components/ui'
-import type { DayEntry, ShortGoal, Routine, RoutineLog, JournalEntry } from '@/types'
+import type { DayEntry, Routine, RoutineLog, JournalEntry } from '@/types'
 import clsx from 'clsx'
 
 interface Props {
   weekDays: Date[]
   days: DayEntry[]
-  goals: ShortGoal[]
   routines: Routine[]
   logs: RoutineLog[]
+  journalEntries: JournalEntry[]
+  onJournalEntriesChange: (entries: JournalEntry[]) => void
 }
 
 const genId = () => Math.random().toString(36).slice(2, 10)
@@ -26,15 +27,8 @@ function parseSleepHours(time: string | null): number | null {
   return parts[0] + parts[1] / 60
 }
 
-export function WeeklyReview({ weekDays, days, routines, logs }: Props) {
-  const weekKey = useMemo(
-    () => `planr_weekly_review_${format(weekDays[0], "RRRR-'W'II")}`,
-    [weekDays],
-  )
-  const journalKey = `${weekKey}_journal`
-
+export function WeeklyReview({ weekDays, days, routines, logs, journalEntries: entries, onJournalEntriesChange }: Props) {
   // ── Journal state ───────────────────────────────────────────────────────
-  const [entries, setEntries] = useState<JournalEntry[]>([])
   const [showForm, setShowForm] = useState(false)
   const [formTitle, setFormTitle] = useState('')
   const [formBody, setFormBody] = useState('')
@@ -42,17 +36,8 @@ export function WeeklyReview({ weekDays, days, routines, logs }: Props) {
   const [editingTitle, setEditingTitle] = useState('')
   const [editingBody, setEditingBody] = useState('')
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    try {
-      const raw = localStorage.getItem(journalKey)
-      setEntries(raw ? JSON.parse(raw) : [])
-    } catch { setEntries([]) }
-  }, [journalKey])
-
   function saveEntries(next: JournalEntry[]) {
-    setEntries(next)
-    if (typeof window !== 'undefined') localStorage.setItem(journalKey, JSON.stringify(next))
+    onJournalEntriesChange(next)
   }
 
   function handleAdd() {

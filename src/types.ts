@@ -19,7 +19,17 @@ export interface Task {
   category_id: string
   category_name: string
   category_color: BadgeColor
+  /** Legacy single start-time field kept for existing data. */
   time?: string
+  /** Start/end are local wall-clock values in HH:mm format. */
+  start_time?: string
+  end_time?: string
+  /** Estimated effort for flexible work. */
+  duration_min?: number
+  /** Fixed events consume timeline capacity; flexible work consumes available capacity. */
+  fixed?: boolean
+  /** Embedded tombstone used to propagate deletions between devices. */
+  deleted_at?: number
   subtasks?: SubTask[]
   // Last-write-wins timestamp (ms epoch). Set on every mutation; merge takes newer.
   updated_at?: number
@@ -47,6 +57,8 @@ export interface DayMeta {
   notes?: JournalEntry[]
   linkedGoalTaskIds?: string[]   // IDs of short-goal tasks linked to this day
   linkedGoalSubtaskIds?: string[] // IDs of specific subtasks linked to this day
+  dayStart?: string               // Start of the usable planning window (HH:mm)
+  dayEnd?: string                 // End of the usable planning window (HH:mm)
   // Last-write-wins timestamp (ms epoch) for non-task meta fields (sleep/condition/focus/top3/note links etc.)
   // Per-task fields use Task.updated_at directly; this covers everything else in the day entry.
   updated_at?: number
@@ -57,6 +69,7 @@ export interface DayEntry {
   date: string
   note: string
   tasks: Task[]
+  task_tombstones?: Task[]
   categories: Category[]
   meta: DayMeta
 }
@@ -74,6 +87,7 @@ export interface ShortGoal {
   date_to: string
   note: string
   tasks: Task[]
+  task_tombstones?: Task[]
   long_goal_id?: string
   routines: any[]
   categories: any[]
@@ -90,6 +104,7 @@ export interface LongGoal {
   date_from: string
   date_to: string
   color: string
+  updated_at?: number
 }
 
 export type RoutineStatus = 'active' | 'archived' | 'paused'
@@ -119,4 +134,11 @@ export interface WeeklyReview {
   id: string
   week_key: string
   content: string
+}
+
+export interface TaskScheduleInput {
+  start_time?: string
+  end_time?: string
+  duration_min?: number
+  fixed?: boolean
 }

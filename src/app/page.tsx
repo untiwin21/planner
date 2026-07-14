@@ -10,7 +10,7 @@ import { DayDetail } from '@/components/weekly/DayDetail'
 import { GoalSpanRow } from '@/components/weekly/GoalSpanRow'
 import { GoalDetail } from '@/components/goals/GoalDetail'
 import { GoalHierarchyView } from '@/components/goals/GoalHierarchyView'
-import { RoutineSidebar } from '@/components/routine/RoutineSidebar'
+import { RoutineSidebar, type RunTrackerData } from '@/components/routine/RoutineSidebar'
 import { RightSidebar } from '@/components/layout/RightSidebar'
 import { CategoryPanel } from '@/components/layout/CategoryPanel'
 import { WeeklyReview } from '@/components/review/WeeklyReview'
@@ -18,7 +18,7 @@ import { JournalView } from '@/components/journal/JournalView'
 import { WeeklyPrompt } from '@/components/system/WeeklyPrompt'
 import { FocusTimer } from '@/components/system/FocusTimer'
 import { Card } from '@/components/ui'
-import type { ShortGoal, Task } from '@/types'
+import type { JournalEntry, ShortGoal, Task } from '@/types'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import clsx from 'clsx'
 import { useUserId } from '@/context/UserContext'
@@ -26,6 +26,7 @@ import { supabase } from '@/lib/supabase'
 import { signOut } from '@/lib/auth'
 import { DataPanel } from '@/components/settings/DataPanel'
 import { MobileLayout } from '@/components/mobile/MobileLayout'
+import { TodayDashboard } from '@/components/today/TodayDashboard'
 
 function packGoalsIntoRows(goals: ShortGoal[], weekDays: Date[]) {
   const weekStart = formatDate(weekDays[0])
@@ -63,7 +64,7 @@ export default function Home() {
   const [newGoalTo, setNewGoalTo] = useState('')
   const [newGoalTitle, setNewGoalTitle] = useState('')
   const [newGoalLongId, setNewGoalLongId] = useState('')
-  const [view, setView] = useState<'week' | 'review' | 'journal'>('week')
+  const [view, setView] = useState<'today' | 'week' | 'review' | 'journal'>('today')
   const [showCalendar, setShowCalendar] = useState(true)
   const [showFocusTimer, setShowFocusTimer] = useState(false)
 
@@ -76,11 +77,6 @@ export default function Home() {
 
   const weekKey = useMemo(() => getWeekKey(weekBase), [weekBase])
 
-  // ── Big 3 — mantra sentence + text-based entries ──
-  const big3StorageKey = `planr_week_big3_v2_${weekKey}`
-  const mantraStorageKey = `planr_week_mantra_${weekKey}`
-  const [weekBig3, setWeekBig3] = useState<string[]>([])
-  const [weekMantra, setWeekMantra] = useState('')
   const [showBig3Modal, setShowBig3Modal] = useState(false)
 
   const { syncReady, ...store } = usePlanrStore(userId)
@@ -88,6 +84,32 @@ export default function Home() {
   const selectedEntry = store.getDay(selectedDate)
   const selectedGoal = selectedGoalId ? store.goals.find(g => g.id === selectedGoalId) : null
   const goalRows = useMemo(() => packGoalsIntoRows(store.goals, weekDays), [store.goals, weekDays])
+  const big3SyncKey = `__big3__:${weekKey}`
+  const mantraSyncKey = `__mantra__:${weekKey}`
+  const journalSyncKey = `__journal__:${weekKey}`
+  const runTrackerSyncKey = '__run_tracker__'
+  const weekBig3 = useMemo(() => {
+    try {
+      const value = JSON.parse(store.getWeeklyReview(big3SyncKey) || '[]')
+      return Array.isArray(value) ? value as string[] : []
+    } catch { return [] }
+  }, [store.weeklyReviews, big3SyncKey])
+  const weekMantra = store.getWeeklyReview(mantraSyncKey)
+  const weeklyJournalEntries = useMemo(() => {
+    try {
+      const value = JSON.parse(store.getWeeklyReview(journalSyncKey) || '[]')
+      return Array.isArray(value) ? value as JournalEntry[] : []
+    } catch { return [] }
+  }, [store.weeklyReviews, journalSyncKey])
+  const runTracker = useMemo<RunTrackerData>(() => {
+    try {
+      const value = JSON.parse(store.getWeeklyReview(runTrackerSyncKey) || '{}')
+      return {
+        enabled: value?.enabled === true,
+        entries: Array.isArray(value?.entries) ? value.entries : [],
+      }
+    } catch { return { enabled: false, entries: [] } }
+  }, [store.weeklyReviews])
 
   useEffect(() => {
     if (supabase) {
@@ -95,26 +117,43 @@ export default function Home() {
     }
   }, [])
 
-  useEffect(() => {
-    try {
-      const savedBig3 = localStorage.getItem(big3StorageKey)
-      setWeekBig3(savedBig3 ? JSON.parse(savedBig3) : [])
-      const savedMantra = localStorage.getItem(mantraStorageKey)
-      setWeekMantra(savedMantra || '')
-    } catch {
-      setWeekBig3([])
-      setWeekMantra('')
-    }
-  }, [big3StorageKey, mantraStorageKey])
-
   function saveBig3(texts: string[]) {
-    setWeekBig3(texts)
-    localStorage.setItem(big3StorageKey, JSON.stringify(texts))
+    store.updateWeeklyReview(big3SyncKey, JSON.stringify(texts))
   }
   function saveMantra(text: string) {
-    setWeekMantra(text)
-    localStorage.setItem(mantraStorageKey, text)
+    store.updateWeeklyReview(mantraSyncKey, text)
   }
+
+  // Migrate meaningful browser-only data from earlier versions once, then use
+  // Supabase-backed weekly records on every device.
+  useEffect(() => {
+    if (!syncReady || typeof window === 'undefined') return
+    if (!store.getWeeklyReview(big3SyncKey)) {
+      const legacyBig3 = localStorage.getItem(`planr_week_big3_v2_${weekKey}`)
+      if (legacyBig3) store.updateWeeklyReview(big3SyncKey, legacyBig3)
+    }
+    if (!store.getWeeklyReview(mantraSyncKey)) {
+      const legacyMantra = localStorage.getItem(`planr_week_mantra_${weekKey}`)
+      if (legacyMantra) store.updateWeeklyReview(mantraSyncKey, legacyMantra)
+    }
+    if (!store.getWeeklyReview(journalSyncKey)) {
+      const legacyJournal = localStorage.getItem(`planr_weekly_review_${weekKey}_journal`)
+      if (legacyJournal) store.updateWeeklyReview(journalSyncKey, legacyJournal)
+    }
+  // The week keys and server snapshot are the only inputs; store methods are intentionally omitted.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncReady, weekKey, big3SyncKey, mantraSyncKey, journalSyncKey, store.weeklyReviews])
+
+  useEffect(() => {
+    if (!syncReady || typeof window === 'undefined' || store.getWeeklyReview(runTrackerSyncKey)) return
+    let entries: RunTrackerData['entries'] = []
+    try { entries = JSON.parse(localStorage.getItem('planr_run_log') ?? '[]') } catch { /* ignore legacy value */ }
+    const enabled = localStorage.getItem('planr_run_tracker_enabled') === 'true'
+    if (enabled || entries.length > 0) {
+      store.updateWeeklyReview(runTrackerSyncKey, JSON.stringify({ enabled, entries }))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncReady, store.weeklyReviews])
 
   const todayShortGoals = useMemo(
     () => store.goals.filter(g => isGoalActive(g, new Date())),
@@ -232,6 +271,7 @@ export default function Home() {
         getDay={store.getDay}
         toggleTask={store.toggleTask}
         addTask={store.addTask}
+        updateTask={store.updateTask}
         deleteTask={store.deleteTask}
         updateMeta={store.updateMeta}
         toggleRoutineLog={store.toggleRoutineLog}
@@ -255,12 +295,17 @@ export default function Home() {
           <div className="flex items-center gap-4">
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Planr</h1>
-              <p className="text-sm text-[var(--text-3)] mt-0.5">{formatMonth(weekBase)}</p>
+              <p className="text-sm text-[var(--text-3)] mt-0.5">{formatMonth(view === 'today' ? parseISO(selectedDate) : weekBase)}</p>
             </div>
             {!syncReady && <p className="text-sm text-[var(--text-3)]">동기화 중...</p>}
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 mr-2 bg-[var(--surface-2)] rounded-[10px] p-0.5">
+              <button onClick={() => { setView('today'); setSelectedDate(formatDate(new Date())); setSelectedGoalId(null) }}
+                className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
+                  view === 'today' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
+                오늘
+              </button>
               <button onClick={() => setView('week')}
                 className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
                   view === 'week' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
@@ -291,18 +336,29 @@ export default function Home() {
               )}
             </div>
 
-            <button onClick={() => setWeekBase(subWeeks(weekBase, 1))}
-              className="w-8 h-8 rounded-[8px] flex items-center justify-center hover:bg-white border border-transparent hover:border-[var(--border)] transition-all">
-              <ChevronLeft size={16} />
-            </button>
-            <button onClick={() => setWeekBase(new Date())}
-              className="px-3 h-8 rounded-[8px] text-sm font-medium hover:bg-white border border-transparent hover:border-[var(--border)] transition-all text-[var(--text-2)]">
-              오늘
-            </button>
-            <button onClick={() => setWeekBase(addWeeks(weekBase, 1))}
-              className="w-8 h-8 rounded-[8px] flex items-center justify-center hover:bg-white border border-transparent hover:border-[var(--border)] transition-all">
-              <ChevronRight size={16} />
-            </button>
+            {view === 'today' ? (
+              selectedDate !== formatDate(new Date()) && (
+                <button onClick={() => setSelectedDate(formatDate(new Date()))}
+                  className="px-3 h-8 rounded-[8px] text-sm font-medium hover:bg-white border border-transparent hover:border-[var(--border)] transition-all text-[var(--text-2)]">
+                  오늘로
+                </button>
+              )
+            ) : (
+              <>
+                <button onClick={() => setWeekBase(subWeeks(weekBase, 1))}
+                  className="w-8 h-8 rounded-[8px] flex items-center justify-center hover:bg-white border border-transparent hover:border-[var(--border)] transition-all">
+                  <ChevronLeft size={16} />
+                </button>
+                <button onClick={() => setWeekBase(new Date())}
+                  className="px-3 h-8 rounded-[8px] text-sm font-medium hover:bg-white border border-transparent hover:border-[var(--border)] transition-all text-[var(--text-2)]">
+                  이번 주
+                </button>
+                <button onClick={() => setWeekBase(addWeeks(weekBase, 1))}
+                  className="w-8 h-8 rounded-[8px] flex items-center justify-center hover:bg-white border border-transparent hover:border-[var(--border)] transition-all">
+                  <ChevronRight size={16} />
+                </button>
+              </>
+            )}
             {user && (
               <div className="flex items-center gap-2 ml-2">
                 <p className="text-sm text-[var(--text-3)]">{user.email}</p>
@@ -317,11 +373,13 @@ export default function Home() {
         </div>
 
         {/* Stats row */}
-        <div className="flex items-center gap-4 mb-5 text-xs text-[var(--text-3)]">
-          {weekStats.taskRate !== null && <span>할일 {weekStats.taskRate}%</span>}
-          {weekStats.routineRate !== null && <span>루틴 {weekStats.routineRate}%</span>}
-          {weekStats.goalCount > 0 && <span>목표 {weekStats.goalCount}개</span>}
-        </div>
+        {view !== 'today' && (
+          <div className="flex items-center gap-4 mb-5 text-xs text-[var(--text-3)]">
+            {weekStats.taskRate !== null && <span>할일 {weekStats.taskRate}%</span>}
+            {weekStats.routineRate !== null && <span>루틴 {weekStats.routineRate}%</span>}
+            {weekStats.goalCount > 0 && <span>목표 {weekStats.goalCount}개</span>}
+          </div>
+        )}
 
         {/* 2-column layout */}
         <div className="grid gap-5" style={{ gridTemplateColumns: '280px 1fr' }}>
@@ -378,12 +436,26 @@ export default function Home() {
               onUpdateRoutine={store.updateRoutine}
               onReorderRoutine={store.reorderRoutine}
               onDeleteRoutine={store.deleteRoutine}
+              runTracker={runTracker}
+              onRunTrackerChange={value => store.updateWeeklyReview(runTrackerSyncKey, JSON.stringify(value))}
             />
           </div>
 
           {/* Main content */}
           <div className="flex flex-col gap-4 min-w-0">
-            {view === 'journal' ? (
+            {view === 'today' ? (
+              <TodayDashboard
+                date={selectedDate}
+                entry={selectedEntry}
+                categories={store.categories}
+                onDateChange={date => { setSelectedDate(date); setSelectedGoalId(null) }}
+                onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
+                onAddTask={(categoryId, text, schedule) => store.addTask(selectedDate, categoryId, text, schedule)}
+                onUpdateTask={(taskId, patch) => store.updateTask(selectedDate, taskId, patch)}
+                onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
+                onMetaChange={patch => store.updateMeta(selectedDate, patch)}
+              />
+            ) : view === 'journal' ? (
               <Card className="p-5">
                 <JournalView
                   days={store.days}
@@ -392,6 +464,8 @@ export default function Home() {
                   onDeleteDayNote={(date, noteId) => store.deleteDayNote(date, noteId)}
                   onUpdateGoalNote={(goalId, noteId, text) => store.updateGoalNote(goalId, noteId, text)}
                   onDeleteGoalNote={(goalId, noteId) => store.deleteGoalNote(goalId, noteId)}
+                  weeklyReviews={store.weeklyReviews}
+                  onUpdateWeeklyReview={store.updateWeeklyReview}
                 />
               </Card>
             ) : view === 'review' ? (
@@ -399,9 +473,10 @@ export default function Home() {
                 <WeeklyReview
                   weekDays={weekDays}
                   days={store.days}
-                  goals={store.goals}
                   routines={store.routines}
                   logs={store.logs}
+                  journalEntries={weeklyJournalEntries}
+                  onJournalEntriesChange={entries => store.updateWeeklyReview(journalSyncKey, JSON.stringify(entries))}
                 />
               </Card>
             ) : (
@@ -409,6 +484,8 @@ export default function Home() {
                 {/* Weekly prompt */}
                 <WeeklyPrompt
                   weekKey={weekKey}
+                  hasBig3={weekBig3.some(item => item.trim().length > 0)}
+                  hasJournal={weeklyJournalEntries.length > 0}
                   onGoToBig3={() => setShowBig3Modal(true)}
                   onGoToReview={() => setView('review')}
                 />
