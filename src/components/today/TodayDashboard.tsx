@@ -15,6 +15,7 @@ import {
   Flame,
   Moon,
   Pencil,
+  Percent,
   Plus,
   Target,
   Tag,
@@ -39,6 +40,7 @@ import {
   remainingCapacity,
   timeToMinutes,
 } from '@/lib/plannerTime'
+import { taskProgressPercent, tasksProgress } from '@/lib/taskProgress'
 
 interface Props {
   date: string
@@ -50,6 +52,7 @@ interface Props {
   routineLogs?: RoutineLog[]
   onDateChange?: (date: string) => void
   onAddTask: (categoryId: string, text: string, schedule?: TaskScheduleInput) => void
+  onCarryTask?: (date: string, categoryId: string, text: string, schedule?: TaskScheduleInput) => void
   onUpdateTask: (taskId: string, patch: Partial<Task>) => void
   onDeleteTask: (taskId: string) => void
   onToggleTask: (taskId: string) => void
@@ -66,6 +69,14 @@ interface ActualEditorState {
   start: string
   end: string
   categoryId: string
+}
+
+interface ProgressEditorState {
+  taskId: string
+  current: string
+  target: string
+  unit: string
+  carryOver: boolean
 }
 
 const CATEGORY_COLORS: BadgeColor[] = ['purple', 'teal', 'amber', 'coral', 'blue']
@@ -111,6 +122,7 @@ export function TodayDashboard({
   routineLogs = [],
   onDateChange,
   onAddTask,
+  onCarryTask,
   onUpdateTask,
   onDeleteTask,
   onToggleTask,
@@ -133,6 +145,8 @@ export function TodayDashboard({
   const [dragPreviewMinute, setDragPreviewMinute] = useState<number | null>(null)
   const [actualEditor, setActualEditor] = useState<ActualEditorState | null>(null)
   const [actualError, setActualError] = useState('')
+  const [progressEditor, setProgressEditor] = useState<ProgressEditorState | null>(null)
+  const [progressError, setProgressError] = useState('')
   const timelineRef = useRef<HTMLDivElement>(null)
   const pointerTaskIdRef = useRef<string | null>(null)
   const selectableCategories = useMemo(() => categories.filter(category => category.id !== SCHEDULE_CAT_ID && category.id !== DEADLINE_CAT_ID), [categories])
@@ -371,6 +385,57 @@ export function TodayDashboard({
     setActualEditor(null)
   }
 
+  function openProgressEditor(task: Task) {
+    setProgressError('')
+    setProgressEditor({
+      taskId: task.id,
+      current: task.progress_current?.toString() ?? '',
+      target: task.progress_target?.toString() ?? '100',
+      unit: task.progress_unit ?? '%',
+      carryOver: false,
+    })
+  }
+
+  function setQuickProgress(percent: number) {
+    setProgressEditor(current => current ? { ...current, current: String(percent), target: '100', unit: '%' } : current)
+  }
+
+  function savePartialProgress() {
+    if (!progressEditor) return
+    const task = entry.tasks.find(item => item.id === progressEditor.taskId)
+    const current = Number(progressEditor.current)
+    const target = Number(progressEditor.target)
+    const unit = progressEditor.unit.trim() || '%'
+    if (!task || !Number.isFinite(current) || !Number.isFinite(target) || target <= 0 || current <= 0) {
+      setProgressError('실제량과 목표량을 0보다 크게 입력해주세요.')
+      return
+    }
+    const clampedCurrent = Math.min(current, target)
+    const completed = clampedCurrent >= target
+    onUpdateTask(task.id, {
+      done: completed,
+      progress_current: clampedCurrent,
+      progress_target: target,
+      progress_unit: unit,
+    })
+
+    if (!completed && progressEditor.carryOver && onCarryTask) {
+      const remaining = Math.max(0, target - clampedCurrent)
+      const ratio = remaining / target
+      const nextDate = formatDate(addDays(parseISO(date), 1))
+      const carriedTitle = `${task.text} · 남은 ${remaining}${unit}`
+      onCarryTask(nextDate, task.category_id, carriedTitle, {
+        fixed: false,
+        duration_min: Math.max(1, Math.round(getTaskDuration(task) * ratio)),
+        progress_current: 0,
+        progress_target: remaining,
+        progress_unit: unit,
+      })
+    }
+    setProgressEditor(null)
+    setProgressError('')
+  }
+
   return (
     <section className={clsx('w-full', compact ? 'px-4 pt-4' : '')}>
       <div className={clsx('flex items-center justify-between gap-3', compact ? 'mb-4' : 'mb-5')}>
@@ -431,16 +496,16 @@ export function TodayDashboard({
           </div>
           <div className={clsx('grid gap-2', compact ? 'grid-cols-1' : 'md:grid-cols-3')}>
             {focusGoals.map(goal => {
-              const total = goal.tasks.length
-              const done = goal.tasks.filter(task => task.done).length
-              const pct = total > 0 ? Math.round((done / total) * 100) : 0
+              const progress = tasksProgress(goal.tasks)
+              const total = progress.total
+              const pct = progress.pct
               return (
                 <div key={goal.id} className="rounded-[12px] border border-[var(--border)] bg-[var(--teal-bg)]/45 px-3 py-2.5">
                   <p className="text-sm font-semibold leading-snug">{goal.title}</p>
                   {goal.long_goal_id && longGoalNames.get(goal.long_goal_id) && <p className="text-[10px] text-[var(--teal-text)] mt-1">{longGoalNames.get(goal.long_goal_id)}</p>}
                   <div className="flex items-center gap-2 mt-2">
                     <div className="h-1.5 flex-1 rounded-full bg-white overflow-hidden"><div className="h-full bg-[var(--teal)] rounded-full" style={{ width: `${pct}%` }} /></div>
-                    <span className="text-[10px] font-semibold text-[var(--teal-text)]">{total > 0 ? `${done}/${total}` : '다음 행동 필요'}</span>
+                    <span className="text-[10px] font-semibold text-[var(--teal-text)]">{total > 0 ? `${pct}%` : '다음 행동 필요'}</span>
                   </div>
                 </div>
               )
@@ -490,17 +555,17 @@ export function TodayDashboard({
           <div className="px-4 py-3 border-b border-[var(--border)] flex items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold">계획과 실제 타임라인</h3>
-              <p className="text-xs text-[var(--text-3)] mt-0.5">였은 블록은 계획, 진한 블록은 실제입니다. 현재선 이전은 언제든 정리할 수 있어요.</p>
-              <div className="flex items-center gap-3 mt-2 text-[10px] text-[var(--text-3)]">
-                <span className="flex items-center gap-1"><span className="w-4 border-t-2 border-dashed border-[var(--purple)] opacity-50" /> 계획</span>
-                <span className="flex items-center gap-1"><span className="w-4 border-t-[3px] border-[var(--purple)]" /> 실제</span>
-              </div>
+              <p className="text-xs text-[var(--text-3)] mt-0.5">같은 시간축에서 왼쪽은 Plan, 오른쪽은 실제 기록입니다.</p>
             </div>
             <button type="button" disabled={!canEditActual} onClick={() => openActualEditor()} className="shrink-0 px-3 py-2 rounded-[9px] bg-[var(--purple)] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-35 disabled:cursor-not-allowed">
               <History size={13} /> 지난 시간 기록
             </button>
           </div>
           <div className="max-h-[680px] overflow-y-auto scrollbar-thin">
+            <div className="sticky top-0 z-40 ml-14 mr-3 grid grid-cols-2 border-b border-[var(--border)] bg-white/95 backdrop-blur-sm">
+              <div className="py-2 text-center text-[11px] font-bold text-[var(--purple-text)]">PLAN</div>
+              <div className="border-l border-[var(--border-strong)] py-2 text-center text-[11px] font-bold text-[var(--teal-text)]">실제</div>
+            </div>
             <div
               ref={timelineRef}
               className={clsx('relative ml-14 mr-3 transition-colors', draggedTaskId && 'bg-[var(--purple-bg)]/20')}
@@ -519,6 +584,7 @@ export function TodayDashboard({
                 if (taskId) placeTask(taskId, timelineMinuteFromPointer(event.clientY, event.currentTarget))
               }}
             >
+              <div className="absolute bottom-0 left-1/2 top-0 z-[5] border-l border-[var(--border-strong)]" aria-hidden="true" />
               {TIMELINE_HOURS.map(minute => {
                 const top = ((minute - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
                 return (
@@ -536,7 +602,7 @@ export function TodayDashboard({
               })()}
 
               {dragPreviewMinute !== null && (
-                <div className="absolute left-0 right-0 z-30 border-t-2 border-dashed border-[var(--purple)] pointer-events-none" style={{ top: ((dragPreviewMinute - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT }}>
+                <div className="absolute left-0 right-1/2 z-30 border-t-2 border-dashed border-[var(--purple)] pointer-events-none" style={{ top: ((dragPreviewMinute - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT }}>
                   <span className="absolute left-2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-[var(--purple)] text-white text-[10px] font-bold">{minutesToTime(dragPreviewMinute)}</span>
                 </div>
               )}
@@ -560,8 +626,8 @@ export function TodayDashboard({
                     role={start < editableUntil ? 'button' : undefined}
                     tabIndex={start < editableUntil ? 0 : undefined}
                     aria-label={start < editableUntil ? `${task.text} 실제 시간 정리` : undefined}
-                    className={clsx('absolute left-1 right-1 z-10 rounded-[9px] border-2 border-dashed px-2 py-1.5 overflow-hidden opacity-35', start < editableUntil && 'hover:opacity-60 cursor-pointer', !fixed && !task.done && 'active:cursor-grabbing', fixed ? 'bg-[var(--blue-bg)] border-[var(--blue)]' : `cat-${task.category_color} border-[var(--purple)]`)}
-                    style={{ top, height }}
+                    className={clsx('absolute z-10 rounded-[9px] border px-2 py-1.5 overflow-hidden shadow-sm', start < editableUntil && 'hover:ring-2 hover:ring-[var(--purple)]/20 cursor-pointer', !fixed && !task.done && 'active:cursor-grabbing', fixed ? 'bg-[var(--blue-bg)] border-blue-300 text-[var(--blue-text)]' : `cat-${task.category_color} border-[var(--purple)]`)}
+                    style={{ top, height, left: 2, width: 'calc(50% - 4px)' }}
                   >
                     <div className="flex items-center gap-1.5">
                       <span className={clsx('text-xs font-semibold flex-1 min-w-0 truncate', task.done && 'line-through')}>{task.text}</span>
@@ -580,8 +646,8 @@ export function TodayDashboard({
                     type="button"
                     key={`actual:${task.id}`}
                     onClick={() => openActualEditor(task, start, end)}
-                    className={clsx('absolute left-2 right-2 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-md hover:ring-2 hover:ring-white/80', isFixedTask(task) ? 'bg-[var(--blue)] border-[var(--blue)] text-white' : 'bg-[var(--purple)] border-[var(--purple)] text-white')}
-                    style={{ top, height }}
+                    className={clsx('absolute right-0.5 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-md hover:ring-2 hover:ring-white/80', isFixedTask(task) ? 'bg-[var(--blue)] border-[var(--blue)] text-white' : 'bg-[var(--teal)] border-[var(--teal)] text-white')}
+                    style={{ top, height, left: 'calc(50% + 2px)' }}
                     title="실제 시간 수정"
                   >
                     <div className="flex items-center gap-1.5">
@@ -699,7 +765,10 @@ export function TodayDashboard({
                   <span className="text-[10px] text-[var(--text-3)]">{tasks.length}개</span>
                 </div>
                 <div className="flex flex-col gap-2">
-                  {tasks.map(task => (
+                  {tasks.map(task => {
+                    const progressPercent = taskProgressPercent(task)
+                    const isPartial = !task.done && progressPercent > 0
+                    return (
                     <div
                       key={task.id}
                       draggable={!task.done}
@@ -710,7 +779,7 @@ export function TodayDashboard({
                         event.dataTransfer.effectAllowed = 'move'
                       }}
                       onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
-                      className={clsx('rounded-[12px] border px-3 py-2.5 group', task.done ? 'bg-[var(--surface-2)] border-transparent opacity-60' : 'bg-white border-[var(--border)] cursor-grab active:cursor-grabbing', draggedTaskId === task.id && 'opacity-50 ring-2 ring-[var(--purple)]')}
+                      className={clsx('rounded-[12px] border px-3 py-2.5 group', task.done ? 'bg-[var(--surface-2)] border-transparent opacity-60' : isPartial ? 'bg-[var(--amber-bg)]/45 border-amber-200 cursor-grab active:cursor-grabbing' : 'bg-white border-[var(--border)] cursor-grab active:cursor-grabbing', draggedTaskId === task.id && 'opacity-50 ring-2 ring-[var(--purple)]')}
                     >
                       <div className="flex items-start gap-2.5">
                         <button
@@ -735,10 +804,24 @@ export function TodayDashboard({
                         >
                           <GripVertical size={15} aria-hidden="true" />
                         </button>
-                        <button type="button" aria-label={task.done ? '완료 취소' : '완료'} onClick={() => onToggleTask(task.id)} className={clsx('mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', task.done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : 'border-[var(--border-strong)]')}>{task.done && <Check size={11} strokeWidth={3} />}</button>
+                        <button
+                          type="button"
+                          aria-label={task.done ? '완료 취소' : '완료'}
+                          onClick={() => onToggleTask(task.id)}
+                          className={clsx('mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', task.done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : isPartial ? 'border-[var(--amber)]' : 'border-[var(--border-strong)]')}
+                          style={isPartial ? { background: `conic-gradient(var(--amber) ${progressPercent}%, white ${progressPercent}%)` } : undefined}
+                        >
+                          {task.done ? <Check size={11} strokeWidth={3} /> : isPartial ? <span className="h-2.5 w-2.5 rounded-full bg-white" /> : null}
+                        </button>
                         <div className="flex-1 min-w-0">
                           <p className={clsx('text-sm font-medium truncate', task.done && 'line-through')}>{task.text}</p>
                           <div className="flex flex-wrap items-center gap-2 mt-2">
+                            {!task.done && (
+                              <button type="button" onClick={() => openProgressEditor(task)} className={clsx('flex items-center gap-1 rounded-[6px] px-1.5 py-1 text-[11px] font-semibold', isPartial ? 'bg-white text-[var(--amber-text)]' : 'bg-[var(--surface-2)] text-[var(--text-3)] hover:text-[var(--purple)]')}>
+                                <Percent size={11} />
+                                {isPartial ? `${task.progress_current}/${task.progress_target}${task.progress_unit ?? ''} · ${progressPercent}%` : '부분 완료'}
+                              </button>
+                            )}
                             <label className="flex items-center gap-1 text-[11px] text-[var(--text-3)]">
                               예상
                               <input key={`${task.id}:${task.duration_min ?? ''}`} inputMode="numeric" defaultValue={getTaskDuration(task)} onBlur={event => { const value = Number.parseInt(event.target.value, 10); if (value > 0 && value !== getTaskDuration(task)) onUpdateTask(task.id, { duration_min: value }) }} className="w-14 px-1.5 py-1 rounded-[6px] bg-[var(--surface-2)] text-right text-xs font-semibold outline-none focus:bg-white focus:ring-1 focus:ring-[var(--purple)]" />분
@@ -752,7 +835,8 @@ export function TodayDashboard({
                         <button type="button" onClick={() => onDeleteTask(task.id)} aria-label={`${task.text} 삭제`} className="w-7 h-7 rounded-[7px] opacity-40 group-hover:opacity-100 text-[var(--text-3)] hover:text-[var(--red)] hover:bg-[var(--red-bg)] flex items-center justify-center"><Trash2 size={13} /></button>
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </section>
                 ))}
@@ -806,6 +890,69 @@ export function TodayDashboard({
           </div>
         </div>
       )}
+
+      {progressEditor && (() => {
+        const task = entry.tasks.find(item => item.id === progressEditor.taskId)
+        const current = Number(progressEditor.current)
+        const target = Number(progressEditor.target)
+        const previewPercent = Number.isFinite(current) && Number.isFinite(target) && target > 0
+          ? Math.max(0, Math.min(100, Math.round((current / target) * 100)))
+          : 0
+        return (
+          <div className="fixed inset-0 z-[60] bg-black/30 flex items-center justify-center p-4" onClick={() => setProgressEditor(null)}>
+            <div role="dialog" aria-modal="true" aria-label="부분 완료 기록" className="w-full max-w-md bg-white rounded-[20px] shadow-xl p-5" onClick={event => event.stopPropagation()}>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-lg font-bold">부분 완료 기록</h3>
+                  <p className="text-xs text-[var(--text-3)] mt-1">완료하지 못했어도 실제로 진행한 만큼은 달성률에 반영됩니다.</p>
+                </div>
+                <button type="button" aria-label="닫기" onClick={() => setProgressEditor(null)} className="w-8 h-8 rounded-full hover:bg-[var(--surface-2)] flex items-center justify-center"><X size={17} /></button>
+              </div>
+
+              <div className="rounded-[11px] bg-[var(--amber-bg)] px-3 py-2.5 mb-4">
+                <p className="text-sm font-semibold">{task?.text}</p>
+                <p className="text-[11px] text-[var(--amber-text)] mt-1">현재 {previewPercent}% 진행</p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {[25, 50, 75].map(percent => (
+                  <button type="button" key={percent} onClick={() => setQuickProgress(percent)} className={clsx('py-2 rounded-[9px] text-xs font-semibold border', progressEditor.unit === '%' && progressEditor.current === String(percent) && progressEditor.target === '100' ? 'bg-[var(--amber-bg)] border-[var(--amber)] text-[var(--amber-text)]' : 'border-[var(--border)] hover:bg-[var(--surface-2)]')}>
+                    {percent}%
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-[1fr_1fr_88px] gap-2">
+                <label className="text-xs font-semibold text-[var(--text-2)]">실제량
+                  <input autoFocus type="number" min="0" step="any" value={progressEditor.current} onChange={event => setProgressEditor(value => value ? { ...value, current: event.target.value } : value)} placeholder="6" className="w-full mt-1.5 px-3 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--amber)]" />
+                </label>
+                <label className="text-xs font-semibold text-[var(--text-2)]">목표량
+                  <input type="number" min="0" step="any" value={progressEditor.target} onChange={event => setProgressEditor(value => value ? { ...value, target: event.target.value } : value)} placeholder="7" className="w-full mt-1.5 px-3 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--amber)]" />
+                </label>
+                <label className="text-xs font-semibold text-[var(--text-2)]">단위
+                  <input value={progressEditor.unit} onChange={event => setProgressEditor(value => value ? { ...value, unit: event.target.value.slice(0, 8) } : value)} placeholder="km" className="w-full mt-1.5 px-3 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--amber)]" />
+                </label>
+              </div>
+
+              {onCarryTask && previewPercent > 0 && previewPercent < 100 && (
+                <label className="mt-4 flex items-start gap-2.5 rounded-[11px] border border-[var(--border)] p-3 cursor-pointer">
+                  <input type="checkbox" checked={progressEditor.carryOver} onChange={event => setProgressEditor(value => value ? { ...value, carryOver: event.target.checked } : value)} className="mt-0.5 accent-[var(--purple)]" />
+                  <span><span className="block text-sm font-semibold">남은 양을 내일로 이월</span><span className="block text-[11px] text-[var(--text-3)] mt-0.5">남은 분량과 예상 시간을 계산해 내일 할 일로 추가합니다.</span></span>
+                </label>
+              )}
+
+              {progressError && <p className="text-xs text-[var(--red)] mt-3">{progressError}</p>}
+
+              <div className="flex gap-2 mt-5">
+                {task?.progress_target && (
+                  <button type="button" onClick={() => { onUpdateTask(task.id, { done: false, progress_current: undefined, progress_target: undefined, progress_unit: undefined }); setProgressEditor(null) }} className="px-3 py-2.5 rounded-[9px] text-xs font-semibold text-[var(--red)] hover:bg-[var(--red-bg)]">기록 삭제</button>
+                )}
+                <button type="button" onClick={savePartialProgress} className="ml-auto px-4 py-2.5 rounded-[9px] bg-[var(--amber)] text-white text-xs font-semibold">{previewPercent >= 100 ? '완료로 저장' : '부분 완료 저장'}</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {showWellness && (
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => setShowWellness(false)}>

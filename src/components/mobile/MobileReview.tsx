@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { addWeeks, subWeeks } from 'date-fns'
 import clsx from 'clsx'
 import { getWeekDays, formatDate, DAY_NAMES } from '@/lib/dates'
-import { tasksProgress } from '@/lib/taskProgress'
+import { taskProgressPercent, tasksProgress } from '@/lib/taskProgress'
 import type { DayEntry, ShortGoal, Routine, RoutineLog } from '@/types'
 
 interface Props {
@@ -36,8 +36,11 @@ export function MobileReview({ days, goals, routines, logs, getWeeklyReview, upd
   const avgCondition = conditionValues.length > 0 ? (conditionValues.reduce((a, b) => a + b, 0) / conditionValues.length).toFixed(1) : null
   const avgFocus = focusValues.length > 0 ? (focusValues.reduce((a, b) => a + b, 0) / focusValues.length).toFixed(1) : null
 
-  const totalTasks = weekDayEntries.reduce((s, d) => s + d.tasks.length, 0)
-  const doneTasks = weekDayEntries.reduce((s, d) => s + d.tasks.filter(t => t.done).length, 0)
+  const weekTasks = weekDayEntries.flatMap(entry => entry.tasks)
+  const taskStats = tasksProgress(weekTasks)
+  const totalTasks = taskStats.total
+  const doneTasks = weekTasks.filter(task => task.done).length
+  const partialTasks = weekTasks.filter(task => !task.done && taskProgressPercent(task) > 0).length
 
   // Routine stats for the week
   const activeRoutines = routines.filter(r => r.status === 'active')
@@ -96,9 +99,9 @@ export function MobileReview({ days, goals, routines, logs, getWeeklyReview, upd
         <div className="bg-white border border-[var(--border)] rounded-[12px] p-3">
           <p className="text-[11px] text-[var(--text-3)] mb-1">할 일 완료율</p>
           <p className="text-lg font-bold text-[var(--purple-text)]">
-            {totalTasks > 0 ? `${Math.round((doneTasks / totalTasks) * 100)}%` : '-'}
+            {totalTasks > 0 ? `${taskStats.pct}%` : '-'}
           </p>
-          {totalTasks > 0 && <p className="text-[10px] text-[var(--text-3)]">{doneTasks}/{totalTasks}</p>}
+          {totalTasks > 0 && <p className="text-[10px] text-[var(--text-3)]">완료 {doneTasks} · 부분 {partialTasks} / 전체 {totalTasks}</p>}
         </div>
       </div>
 

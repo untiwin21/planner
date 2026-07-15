@@ -432,6 +432,7 @@ export default function Home() {
                 onDateChange={date => { setSelectedDate(date); setSelectedGoalId(null) }}
                 onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
                 onAddTask={(categoryId, text, schedule) => store.addTask(selectedDate, categoryId, text, schedule)}
+                onCarryTask={(targetDate, categoryId, text, schedule) => store.addTask(targetDate, categoryId, text, schedule)}
                 onUpdateTask={(taskId, patch) => store.updateTask(selectedDate, taskId, patch)}
                 onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
                 onMetaChange={patch => store.updateMeta(selectedDate, patch)}

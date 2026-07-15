@@ -833,7 +833,17 @@ export function usePlanrStore(userId: string) {
     const entry = getDay(date)
     const task = entry.tasks.find(t => t.id === taskId)
     if (!task) return
-    const updatedTask: Task = { ...task, done: !task.done, updated_at: now() }
+    const nextDone = !task.done
+    const updatedTask: Task = {
+      ...task,
+      done: nextDone,
+      ...(nextDone && task.progress_target
+        ? { progress_current: task.progress_target }
+        : !nextDone
+          ? { progress_current: undefined, progress_target: undefined, progress_unit: undefined }
+          : {}),
+      updated_at: now(),
+    }
     // Task-only mutation: don't bump meta.updated_at so concurrent meta edits aren't clobbered.
     upsertDay({ ...entry, tasks: entry.tasks.map(t => t.id === taskId ? updatedTask : t) }, { bumpMeta: false })
     if (userId) trackWrite(upsertTask(userId, updatedTask, date))

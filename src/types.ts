@@ -32,6 +32,10 @@ export interface Task {
   actual_start_time?: string
   actual_end_time?: string
   actual_status?: 'recorded' | 'skipped'
+  /** Optional measurable completion, e.g. 6 / 7 km. `done` still means 100%. */
+  progress_current?: number
+  progress_target?: number
+  progress_unit?: string
   /** Embedded tombstone used to propagate deletions between devices. */
   deleted_at?: number
   subtasks?: SubTask[]
@@ -149,4 +153,7 @@ export interface TaskScheduleInput {
   actual_end_time?: string
   actual_status?: 'recorded' | 'skipped'
   done?: boolean
+  progress_current?: number
+  progress_target?: number
+  progress_unit?: string
 }

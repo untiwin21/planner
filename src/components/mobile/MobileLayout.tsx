@@ -65,6 +65,7 @@ export function MobileLayout({
             onDateChange={setSelectedDate}
             onToggleTask={taskId => toggleTask(selectedDate, taskId)}
             onAddTask={(catId, text, schedule) => addTask(selectedDate, catId, text, schedule)}
+            onCarryTask={addTask}
             onUpdateTask={(taskId, patch) => updateTask(selectedDate, taskId, patch)}
             onDeleteTask={taskId => deleteTask(selectedDate, taskId)}
             onMetaChange={patch => updateMeta(selectedDate, patch)}

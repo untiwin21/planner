@@ -17,6 +17,7 @@ interface Props {
   onDateChange: (date: string) => void
   onToggleTask: (taskId: string) => void
   onAddTask: (catId: string, text: string, schedule?: TaskScheduleInput) => void
+  onCarryTask: (date: string, catId: string, text: string, schedule?: TaskScheduleInput) => void
   onUpdateTask: (taskId: string, patch: Partial<Task>) => void
   onDeleteTask: (taskId: string) => void
   onMetaChange: (patch: Partial<DayMeta>) => void
@@ -39,6 +40,7 @@ export function MobileToday({
   onDateChange,
   onToggleTask,
   onAddTask,
+  onCarryTask,
   onUpdateTask,
   onDeleteTask,
   onMetaChange,
@@ -85,6 +87,7 @@ export function MobileToday({
         onDateChange={onDateChange}
         onToggleTask={onToggleTask}
         onAddTask={onAddTask}
+        onCarryTask={onCarryTask}
         onUpdateTask={onUpdateTask}
         onDeleteTask={onDeleteTask}
         onMetaChange={onMetaChange}
