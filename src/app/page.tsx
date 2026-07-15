@@ -399,7 +399,7 @@ export default function Home() {
               )}
             </div>
 
-            <RoutineSidebar
+            {view !== 'today' && <RoutineSidebar
               routines={store.routines}
               logs={store.logs}
               goalRoutines={todayGoalRoutines}
@@ -412,7 +412,7 @@ export default function Home() {
               onUpdateRoutine={store.updateRoutine}
               onReorderRoutine={store.reorderRoutine}
               onDeleteRoutine={store.deleteRoutine}
-            />
+            />}
           </div>
 
           {/* Main content */}
@@ -422,6 +422,10 @@ export default function Home() {
                 date={selectedDate}
                 entry={selectedEntry}
                 categories={store.categories}
+                goals={store.goals}
+                longGoals={store.longGoals}
+                routines={store.routines}
+                routineLogs={store.logs}
                 onDateChange={date => { setSelectedDate(date); setSelectedGoalId(null) }}
                 onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
                 onAddTask={(categoryId, text, schedule) => store.addTask(selectedDate, categoryId, text, schedule)}
@@ -430,6 +434,7 @@ export default function Home() {
                 onMetaChange={patch => store.updateMeta(selectedDate, patch)}
                 onAddCategory={store.addGlobalCategory}
                 onDeleteCategory={store.deleteGlobalCategory}
+                onToggleRoutine={store.toggleRoutineLog}
               />
             ) : view === 'journal' ? (
               <Card className="p-5">

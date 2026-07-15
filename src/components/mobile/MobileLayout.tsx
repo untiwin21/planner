@@ -37,7 +37,7 @@ interface Props {
 }
 
 export function MobileLayout({
-  days, goals, categories, routines, logs,
+  days, goals, longGoals, categories, routines, logs,
   getDay, toggleTask, addTask, updateTask, deleteTask, updateMeta,
   toggleRoutineLog, toggleGoalTask, addGoalTask, deleteGoalTask,
   addGoal, deleteGoal, linkGoalTask, unlinkGoalTask,
@@ -59,6 +59,7 @@ export function MobileLayout({
             entry={todayEntry}
             categories={categories}
             goals={goals}
+            longGoals={longGoals}
             routines={routines}
             logs={logs}
             onDateChange={setSelectedDate}

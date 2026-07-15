@@ -28,6 +28,10 @@ export interface Task {
   duration_min?: number
   /** Fixed events consume timeline capacity; flexible work consumes available capacity. */
   fixed?: boolean
+  /** Retrospective execution record. Kept separate from the planned timeline. */
+  actual_start_time?: string
+  actual_end_time?: string
+  actual_status?: 'recorded' | 'skipped'
   /** Embedded tombstone used to propagate deletions between devices. */
   deleted_at?: number
   subtasks?: SubTask[]
@@ -141,4 +145,8 @@ export interface TaskScheduleInput {
   end_time?: string
   duration_min?: number
   fixed?: boolean
+  actual_start_time?: string
+  actual_end_time?: string
+  actual_status?: 'recorded' | 'skipped'
+  done?: boolean
 }

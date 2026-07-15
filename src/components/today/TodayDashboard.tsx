@@ -11,9 +11,12 @@ import {
   Clock3,
   GripVertical,
   HeartPulse,
+  History,
+  Flame,
   Moon,
   Pencil,
   Plus,
+  Target,
   Tag,
   Trash2,
   X,
@@ -21,7 +24,7 @@ import {
 import { addDays, format, parseISO, subDays } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import clsx from 'clsx'
-import type { BadgeColor, Category, DayEntry, DayMeta, Task, TaskScheduleInput } from '@/types'
+import type { BadgeColor, Category, DayEntry, DayMeta, LongGoal, Routine, RoutineLog, ShortGoal, Task, TaskScheduleInput } from '@/types'
 import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
 import { formatDate, formatSleepMin } from '@/lib/dates'
 import {
@@ -34,12 +37,17 @@ import {
   isFixedTask,
   minutesToTime,
   remainingCapacity,
+  timeToMinutes,
 } from '@/lib/plannerTime'
 
 interface Props {
   date: string
   entry: DayEntry
   categories: Category[]
+  goals?: ShortGoal[]
+  longGoals?: LongGoal[]
+  routines?: Routine[]
+  routineLogs?: RoutineLog[]
   onDateChange?: (date: string) => void
   onAddTask: (categoryId: string, text: string, schedule?: TaskScheduleInput) => void
   onUpdateTask: (taskId: string, patch: Partial<Task>) => void
@@ -48,7 +56,16 @@ interface Props {
   onMetaChange: (patch: Partial<DayMeta>) => void
   onAddCategory?: (category: Omit<Category, 'id'>) => void
   onDeleteCategory?: (categoryId: string) => void
+  onToggleRoutine?: (routineId: string, date: string) => void
   compact?: boolean
+}
+
+interface ActualEditorState {
+  taskId?: string
+  text: string
+  start: string
+  end: string
+  categoryId: string
 }
 
 const CATEGORY_COLORS: BadgeColor[] = ['purple', 'teal', 'amber', 'coral', 'blue']
@@ -88,6 +105,10 @@ export function TodayDashboard({
   date,
   entry,
   categories,
+  goals = [],
+  longGoals = [],
+  routines = [],
+  routineLogs = [],
   onDateChange,
   onAddTask,
   onUpdateTask,
@@ -96,6 +117,7 @@ export function TodayDashboard({
   onMetaChange,
   onAddCategory,
   onDeleteCategory,
+  onToggleRoutine,
   compact = false,
 }: Props) {
   const [nowMinute, setNowMinute] = useState(nowAsMinutes)
@@ -109,13 +131,17 @@ export function TodayDashboard({
   const [durationText, setDurationText] = useState('60')
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [dragPreviewMinute, setDragPreviewMinute] = useState<number | null>(null)
+  const [actualEditor, setActualEditor] = useState<ActualEditorState | null>(null)
+  const [actualError, setActualError] = useState('')
   const timelineRef = useRef<HTMLDivElement>(null)
   const pointerTaskIdRef = useRef<string | null>(null)
   const selectableCategories = useMemo(() => categories.filter(category => category.id !== SCHEDULE_CAT_ID && category.id !== DEADLINE_CAT_ID), [categories])
   const [categoryId, setCategoryId] = useState(selectableCategories[0]?.id ?? '')
 
   const dateObject = parseISO(date)
-  const isToday = date === formatDate(new Date())
+  const todayKey = formatDate(new Date())
+  const isToday = date === todayKey
+  const isPastDate = date < todayKey
   const dayStart = DEFAULT_DAY_START
   const dayEnd = DEFAULT_DAY_END
 
@@ -136,6 +162,13 @@ export function TodayDashboard({
     [entry.tasks, dayStart, dayEnd, isToday, nowMinute],
   )
 
+  const editableUntil = isPastDate
+    ? TIMELINE_END
+    : isToday
+      ? Math.max(TIMELINE_START, Math.min(TIMELINE_END, nowMinute))
+      : TIMELINE_START
+  const canEditActual = editableUntil > TIMELINE_START
+
   // Timeline visibility is intentionally independent from remaining capacity.
   // Past fixed events must stay visible instead of disappearing as the clock advances.
   const chronological = useMemo(() => entry.tasks
@@ -152,6 +185,20 @@ export function TodayDashboard({
     .filter((item): item is { task: Task; start: number; end: number; fixed: boolean } => item !== null && item.end > TIMELINE_START && item.start < TIMELINE_END)
     .map(item => ({ ...item, start: Math.max(TIMELINE_START, item.start), end: Math.min(TIMELINE_END, item.end) }))
     .sort((a, b) => a.start - b.start || Number(b.fixed) - Number(a.fixed)), [entry.tasks])
+
+  const actualBlocks = useMemo(() => entry.tasks
+    .filter(task => task.actual_status === 'recorded' && task.actual_start_time && task.actual_end_time)
+    .map(task => {
+      const rawStart = timeToMinutes(task.actual_start_time)
+      const rawEnd = timeToMinutes(task.actual_end_time)
+      if (rawStart === null || rawEnd === null) return null
+      const start = rawStart < TIMELINE_START ? rawStart + 24 * 60 : rawStart
+      let end = rawEnd < TIMELINE_START ? rawEnd + 24 * 60 : rawEnd
+      if (end <= start) end += 24 * 60
+      return { task, start: Math.max(TIMELINE_START, start), end: Math.min(TIMELINE_END, end) }
+    })
+    .filter((item): item is { task: Task; start: number; end: number } => item !== null && item.end > item.start)
+    .sort((a, b) => a.start - b.start), [entry.tasks])
 
   const flexible = useMemo(() => entry.tasks
     .filter(task => !isFixedTask(task) && task.category_id !== DEADLINE_CAT_ID)
@@ -175,6 +222,14 @@ export function TodayDashboard({
 
   const currentCategory = selectableCategories.find(category => category.id === categoryId)
   const filledTop3 = (entry.meta.top3 ?? []).filter(item => item.trim())
+  const activeRoutines = useMemo(() => routines
+    .filter(routine => routine.status === 'active')
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), [routines])
+  const focusGoals = useMemo(() => goals
+    .filter(goal => goal.date_from <= date && goal.date_to >= date)
+    .sort((a, b) => a.date_to.localeCompare(b.date_to))
+    .slice(0, 3), [date, goals])
+  const longGoalNames = useMemo(() => new Map(longGoals.map(goal => [goal.id, goal.title])), [longGoals])
 
   function addTask() {
     const title = taskText.trim()
@@ -232,6 +287,90 @@ export function TodayDashboard({
     }
   }
 
+  function toTimelineMinute(value: string) {
+    const minute = timeToMinutes(value)
+    if (minute === null) return null
+    return minute < TIMELINE_START ? minute + 24 * 60 : minute
+  }
+
+  function openActualEditor(task?: Task, plannedStart?: number, plannedEnd?: number) {
+    if (!canEditActual) return
+    const existingStart = task?.actual_start_time
+    const existingEnd = task?.actual_end_time
+    const rawEndMinute = Math.min(editableUntil, plannedEnd ?? editableUntil)
+    const endMinute = Math.max(TIMELINE_START + 15, Math.floor(rawEndMinute / 15) * 15)
+    const startMinute = Math.max(TIMELINE_START, Math.min(endMinute - 15, plannedStart ?? endMinute - 60))
+    if (task && !existingStart && startMinute >= editableUntil) return
+    setActualError('')
+    setActualEditor({
+      taskId: task?.id,
+      text: task?.text ?? '',
+      start: existingStart ?? minutesToTime(startMinute),
+      end: existingEnd ?? minutesToTime(endMinute),
+      categoryId: task?.category_id ?? categoryId ?? selectableCategories[0]?.id ?? '',
+    })
+  }
+
+  function saveActualRecord() {
+    if (!actualEditor) return
+    const start = toTimelineMinute(actualEditor.start)
+    let end = toTimelineMinute(actualEditor.end)
+    if (start === null || end === null) {
+      setActualError('시작과 종료 시간을 입력해주세요.')
+      return
+    }
+    if (end <= start) end += 24 * 60
+    if (start < TIMELINE_START || end > editableUntil || end <= start) {
+      setActualError('현재 시각 이전의 구간만 기록할 수 있습니다.')
+      return
+    }
+    if (actualEditor.taskId) {
+      onUpdateTask(actualEditor.taskId, {
+        actual_start_time: actualEditor.start,
+        actual_end_time: actualEditor.end,
+        actual_status: 'recorded',
+        done: true,
+      })
+    } else {
+      const title = actualEditor.text.trim()
+      if (!title || !actualEditor.categoryId) {
+        setActualError('실제로 한 일과 카테고리를 입력해주세요.')
+        return
+      }
+      onAddTask(actualEditor.categoryId, title, {
+        duration_min: end - start,
+        fixed: false,
+        actual_start_time: actualEditor.start,
+        actual_end_time: actualEditor.end,
+        actual_status: 'recorded',
+        done: true,
+      })
+    }
+    setActualEditor(null)
+    setActualError('')
+  }
+
+  function markActualSkipped() {
+    if (!actualEditor?.taskId) return
+    onUpdateTask(actualEditor.taskId, {
+      actual_start_time: undefined,
+      actual_end_time: undefined,
+      actual_status: 'skipped',
+      done: false,
+    })
+    setActualEditor(null)
+  }
+
+  function clearActualRecord() {
+    if (!actualEditor?.taskId) return
+    onUpdateTask(actualEditor.taskId, {
+      actual_start_time: undefined,
+      actual_end_time: undefined,
+      actual_status: undefined,
+    })
+    setActualEditor(null)
+  }
+
   return (
     <section className={clsx('w-full', compact ? 'px-4 pt-4' : '')}>
       <div className={clsx('flex items-center justify-between gap-3', compact ? 'mb-4' : 'mb-5')}>
@@ -281,6 +420,35 @@ export function TodayDashboard({
         </div>
       </div>
 
+      {focusGoals.length > 0 && (
+        <div className="bg-white border border-[var(--border)] rounded-[18px] p-4 mt-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Target size={15} className="text-[var(--teal)]" />
+            <div>
+              <h3 className="text-sm font-bold">집중 단기목표</h3>
+              <p className="text-xs text-[var(--text-3)] mt-0.5">현재 진행 중인 단기목표를 최대 3개만 계속 보여줍니다.</p>
+            </div>
+          </div>
+          <div className={clsx('grid gap-2', compact ? 'grid-cols-1' : 'md:grid-cols-3')}>
+            {focusGoals.map(goal => {
+              const total = goal.tasks.length
+              const done = goal.tasks.filter(task => task.done).length
+              const pct = total > 0 ? Math.round((done / total) * 100) : 0
+              return (
+                <div key={goal.id} className="rounded-[12px] border border-[var(--border)] bg-[var(--teal-bg)]/45 px-3 py-2.5">
+                  <p className="text-sm font-semibold leading-snug">{goal.title}</p>
+                  {goal.long_goal_id && longGoalNames.get(goal.long_goal_id) && <p className="text-[10px] text-[var(--teal-text)] mt-1">{longGoalNames.get(goal.long_goal_id)}</p>}
+                  <div className="flex items-center gap-2 mt-2">
+                    <div className="h-1.5 flex-1 rounded-full bg-white overflow-hidden"><div className="h-full bg-[var(--teal)] rounded-full" style={{ width: `${pct}%` }} /></div>
+                    <span className="text-[10px] font-semibold text-[var(--teal-text)]">{total > 0 ? `${done}/${total}` : '다음 행동 필요'}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border border-[var(--border)] rounded-[18px] p-4 mt-4">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
@@ -319,9 +487,18 @@ export function TodayDashboard({
 
       <div className={clsx('grid gap-4 mt-4', compact ? 'grid-cols-1' : 'xl:grid-cols-[1.15fr_1fr]')}>
         <div className="bg-white border border-[var(--border)] rounded-[18px] overflow-hidden">
-          <div className="px-4 py-3 border-b border-[var(--border)]">
-            <h3 className="text-sm font-bold">오늘의 타임라인</h3>
-            <p className="text-xs text-[var(--text-3)] mt-0.5">05:00부터 다음 날 01:00까지 · 오른쪽 할 일을 끌어서 배치하세요.</p>
+          <div className="px-4 py-3 border-b border-[var(--border)] flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold">계획과 실제 타임라인</h3>
+              <p className="text-xs text-[var(--text-3)] mt-0.5">였은 블록은 계획, 진한 블록은 실제입니다. 현재선 이전은 언제든 정리할 수 있어요.</p>
+              <div className="flex items-center gap-3 mt-2 text-[10px] text-[var(--text-3)]">
+                <span className="flex items-center gap-1"><span className="w-4 border-t-2 border-dashed border-[var(--purple)] opacity-50" /> 계획</span>
+                <span className="flex items-center gap-1"><span className="w-4 border-t-[3px] border-[var(--purple)]" /> 실제</span>
+              </div>
+            </div>
+            <button type="button" disabled={!canEditActual} onClick={() => openActualEditor()} className="shrink-0 px-3 py-2 rounded-[9px] bg-[var(--purple)] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-35 disabled:cursor-not-allowed">
+              <History size={13} /> 지난 시간 기록
+            </button>
           </div>
           <div className="max-h-[680px] overflow-y-auto scrollbar-thin">
             <div
@@ -355,7 +532,7 @@ export function TodayDashboard({
                 const normalizedNow = nowMinute < TIMELINE_START ? nowMinute + 24 * 60 : nowMinute
                 if (normalizedNow < TIMELINE_START || normalizedNow > TIMELINE_END) return null
                 const top = ((normalizedNow - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
-                return <div className="absolute left-0 right-0 z-20 border-t border-[var(--red)]" style={{ top }}><span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-[var(--red)]" /></div>
+                return <div className="absolute left-0 right-0 z-30 border-t border-[var(--red)]" style={{ top }}><span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-[var(--red)]" /><span className="absolute right-1 -top-4 text-[9px] font-semibold text-[var(--red)]">현재</span></div>
               })()}
 
               {dragPreviewMinute !== null && (
@@ -378,7 +555,12 @@ export function TodayDashboard({
                       event.dataTransfer.effectAllowed = 'move'
                     }}
                     onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
-                    className={clsx('absolute left-1 right-1 z-10 rounded-[9px] border px-2 py-1.5 overflow-hidden shadow-sm', task.done && 'opacity-50', !fixed && !task.done && 'cursor-grab active:cursor-grabbing', fixed ? 'bg-[var(--blue-bg)] border-blue-200' : `cat-${task.category_color} border-transparent`)}
+                    onClick={() => { if (start < editableUntil) openActualEditor(task, start, end) }}
+                    onKeyDown={event => { if (start < editableUntil && (event.key === 'Enter' || event.key === ' ')) openActualEditor(task, start, end) }}
+                    role={start < editableUntil ? 'button' : undefined}
+                    tabIndex={start < editableUntil ? 0 : undefined}
+                    aria-label={start < editableUntil ? `${task.text} 실제 시간 정리` : undefined}
+                    className={clsx('absolute left-1 right-1 z-10 rounded-[9px] border-2 border-dashed px-2 py-1.5 overflow-hidden opacity-35', start < editableUntil && 'hover:opacity-60 cursor-pointer', !fixed && !task.done && 'active:cursor-grabbing', fixed ? 'bg-[var(--blue-bg)] border-[var(--blue)]' : `cat-${task.category_color} border-[var(--purple)]`)}
                     style={{ top, height }}
                   >
                     <div className="flex items-center gap-1.5">
@@ -390,7 +572,28 @@ export function TodayDashboard({
                 )
               })}
 
-              {chronological.length === 0 && !draggedTaskId && (
+              {actualBlocks.map(({ task, start, end }) => {
+                const top = ((start - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
+                const height = Math.max(30, ((end - start) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
+                return (
+                  <button
+                    type="button"
+                    key={`actual:${task.id}`}
+                    onClick={() => openActualEditor(task, start, end)}
+                    className={clsx('absolute left-2 right-2 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-md hover:ring-2 hover:ring-white/80', isFixedTask(task) ? 'bg-[var(--blue)] border-[var(--blue)] text-white' : 'bg-[var(--purple)] border-[var(--purple)] text-white')}
+                    style={{ top, height }}
+                    title="실제 시간 수정"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-semibold flex-1 min-w-0 truncate">{task.text}</span>
+                      <span className="text-[9px] opacity-75 shrink-0">실제</span>
+                    </div>
+                    {height >= 42 && <p className="text-[10px] opacity-80 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>}
+                  </button>
+                )
+              })}
+
+              {chronological.length === 0 && actualBlocks.length === 0 && !draggedTaskId && (
                 <div className="absolute inset-x-3 top-16 rounded-[12px] border border-dashed border-[var(--border-strong)] py-5 flex flex-col items-center text-center pointer-events-none">
                   <CalendarClock size={20} className="text-[var(--text-3)] mb-1.5" />
                   <span className="text-xs font-medium">할 일을 이 시간축으로 끌어오세요.</span>
@@ -457,9 +660,38 @@ export function TodayDashboard({
           </div>
 
           <div className="p-3 flex flex-col gap-4 max-h-[680px] overflow-y-auto scrollbar-thin">
-            {flexible.length === 0 ? (
+            {flexible.length === 0 && activeRoutines.length === 0 ? (
               <div className="py-10 text-center text-sm text-[var(--text-3)]">오늘 할 일을 추가해보세요.</div>
-            ) : taskGroups.map(({ category, tasks }) => (
+            ) : (
+              <>
+                {activeRoutines.length > 0 && (
+                  <section>
+                    <div className="flex items-center gap-2 px-1 mb-2">
+                      <Flame size={13} className="text-[var(--amber)]" />
+                      <h4 className="text-xs font-bold text-[var(--text-2)]">루틴</h4>
+                      <span className="text-[10px] text-[var(--text-3)]">{activeRoutines.length}개</span>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {activeRoutines.map(routine => {
+                        const done = routineLogs.some(log => log.routine_id === routine.id && log.date === date && log.done)
+                        return (
+                          <button
+                            type="button"
+                            key={routine.id}
+                            onClick={() => onToggleRoutine?.(routine.id, date)}
+                            className={clsx('w-full rounded-[12px] border px-3 py-2.5 flex items-center gap-2.5 text-left', done ? 'bg-[var(--teal-bg)] border-transparent opacity-65' : 'bg-white border-[var(--border)]')}
+                          >
+                            <span className={clsx('h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : 'border-[var(--amber)]')}>{done && <Check size={11} strokeWidth={3} />}</span>
+                            <span className={clsx('text-sm font-medium flex-1 min-w-0 truncate', done && 'line-through')}>{routine.name}</span>
+                            {routine.time && <span className="text-[11px] text-[var(--text-3)] tabular-nums">{routine.time}</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                {taskGroups.map(({ category, tasks }) => (
               <section key={category.id}>
                 <div className="flex items-center gap-2 px-1 mb-2">
                   <CategoryDot color={category.color} />
@@ -523,10 +755,57 @@ export function TodayDashboard({
                   ))}
                 </div>
               </section>
-            ))}
+                ))}
+              </>
+            )}
           </div>
         </div>
       </div>
+
+      {actualEditor && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => setActualEditor(null)}>
+          <div className="w-full max-w-md bg-white rounded-[20px] shadow-xl p-5" onClick={event => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-bold">{actualEditor.taskId ? '실제 시간 정리' : '지난 시간 기록'}</h3>
+                <p className="text-xs text-[var(--text-3)] mt-1">{isToday ? `현재 시각 ${minutesToTime(editableUntil)} 이전만 기록할 수 있습니다.` : '지난 날은 05:00~다음 날 01:00을 정리할 수 있습니다.'}</p>
+              </div>
+              <button type="button" onClick={() => setActualEditor(null)} className="w-8 h-8 rounded-full hover:bg-[var(--surface-2)] flex items-center justify-center"><X size={17} /></button>
+            </div>
+
+            {actualEditor.taskId ? (
+              <div className="rounded-[11px] bg-[var(--purple-bg)] px-3 py-2.5 mb-4">
+                <p className="text-sm font-semibold">{actualEditor.text}</p>
+                <p className="text-[10px] text-[var(--purple-text)] mt-1">계획 블록과 달라도 괜찮습니다.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-2 mb-4">
+                <input autoFocus value={actualEditor.text} onChange={event => setActualEditor(value => value ? { ...value, text: event.target.value } : value)} placeholder="실제로 한 일" className="min-w-0 px-3 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
+                <select value={actualEditor.categoryId} onChange={event => setActualEditor(value => value ? { ...value, categoryId: event.target.value } : value)} className="px-2 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-xs outline-none">
+                  {selectableCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs font-semibold text-[var(--text-2)]">시작
+                <input type="time" step="900" value={actualEditor.start} onChange={event => setActualEditor(value => value ? { ...value, start: event.target.value } : value)} className="w-full mt-1.5 px-3 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
+              </label>
+              <label className="text-xs font-semibold text-[var(--text-2)]">종료
+                <input type="time" step="900" value={actualEditor.end} onChange={event => setActualEditor(value => value ? { ...value, end: event.target.value } : value)} className="w-full mt-1.5 px-3 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
+              </label>
+            </div>
+
+            {actualError && <p className="text-xs text-[var(--red)] mt-3">{actualError}</p>}
+
+            <div className="flex flex-wrap gap-2 mt-5">
+              {actualEditor.taskId && <button type="button" onClick={markActualSkipped} className="px-3 py-2 rounded-[9px] bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-2)]">미수행</button>}
+              {actualEditor.taskId && entry.tasks.find(task => task.id === actualEditor.taskId)?.actual_status === 'recorded' && <button type="button" onClick={clearActualRecord} className="px-3 py-2 rounded-[9px] text-xs font-semibold text-[var(--red)] hover:bg-[var(--red-bg)]">실제 기록 삭제</button>}
+              <button type="button" onClick={saveActualRecord} className="ml-auto px-4 py-2 rounded-[9px] bg-[var(--purple)] text-white text-xs font-semibold">{actualEditor.taskId ? '실제 시간 저장' : '기록 추가'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showWellness && (
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => setShowWellness(false)}>

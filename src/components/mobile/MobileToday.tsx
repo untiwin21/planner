@@ -1,9 +1,9 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Check, Flame, Link2, Plus, X } from 'lucide-react'
+import { Check, Link2, Plus, X } from 'lucide-react'
 import clsx from 'clsx'
-import type { Category, DayEntry, DayMeta, Routine, RoutineLog, ShortGoal, Task, TaskScheduleInput } from '@/types'
+import type { Category, DayEntry, DayMeta, LongGoal, Routine, RoutineLog, ShortGoal, Task, TaskScheduleInput } from '@/types'
 import { TodayDashboard } from '@/components/today/TodayDashboard'
 
 interface Props {
@@ -11,6 +11,7 @@ interface Props {
   entry: DayEntry
   categories: Category[]
   goals: ShortGoal[]
+  longGoals: LongGoal[]
   routines: Routine[]
   logs: RoutineLog[]
   onDateChange: (date: string) => void
@@ -32,6 +33,7 @@ export function MobileToday({
   entry,
   categories,
   goals,
+  longGoals,
   routines,
   logs,
   onDateChange,
@@ -48,10 +50,6 @@ export function MobileToday({
   onDeleteCategory,
 }: Props) {
   const [showGoalPicker, setShowGoalPicker] = useState(false)
-  const activeRoutines = useMemo(
-    () => routines.filter(routine => routine.status === 'active').sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
-    [routines],
-  )
   const linkedIds = entry.meta.linkedGoalTaskIds ?? []
   const linkedTasks = useMemo(() => {
     const items: Array<{ task: Task; goal: ShortGoal }> = []
@@ -80,6 +78,10 @@ export function MobileToday({
         date={date}
         entry={entry}
         categories={categories}
+        goals={goals}
+        longGoals={longGoals}
+        routines={routines}
+        routineLogs={logs}
         onDateChange={onDateChange}
         onToggleTask={onToggleTask}
         onAddTask={onAddTask}
@@ -88,6 +90,7 @@ export function MobileToday({
         onMetaChange={onMetaChange}
         onAddCategory={onAddCategory}
         onDeleteCategory={onDeleteCategory}
+        onToggleRoutine={onToggleRoutine}
       />
 
       {linkedTasks.length > 0 && (
@@ -146,40 +149,6 @@ export function MobileToday({
               ))}
             </div>
           )}
-        </section>
-      )}
-
-      {activeRoutines.length > 0 && (
-        <section className="mx-4 mt-4 bg-white border border-[var(--border)] rounded-[18px] overflow-hidden">
-          <div className="px-4 py-3 border-b border-[var(--border)] flex items-center gap-2">
-            <Flame size={14} className="text-[var(--amber)]" />
-            <h3 className="text-sm font-bold">오늘의 루틴</h3>
-          </div>
-          <div className="p-3 grid grid-cols-1 gap-2">
-            {activeRoutines.map(routine => {
-              const done = logs.some(log => log.routine_id === routine.id && log.date === date && log.done)
-              return (
-                <button
-                  type="button"
-                  key={routine.id}
-                  onClick={() => onToggleRoutine(routine.id, date)}
-                  className={clsx(
-                    'flex items-center gap-2.5 px-3 py-2.5 rounded-[12px] text-left',
-                    done ? 'bg-[var(--teal-bg)]' : 'bg-[var(--surface-2)]',
-                  )}
-                >
-                  <span className={clsx(
-                    'h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0',
-                    done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : 'border-[var(--border-strong)]',
-                  )}>
-                    {done && <Check size={11} strokeWidth={3} />}
-                  </span>
-                  <span className={clsx('text-sm flex-1', done && 'line-through text-[var(--text-3)]')}>{routine.name}</span>
-                  {routine.time && <span className="text-[11px] text-[var(--text-3)]">{routine.time}</span>}
-                </button>
-              )
-            })}
-          </div>
         </section>
       )}
     </div>
