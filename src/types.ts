@@ -32,6 +32,8 @@ export interface Task {
   actual_start_time?: string
   actual_end_time?: string
   actual_status?: 'recorded' | 'skipped'
+  /** Retrospective-only item: shown on the actual timeline, never as a planned task. */
+  actual_only?: boolean
   /** Optional measurable completion, e.g. 6 / 7 km. `done` still means 100%. */
   progress_current?: number
   progress_target?: number
@@ -152,6 +154,7 @@ export interface TaskScheduleInput {
   actual_start_time?: string
   actual_end_time?: string
   actual_status?: 'recorded' | 'skipped'
+  actual_only?: boolean
   done?: boolean
   progress_current?: number
   progress_target?: number

@@ -26,10 +26,11 @@ export function taskProgressPercent(task: Task): number {
 }
 
 export function tasksProgress(tasks: Task[]): { done: number; total: number; pct: number } {
-  const total = tasks.length
+  const countableTasks = tasks.filter(task => !task.actual_only)
+  const total = countableTasks.length
   if (total === 0) return { done: 0, total: 0, pct: 0 }
   let doneWeight = 0
-  for (const t of tasks) {
+  for (const t of countableTasks) {
     doneWeight += taskWeight(t)
   }
   return { done: doneWeight, total, pct: Math.round((doneWeight / total) * 100) }

@@ -36,7 +36,7 @@ export function MobileReview({ days, goals, routines, logs, getWeeklyReview, upd
   const avgCondition = conditionValues.length > 0 ? (conditionValues.reduce((a, b) => a + b, 0) / conditionValues.length).toFixed(1) : null
   const avgFocus = focusValues.length > 0 ? (focusValues.reduce((a, b) => a + b, 0) / focusValues.length).toFixed(1) : null
 
-  const weekTasks = weekDayEntries.flatMap(entry => entry.tasks)
+  const weekTasks = weekDayEntries.flatMap(entry => entry.tasks).filter(task => !task.actual_only)
   const taskStats = tasksProgress(weekTasks)
   const totalTasks = taskStats.total
   const doneTasks = weekTasks.filter(task => task.done).length

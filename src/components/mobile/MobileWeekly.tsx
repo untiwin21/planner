@@ -108,7 +108,7 @@ export function MobileWeekly({
         {weekDays.map(d => {
           const ds = formatDate(d)
           const dayEntry = days.find(e => e.date === ds)
-          const taskCount = dayEntry?.tasks.length ?? 0
+          const taskCount = dayEntry?.tasks.filter(task => !task.actual_only).length ?? 0
           const isSelected = selectedDate === ds
           const isT = isToday(d)
           const dayIdx = d.getDay() === 0 ? 6 : d.getDay() - 1

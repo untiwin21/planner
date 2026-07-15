@@ -80,6 +80,15 @@ interface ProgressEditorState {
 }
 
 const CATEGORY_COLORS: BadgeColor[] = ['purple', 'teal', 'amber', 'coral', 'blue']
+const TIMELINE_CATEGORY_STYLE: Record<BadgeColor, string> = {
+  purple: 'bg-[var(--purple-bg)] border-[var(--purple)] text-[var(--purple-text)]',
+  teal: 'bg-[var(--teal-bg)] border-[var(--teal)] text-[var(--teal-text)]',
+  amber: 'bg-[var(--amber-bg)] border-[var(--amber)] text-[var(--amber-text)]',
+  coral: 'bg-[var(--coral-bg)] border-[var(--coral)] text-[var(--coral-text)]',
+  blue: 'bg-[var(--blue-bg)] border-[var(--blue)] text-[var(--blue-text)]',
+  gray: 'bg-[var(--surface-2)] border-[var(--border-strong)] text-[var(--text-2)]',
+  red: 'bg-[var(--red-bg)] border-[var(--red)] text-[var(--red-text)]',
+}
 const CONDITION_LABELS: Record<number, string> = {
   1: '매우 나쁨',
   2: '나쁨',
@@ -215,7 +224,7 @@ export function TodayDashboard({
     .sort((a, b) => a.start - b.start), [entry.tasks])
 
   const flexible = useMemo(() => entry.tasks
-    .filter(task => !isFixedTask(task) && task.category_id !== DEADLINE_CAT_ID)
+    .filter(task => !task.actual_only && !isFixedTask(task) && task.category_id !== DEADLINE_CAT_ID)
     .sort((a, b) => Number(a.done) - Number(b.done) || (a.updated_at ?? 0) - (b.updated_at ?? 0)), [entry.tasks])
 
   const taskGroups = useMemo(() => {
@@ -357,6 +366,7 @@ export function TodayDashboard({
         actual_start_time: actualEditor.start,
         actual_end_time: actualEditor.end,
         actual_status: 'recorded',
+        actual_only: true,
         done: true,
       })
     }
@@ -377,6 +387,12 @@ export function TodayDashboard({
 
   function clearActualRecord() {
     if (!actualEditor?.taskId) return
+    const task = entry.tasks.find(item => item.id === actualEditor.taskId)
+    if (task?.actual_only) {
+      onDeleteTask(task.id)
+      setActualEditor(null)
+      return
+    }
     onUpdateTask(actualEditor.taskId, {
       actual_start_time: undefined,
       actual_end_time: undefined,
@@ -626,7 +642,7 @@ export function TodayDashboard({
                     role={start < editableUntil ? 'button' : undefined}
                     tabIndex={start < editableUntil ? 0 : undefined}
                     aria-label={start < editableUntil ? `${task.text} 실제 시간 정리` : undefined}
-                    className={clsx('absolute z-10 rounded-[9px] border px-2 py-1.5 overflow-hidden shadow-sm', start < editableUntil && 'hover:ring-2 hover:ring-[var(--purple)]/20 cursor-pointer', !fixed && !task.done && 'active:cursor-grabbing', fixed ? 'bg-[var(--blue-bg)] border-blue-300 text-[var(--blue-text)]' : `cat-${task.category_color} border-[var(--purple)]`)}
+                    className={clsx('absolute z-10 rounded-[9px] border px-2 py-1.5 overflow-hidden shadow-sm', start < editableUntil && 'hover:ring-2 hover:ring-black/10 cursor-pointer', !fixed && !task.done && 'active:cursor-grabbing', TIMELINE_CATEGORY_STYLE[task.category_color])}
                     style={{ top, height, left: 2, width: 'calc(50% - 4px)' }}
                   >
                     <div className="flex items-center gap-1.5">
@@ -646,15 +662,15 @@ export function TodayDashboard({
                     type="button"
                     key={`actual:${task.id}`}
                     onClick={() => openActualEditor(task, start, end)}
-                    className={clsx('absolute right-0.5 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-md hover:ring-2 hover:ring-white/80', isFixedTask(task) ? 'bg-[var(--blue)] border-[var(--blue)] text-white' : 'bg-[var(--teal)] border-[var(--teal)] text-white')}
+                    className={clsx('absolute right-0.5 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-sm hover:ring-2 hover:ring-black/10', TIMELINE_CATEGORY_STYLE[task.category_color])}
                     style={{ top, height, left: 'calc(50% + 2px)' }}
                     title="실제 시간 수정"
                   >
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-semibold flex-1 min-w-0 truncate">{task.text}</span>
-                      <span className="text-[9px] opacity-75 shrink-0">실제</span>
+                      <span className="text-[9px] opacity-65 shrink-0">{task.category_name}</span>
                     </div>
-                    {height >= 42 && <p className="text-[10px] opacity-80 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>}
+                    {height >= 42 && <p className="text-[10px] opacity-70 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>}
                   </button>
                 )
               })}
@@ -883,7 +899,7 @@ export function TodayDashboard({
             {actualError && <p className="text-xs text-[var(--red)] mt-3">{actualError}</p>}
 
             <div className="flex flex-wrap gap-2 mt-5">
-              {actualEditor.taskId && <button type="button" onClick={markActualSkipped} className="px-3 py-2 rounded-[9px] bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-2)]">미수행</button>}
+              {actualEditor.taskId && !entry.tasks.find(task => task.id === actualEditor.taskId)?.actual_only && <button type="button" onClick={markActualSkipped} className="px-3 py-2 rounded-[9px] bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-2)]">미수행</button>}
               {actualEditor.taskId && entry.tasks.find(task => task.id === actualEditor.taskId)?.actual_status === 'recorded' && <button type="button" onClick={clearActualRecord} className="px-3 py-2 rounded-[9px] text-xs font-semibold text-[var(--red)] hover:bg-[var(--red-bg)]">실제 기록 삭제</button>}
               <button type="button" onClick={saveActualRecord} className="ml-auto px-4 py-2 rounded-[9px] bg-[var(--purple)] text-white text-xs font-semibold">{actualEditor.taskId ? '실제 시간 저장' : '기록 추가'}</button>
             </div>
