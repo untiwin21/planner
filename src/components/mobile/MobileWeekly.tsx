@@ -8,6 +8,7 @@ import { tasksProgress } from '@/lib/taskProgress'
 import type { DayEntry, Category, ShortGoal, Routine, RoutineLog, DayMeta, Task, TaskScheduleInput } from '@/types'
 import { WeeklyScheduleEditor } from '@/components/weekly/WeeklyScheduleEditor'
 import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
+import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
 
 interface Props {
   selectedDate: string
@@ -69,6 +70,7 @@ export function MobileWeekly({
   const [weekBase, setWeekBase] = useState(new Date())
   const [monthBase, setMonthBase] = useState(new Date())
   const [showGoalForm, setShowGoalForm] = useState(false)
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
   const [newGoalTitle, setNewGoalTitle] = useState('')
   const [newGoalFrom, setNewGoalFrom] = useState('')
   const [newGoalTo, setNewGoalTo] = useState('')
@@ -76,6 +78,7 @@ export function MobileWeekly({
   const weekDays = useMemo(() => getWeekDays(weekBase), [weekBase])
   const goalRows = useMemo(() => packGoalsIntoRows(goals, weekDays), [goals, weekDays])
   const entry = getDay(selectedDate)
+  const editingGoal = editingGoalId ? goals.find(goal => goal.id === editingGoalId) ?? null : null
 
   function handleCreateGoal() {
     if (!newGoalTitle.trim() || !newGoalFrom || !newGoalTo) return
@@ -140,14 +143,16 @@ export function MobileWeekly({
                 const colorClass = GOAL_COLORS[i % GOAL_COLORS.length]
                 const prog = tasksProgress(goal.tasks)
                 return (
-                  <div key={goal.id}
-                    className={clsx('flex-1 px-2 py-1 rounded-[8px] border-l-2', colorClass)}
+                  <button key={goal.id}
+                    type="button"
+                    onClick={() => setEditingGoalId(goal.id)}
+                    className={clsx('flex-1 px-2 py-1 rounded-[8px] border-l-2 text-left', colorClass)}
                   >
                     <p className="text-[11px] font-semibold truncate">{goal.title}</p>
                     {prog.total > 0 && (
                       <p className="text-[10px] opacity-70 tabular-nums">{prog.pct}%</p>
                     )}
-                  </div>
+                  </button>
                 )
               })}
             </div>
@@ -212,9 +217,16 @@ export function MobileWeekly({
             onSelectDate={onSelectDate}
             onAddGoal={onAddGoal}
             onUpdateGoal={onUpdateGoal}
+            onEditGoal={setEditingGoalId}
           />
         </div>
       </div>
+
+      <ShortGoalEditModal
+        goal={editingGoal}
+        onClose={() => setEditingGoalId(null)}
+        onSave={onUpdateGoal}
+      />
     </div>
   )
 }

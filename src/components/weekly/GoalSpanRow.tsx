@@ -9,14 +9,14 @@ interface Props {
   weekDays: Date[]
   goalRows: ShortGoal[][]   // pre-computed rows to avoid overlap
   selectedGoalId: string | null
-  onSelectGoal: (id: string) => void
+  onEditGoal: (id: string) => void
 }
 
 function dateToColIndex(date: string, weekDays: Date[]): number {
   return weekDays.findIndex(d => formatDate(d) === date)
 }
 
-export function GoalSpanRow({ weekDays, goalRows, selectedGoalId, onSelectGoal }: Props) {
+export function GoalSpanRow({ weekDays, goalRows, selectedGoalId, onEditGoal }: Props) {
   if (goalRows.length === 0) return null
 
   return (
@@ -24,7 +24,7 @@ export function GoalSpanRow({ weekDays, goalRows, selectedGoalId, onSelectGoal }
       {goalRows.map((row, rowIdx) => (
         <div key={rowIdx} className="grid grid-cols-7 gap-2">
           {/* Build 7 cells: either a goal spanning its range, or empty placeholder */}
-          {buildRowCells(row, weekDays, selectedGoalId, onSelectGoal)}
+          {buildRowCells(row, weekDays, selectedGoalId, onEditGoal)}
         </div>
       ))}
     </div>
@@ -35,7 +35,7 @@ function buildRowCells(
   goals: ShortGoal[],
   weekDays: Date[],
   selectedGoalId: string | null,
-  onSelectGoal: (id: string) => void
+  onEditGoal: (id: string) => void
 ) {
   const cells: React.ReactNode[] = []
   let col = 0
@@ -71,7 +71,7 @@ function buildRowCells(
     cells.push(
       <button
         key={goal.id}
-        onClick={() => onSelectGoal(goal.id)}
+        onClick={() => onEditGoal(goal.id)}
         style={{ gridColumn: `span ${span}` }}
         className={clsx(
           'flex items-center gap-3 px-3 py-2 rounded-[10px] border transition-all duration-150 text-left w-full',

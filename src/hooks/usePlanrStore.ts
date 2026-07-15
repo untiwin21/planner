@@ -772,13 +772,13 @@ export function usePlanrStore(userId: string) {
     setDaysRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.days, next); return next })
   }, [])
   const setGoals = useCallback((v: ShortGoal[] | ((p: ShortGoal[]) => ShortGoal[])) => {
-    setGoalsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.goals, next); return next })
+    setGoalsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; goalsRef.current = next; save(STORAGE_KEYS.goals, next); return next })
   }, [])
   const setRoutines = useCallback((v: Routine[] | ((p: Routine[]) => Routine[])) => {
     setRoutinesRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.routines, next); return next })
   }, [])
   const setLogs = useCallback((v: RoutineLog[] | ((p: RoutineLog[]) => RoutineLog[])) => {
-    setLogsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.logs, next); return next })
+    setLogsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; logsRef.current = next; save(STORAGE_KEYS.logs, next); return next })
   }, [])
   const setLongGoals = useCallback((v: LongGoal[] | ((p: LongGoal[]) => LongGoal[])) => {
     setLongGoalsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.longGoals, next); return next })
@@ -959,13 +959,13 @@ export function usePlanrStore(userId: string) {
     }
   }
   function updateGoal(id: string, patch: Partial<ShortGoal>) {
-    let updatedGoal: ShortGoal | undefined
-    setGoals(prev => prev.map(g => {
-      if (g.id !== id) return g
-      updatedGoal = { ...g, ...patch, updated_at: now() }
-      return updatedGoal
-    }))
-    if (userId && updatedGoal) {
+    const currentGoal = goalsRef.current.find(goal => goal.id === id)
+    if (!currentGoal) return
+    const updatedGoal: ShortGoal = { ...currentGoal, ...patch, updated_at: now() }
+    const nextGoals = goalsRef.current.map(goal => goal.id === id ? updatedGoal : goal)
+    goalsRef.current = nextGoals
+    setGoals(nextGoals)
+    if (userId) {
       markGoalDirty(id)
       trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(id), `goal:${id}`)
     }
@@ -1222,17 +1222,18 @@ export function usePlanrStore(userId: string) {
     }
   }
   function toggleRoutineLog(routineId: string, date: string) {
-    let updatedLog: RoutineLog | undefined
-    setLogs(prev => {
-      const exists = prev.find(l => l.routine_id === routineId && l.date === date)
-      if (exists) {
-        updatedLog = { ...exists, done: !exists.done, updated_at: now() }
-        return prev.map(l => l.id === exists.id ? updatedLog! : l)
-      }
-      updatedLog = { id: uid(), routine_id: routineId, date, done: true, updated_at: now() }
-      return [...prev, updatedLog]
-    })
-    if (userId && updatedLog) {
+    const exists = logsRef.current.find(log => log.routine_id === routineId && log.date === date)
+    const updatedLog: RoutineLog = exists
+      ? { ...exists, done: !exists.done, updated_at: now() }
+      : { id: uid(), routine_id: routineId, date, done: true, updated_at: now() }
+    const nextLogs = exists
+      ? logsRef.current.map(log => routineLogKey(log) === routineLogKey(updatedLog) ? updatedLog : log)
+      : [...logsRef.current, updatedLog]
+    // Update the ref synchronously so rapid taps and an immediate background sync
+    // always see the same optimistic value that is rendered on screen.
+    logsRef.current = nextLogs
+    setLogs(nextLogs)
+    if (userId) {
       const key = routineLogKey(updatedLog)
       markRoutineLogDirty(key)
       trackWrite(upsertRoutineLog(userId, updatedLog), () => clearRoutineLogDirty(key), `routine-log:${key}`)

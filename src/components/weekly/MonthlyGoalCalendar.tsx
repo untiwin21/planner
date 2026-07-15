@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, GripHorizontal, Plus, X } from 'lucide-react'
 import {
   addDays,
@@ -29,6 +29,7 @@ interface Props {
   onSelectDate: (date: string) => void
   onAddGoal: (goal: Omit<ShortGoal, 'id'>) => void
   onUpdateGoal: (goalId: string, patch: Partial<ShortGoal>) => void
+  onEditGoal?: (goalId: string) => void
 }
 
 interface WeekGoalSegment {
@@ -36,6 +37,21 @@ interface WeekGoalSegment {
   startColumn: number
   endColumn: number
   lane: number
+}
+
+type GoalDragMode = 'move' | 'resize-start' | 'resize-end'
+
+interface GoalDragState {
+  goalId: string
+  pointerId: number
+  mode: GoalDragMode
+  sourceDate: string
+  targetDate: string
+  originalFrom: string
+  originalTo: string
+  startX: number
+  startY: number
+  moved: boolean
 }
 
 const GOAL_COLORS = [
@@ -71,10 +87,11 @@ function packWeekGoals(week: Date[], goals: ShortGoal[]): WeekGoalSegment[] {
   })
 }
 
-export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthChange, onSelectDate, onAddGoal, onUpdateGoal }: Props) {
+export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthChange, onSelectDate, onAddGoal, onUpdateGoal, onEditGoal }: Props) {
   const [dragStart, setDragStart] = useState<string | null>(null)
   const [dragEnd, setDragEnd] = useState<string | null>(null)
-  const [draggedGoalId, setDraggedGoalId] = useState<string | null>(null)
+  const goalDragRef = useRef<GoalDragState | null>(null)
+  const [goalDragTarget, setGoalDragTarget] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [title, setTitle] = useState('')
 
@@ -88,7 +105,7 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
   const selectedRange = dragStart && dragEnd ? orderedRange(dragStart, dragEnd) : null
 
   function finishRange(date: string) {
-    if (!dragStart || draggedGoalId) return
+    if (!dragStart || goalDragRef.current) return
     setDragEnd(date)
     setShowCreate(true)
   }
@@ -107,12 +124,72 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
     cancelCreate()
   }
 
-  function moveGoal(goalId: string, targetDate: string) {
-    const goal = goals.find(item => item.id === goalId)
-    if (!goal) return
-    const duration = differenceInCalendarDays(parseISO(goal.date_to), parseISO(goal.date_from))
-    onUpdateGoal(goal.id, { date_from: targetDate, date_to: formatDate(addDays(parseISO(targetDate), duration)) })
-    setDraggedGoalId(null)
+  function dateAtPoint(clientX: number, clientY: number) {
+    if (typeof document === 'undefined') return null
+    const cell = document.elementsFromPoint(clientX, clientY)
+      .find(element => element instanceof HTMLElement && !!element.dataset.calendarDate) as HTMLElement | undefined
+    return cell?.dataset.calendarDate ?? null
+  }
+
+  function startGoalDrag(event: React.PointerEvent<HTMLElement>, goal: ShortGoal, mode: GoalDragMode) {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const sourceDate = dateAtPoint(event.clientX, event.clientY) ?? goal.date_from
+    const drag: GoalDragState = {
+      goalId: goal.id,
+      pointerId: event.pointerId,
+      mode,
+      sourceDate,
+      targetDate: sourceDate,
+      originalFrom: goal.date_from,
+      originalTo: goal.date_to,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    }
+    goalDragRef.current = drag
+    setGoalDragTarget(sourceDate)
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  function continueGoalDrag(event: React.PointerEvent<HTMLElement>) {
+    const drag = goalDragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const targetDate = dateAtPoint(event.clientX, event.clientY) ?? drag.targetDate
+    const moved = drag.moved || Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 5
+    goalDragRef.current = { ...drag, targetDate, moved }
+    if (moved) setGoalDragTarget(targetDate)
+  }
+
+  function finishGoalDrag(event: React.PointerEvent<HTMLElement>) {
+    const drag = goalDragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    event.preventDefault()
+    event.stopPropagation()
+    const targetDate = dateAtPoint(event.clientX, event.clientY) ?? drag.targetDate
+    if (drag.moved) {
+      if (drag.mode === 'move') {
+        const delta = differenceInCalendarDays(parseISO(targetDate), parseISO(drag.sourceDate))
+        onUpdateGoal(drag.goalId, {
+          date_from: formatDate(addDays(parseISO(drag.originalFrom), delta)),
+          date_to: formatDate(addDays(parseISO(drag.originalTo), delta)),
+        })
+      } else if (drag.mode === 'resize-start') {
+        onUpdateGoal(drag.goalId, { date_from: targetDate <= drag.originalTo ? targetDate : drag.originalTo })
+      } else {
+        onUpdateGoal(drag.goalId, { date_to: targetDate >= drag.originalFrom ? targetDate : drag.originalFrom })
+      }
+    } else {
+      onEditGoal?.(drag.goalId)
+    }
+    goalDragRef.current = null
+    setGoalDragTarget(null)
+  }
+
+  function cancelGoalDrag() {
+    goalDragRef.current = null
+    setGoalDragTarget(null)
   }
 
   return (
@@ -120,7 +197,7 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border)]">
         <div>
           <h3 className="text-sm font-bold">월간 단기 일정</h3>
-          <p className="text-xs text-[var(--text-3)] mt-0.5">빈 날짜를 드래그해 만들고, 연속된 일정 바를 다른 날짜로 옮길 수 있습니다.</p>
+          <p className="text-xs text-[var(--text-3)] mt-0.5">빈 날짜를 드래그해 만들고, 일정 바는 옮기거나 양끝을 잡아 기간을 조정할 수 있습니다.</p>
         </div>
         <div className="flex items-center gap-1">
           <button type="button" aria-label="이전 달" onClick={() => onMonthChange(subMonths(monthBase, 1))} className="w-8 h-8 rounded-[8px] hover:bg-[var(--surface-2)] flex items-center justify-center"><ChevronLeft size={15} /></button>
@@ -148,22 +225,19 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
                     <div
                       key={date}
                       onMouseDown={event => {
-                        if (event.button !== 0 || draggedGoalId) return
+                        if (event.button !== 0 || goalDragRef.current) return
                         setDragStart(date)
                         setDragEnd(date)
                       }}
-                      onMouseEnter={() => { if (dragStart && !showCreate && !draggedGoalId) setDragEnd(date) }}
+                      onMouseEnter={() => { if (dragStart && !showCreate && !goalDragRef.current) setDragEnd(date) }}
                       onMouseUp={() => finishRange(date)}
-                      onDragOver={event => event.preventDefault()}
-                      onDrop={event => {
-                        event.preventDefault()
-                        if (draggedGoalId) moveGoal(draggedGoalId, date)
-                      }}
+                      data-calendar-date={date}
                       className={clsx(
                         'relative p-1.5 transition-colors',
                         dayIndex > 0 && 'border-l border-[var(--border)]',
                         !isSameMonth(day, monthBase) && 'bg-[var(--surface-2)]/35',
                         inSelection && 'bg-[var(--purple-bg)]',
+                        goalDragTarget === date && 'bg-[var(--teal-bg)] ring-2 ring-inset ring-[var(--teal)]/50',
                       )}
                     >
                       <button
@@ -184,20 +258,42 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
                 {segments.map(segment => (
                   <div
                     key={segment.goal.id}
-                    draggable
-                    onMouseDown={event => event.stopPropagation()}
-                    onDragStart={event => {
-                      event.stopPropagation()
-                      setDraggedGoalId(segment.goal.id)
-                      event.dataTransfer.effectAllowed = 'move'
-                    }}
-                    onDragEnd={() => setDraggedGoalId(null)}
-                    className={clsx('pointer-events-auto mx-0.5 px-2 rounded-[6px] border text-[10px] font-semibold truncate cursor-grab active:cursor-grabbing flex items-center gap-1 shadow-[0_1px_2px_rgba(0,0,0,0.04)]', goalColor.get(segment.goal.id))}
+                    role="group"
+                    aria-label={`${segment.goal.title} 일정 이동 또는 수정`}
+                    onPointerDown={event => startGoalDrag(event, segment.goal, 'move')}
+                    onPointerMove={continueGoalDrag}
+                    onPointerUp={finishGoalDrag}
+                    onPointerCancel={cancelGoalDrag}
+                    className={clsx('pointer-events-auto relative mx-0.5 px-2 rounded-[6px] border text-[10px] font-semibold truncate cursor-grab active:cursor-grabbing touch-none flex items-center gap-1 shadow-[0_1px_2px_rgba(0,0,0,0.04)]', goalColor.get(segment.goal.id))}
                     style={{ gridColumn: `${segment.startColumn + 1} / ${segment.endColumn + 2}`, gridRow: segment.lane + 1 }}
                     title={`${segment.goal.title} (${segment.goal.date_from} ~ ${segment.goal.date_to})`}
                   >
+                    {segment.goal.date_from >= formatDate(week[0]) && segment.goal.date_from <= formatDate(week[6]) && (
+                      <button
+                        type="button"
+                        aria-label={`${segment.goal.title} 시작일 조정`}
+                        onPointerDown={event => startGoalDrag(event, segment.goal, 'resize-start')}
+                        onPointerMove={continueGoalDrag}
+                        onPointerUp={finishGoalDrag}
+                        onPointerCancel={cancelGoalDrag}
+                        className="absolute inset-y-0 left-0 w-2 cursor-ew-resize rounded-l-[5px] bg-current opacity-20 hover:opacity-40"
+                      />
+                    )}
                     <GripHorizontal size={10} className="shrink-0" />
-                    <span className="truncate">{segment.goal.title}</span>
+                    <button type="button" onClick={() => onEditGoal?.(segment.goal.id)} className="min-w-0 flex-1 truncate text-left">
+                      {segment.goal.title}
+                    </button>
+                    {segment.goal.date_to >= formatDate(week[0]) && segment.goal.date_to <= formatDate(week[6]) && (
+                      <button
+                        type="button"
+                        aria-label={`${segment.goal.title} 종료일 조정`}
+                        onPointerDown={event => startGoalDrag(event, segment.goal, 'resize-end')}
+                        onPointerMove={continueGoalDrag}
+                        onPointerUp={finishGoalDrag}
+                        onPointerCancel={cancelGoalDrag}
+                        className="absolute inset-y-0 right-0 w-2 cursor-ew-resize rounded-r-[5px] bg-current opacity-20 hover:opacity-40"
+                      />
+                    )}
                   </div>
                 ))}
               </div>

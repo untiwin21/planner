@@ -27,6 +27,7 @@ import { MobileLayout } from '@/components/mobile/MobileLayout'
 import { TodayDashboard } from '@/components/today/TodayDashboard'
 import { WeeklyScheduleEditor } from '@/components/weekly/WeeklyScheduleEditor'
 import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
+import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
 
 function packGoalsIntoRows(goals: ShortGoal[], weekDays: Date[]) {
   const weekStart = formatDate(weekDays[0])
@@ -60,6 +61,7 @@ export default function Home() {
   const [monthBase, setMonthBase] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()))
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null)
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
   const [showGoalForm, setShowGoalForm] = useState(false)
   const [newGoalFrom, setNewGoalFrom] = useState('')
   const [newGoalTo, setNewGoalTo] = useState('')
@@ -84,6 +86,7 @@ export default function Home() {
   const weekDays = useMemo(() => getWeekDays(weekBase), [weekBase])
   const selectedEntry = store.getDay(selectedDate)
   const selectedGoal = selectedGoalId ? store.goals.find(g => g.id === selectedGoalId) : null
+  const editingGoal = editingGoalId ? store.goals.find(g => g.id === editingGoalId) ?? null : null
   const goalRows = useMemo(() => packGoalsIntoRows(store.goals, weekDays), [store.goals, weekDays])
   const big3SyncKey = `__big3__:${weekKey}`
   const mantraSyncKey = `__mantra__:${weekKey}`
@@ -566,7 +569,7 @@ export default function Home() {
                     ))}
                   </div>
                   <GoalSpanRow weekDays={weekDays} goalRows={goalRows} selectedGoalId={selectedGoalId}
-                    onSelectGoal={id => setSelectedGoalId(prev => prev === id ? null : id)} />
+                    onEditGoal={setEditingGoalId} />
                   <div className="mt-2 flex justify-end">
                     <button onClick={() => setShowGoalForm(v => !v)}
                       className="flex items-center gap-1 text-[13px] text-[var(--text-3)] hover:text-[var(--text-2)] px-2 py-1 rounded-[6px] hover:bg-white transition-all">
@@ -645,12 +648,20 @@ export default function Home() {
                   onSelectDate={date => { setSelectedDate(date); setSelectedGoalId(null) }}
                   onAddGoal={store.addGoal}
                   onUpdateGoal={store.updateGoal}
+                  onEditGoal={setEditingGoalId}
                 />
               </>
             )}
           </div>
         </div>
       </div>
+
+      <ShortGoalEditModal
+        goal={editingGoal}
+        onClose={() => setEditingGoalId(null)}
+        onSave={store.updateGoal}
+        onOpenDetail={id => setSelectedGoalId(id)}
+      />
 
       {/* Quick Add FAB */}
       <div className="fixed bottom-6 right-6 z-20 flex flex-col items-end gap-2">
