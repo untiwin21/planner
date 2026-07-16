@@ -4,6 +4,7 @@ import { isToday, DAY_NAMES, formatSleepMin, formatDate } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
 import type { DayEntry, ShortGoal, Task } from '@/types'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
+import { isActualOnlyTask } from '@/lib/taskVisibility'
 
 interface DayCardProps {
   date: Date
@@ -44,7 +45,7 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
     .slice(0, 4)
 
   // Day-native tasks that count toward progress (everything except schedule/deadline).
-  const workTasks = tasks.filter(t => t.category_id !== SCHEDULE_CAT_ID && t.category_id !== DEADLINE_CAT_ID)
+  const workTasks = tasks.filter(t => !isActualOnlyTask(t) && t.category_id !== SCHEDULE_CAT_ID && t.category_id !== DEADLINE_CAT_ID)
 
   // Linked goal tasks/subtasks imported into this day also count — they belong to a
   // user-managed category just like native tasks. Synthesize standalone Task records

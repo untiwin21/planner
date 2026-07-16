@@ -617,14 +617,12 @@ export default function Home() {
                     <GoalDetail
                       goal={selectedGoal}
                       categories={store.categories}
-                      allRoutines={store.routines}
                       onUpdate={patch => store.updateGoal(selectedGoal.id, patch)}
                       onDelete={() => { store.deleteGoal(selectedGoal.id); setSelectedGoalId(null) }}
                       onToggleTask={taskId => store.toggleGoalTask(selectedGoal.id, taskId)}
                       onAddTask={(catId, text) => store.addGoalTask(selectedGoal.id, catId, text)}
                       onDeleteTask={taskId => store.deleteGoalTask(selectedGoal.id, taskId)}
                       onUpdateTask={(taskId, patch) => store.updateGoalTask(selectedGoal.id, taskId, patch)}
-                      onAddRoutine={name => store.addRoutine(name)}
                       onAddNote={text => store.addGoalNote(selectedGoal.id, text)}
                       onUpdateNote={(noteId, text) => store.updateGoalNote(selectedGoal.id, noteId, text)}
                       onDeleteNote={noteId => store.deleteGoalNote(selectedGoal.id, noteId)}

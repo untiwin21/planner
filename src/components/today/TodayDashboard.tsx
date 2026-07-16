@@ -41,6 +41,7 @@ import {
   timeToMinutes,
 } from '@/lib/plannerTime'
 import { taskProgressPercent, tasksProgress } from '@/lib/taskProgress'
+import { isActualOnlyTask } from '@/lib/taskVisibility'
 
 interface Props {
   date: string
@@ -224,7 +225,7 @@ export function TodayDashboard({
     .sort((a, b) => a.start - b.start), [entry.tasks])
 
   const flexible = useMemo(() => entry.tasks
-    .filter(task => !task.actual_only && !isFixedTask(task) && task.category_id !== DEADLINE_CAT_ID)
+    .filter(task => !isActualOnlyTask(task) && !isFixedTask(task) && task.category_id !== DEADLINE_CAT_ID)
     .sort((a, b) => Number(a.done) - Number(b.done) || (a.updated_at ?? 0) - (b.updated_at ?? 0)), [entry.tasks])
 
   const taskGroups = useMemo(() => {
@@ -388,7 +389,7 @@ export function TodayDashboard({
   function clearActualRecord() {
     if (!actualEditor?.taskId) return
     const task = entry.tasks.find(item => item.id === actualEditor.taskId)
-    if (task?.actual_only) {
+    if (task && isActualOnlyTask(task)) {
       onDeleteTask(task.id)
       setActualEditor(null)
       return
@@ -899,7 +900,7 @@ export function TodayDashboard({
             {actualError && <p className="text-xs text-[var(--red)] mt-3">{actualError}</p>}
 
             <div className="flex flex-wrap gap-2 mt-5">
-              {actualEditor.taskId && !entry.tasks.find(task => task.id === actualEditor.taskId)?.actual_only && <button type="button" onClick={markActualSkipped} className="px-3 py-2 rounded-[9px] bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-2)]">미수행</button>}
+              {actualEditor.taskId && !isActualOnlyTask(entry.tasks.find(task => task.id === actualEditor.taskId)) && <button type="button" onClick={markActualSkipped} className="px-3 py-2 rounded-[9px] bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-2)]">미수행</button>}
               {actualEditor.taskId && entry.tasks.find(task => task.id === actualEditor.taskId)?.actual_status === 'recorded' && <button type="button" onClick={clearActualRecord} className="px-3 py-2 rounded-[9px] text-xs font-semibold text-[var(--red)] hover:bg-[var(--red-bg)]">실제 기록 삭제</button>}
               <button type="button" onClick={saveActualRecord} className="ml-auto px-4 py-2 rounded-[9px] bg-[var(--purple)] text-white text-xs font-semibold">{actualEditor.taskId ? '실제 시간 저장' : '기록 추가'}</button>
             </div>

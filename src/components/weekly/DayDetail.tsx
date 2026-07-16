@@ -6,6 +6,7 @@ import { formatDisplay, formatDate } from '@/lib/dates'
 import { Badge, Checkbox, Input, Textarea } from '@/components/ui'
 import type { DayEntry, Category, DayMeta, Task, SubTask, JournalEntry, ShortGoal } from '@/types'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
+import { isActualOnlyTask } from '@/lib/taskVisibility'
 import clsx from 'clsx'
 
 const LEVEL_EMOJI: Record<number, string> = { 1: '😞', 2: '😕', 3: '😐', 4: '🙂', 5: '😄' }
@@ -396,7 +397,7 @@ export function DayDetail({
 
   function renderCategorySection(cat: Category) {
     const catId = cat.id
-    const dayTasks = entry.tasks.filter(t => !t.actual_only && t.category_id === catId)
+    const dayTasks = entry.tasks.filter(t => !isActualOnlyTask(t) && t.category_id === catId)
     const linked = getLinkedTasksForCat(catId)
     const linkedSubs = getLinkedSubtasksForCat(catId)
     const available = getAvailableForImport(catId)
@@ -601,10 +602,10 @@ export function DayDetail({
               <span className="text-[13px] text-[var(--text-3)]">
                 {(entry.meta.linkedGoalTaskIds ?? []).filter(id =>
                   activeGoalsForDay.some(g => g.tasks.some(t => t.id === id && t.category_id === cat.id))
-                ).length + entry.tasks.filter(t => !t.actual_only && t.category_id === cat.id && t.done).length}/
+                ).length + entry.tasks.filter(t => !isActualOnlyTask(t) && t.category_id === cat.id && t.done).length}/
                 {(entry.meta.linkedGoalTaskIds ?? []).filter(id =>
                   activeGoalsForDay.some(g => g.tasks.some(t => t.id === id && t.category_id === cat.id))
-                ).length + entry.tasks.filter(t => !t.actual_only && t.category_id === cat.id).length}
+                ).length + entry.tasks.filter(t => !isActualOnlyTask(t) && t.category_id === cat.id).length}
               </span>
               <div className="flex-1" />
               {/* Import button */}

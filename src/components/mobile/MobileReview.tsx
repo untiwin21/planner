@@ -5,6 +5,7 @@ import { addWeeks, subWeeks } from 'date-fns'
 import clsx from 'clsx'
 import { getWeekDays, formatDate, DAY_NAMES } from '@/lib/dates'
 import { taskProgressPercent, tasksProgress } from '@/lib/taskProgress'
+import { isActualOnlyTask } from '@/lib/taskVisibility'
 import type { DayEntry, ShortGoal, Routine, RoutineLog } from '@/types'
 
 interface Props {
@@ -36,7 +37,7 @@ export function MobileReview({ days, goals, routines, logs, getWeeklyReview, upd
   const avgCondition = conditionValues.length > 0 ? (conditionValues.reduce((a, b) => a + b, 0) / conditionValues.length).toFixed(1) : null
   const avgFocus = focusValues.length > 0 ? (focusValues.reduce((a, b) => a + b, 0) / focusValues.length).toFixed(1) : null
 
-  const weekTasks = weekDayEntries.flatMap(entry => entry.tasks).filter(task => !task.actual_only)
+  const weekTasks = weekDayEntries.flatMap(entry => entry.tasks).filter(task => !isActualOnlyTask(task))
   const taskStats = tasksProgress(weekTasks)
   const totalTasks = taskStats.total
   const doneTasks = weekTasks.filter(task => task.done).length

@@ -1,4 +1,5 @@
 import type { Task } from '@/types'
+import { isActualOnlyTask } from '@/lib/taskVisibility'
 
 /**
  * Equal-weight progress: each top-level task has equal weight (1/N).
@@ -26,7 +27,7 @@ export function taskProgressPercent(task: Task): number {
 }
 
 export function tasksProgress(tasks: Task[]): { done: number; total: number; pct: number } {
-  const countableTasks = tasks.filter(task => !task.actual_only)
+  const countableTasks = tasks.filter(task => !isActualOnlyTask(task))
   const total = countableTasks.length
   if (total === 0) return { done: 0, total: 0, pct: 0 }
   let doneWeight = 0
