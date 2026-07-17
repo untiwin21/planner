@@ -1,11 +1,12 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Archive, Clock3, Pause, Pencil, Play, Plus, Trash2, X } from 'lucide-react'
+import { Archive, CheckCircle2, Clock3, Pause, Pencil, Play, Plus, Timer, Trash2, X } from 'lucide-react'
 import clsx from 'clsx'
 import {
   ROUTINE_WEEKDAYS,
   routineConfig,
+  routineKind,
   routineStage,
 } from '@/lib/routineSchedule'
 import type {
@@ -13,6 +14,7 @@ import type {
   Routine,
   RoutineConfig,
   RoutineCueType,
+  RoutineKind,
   RoutinePeriod,
   RoutineStage,
   RoutineStatus,
@@ -36,6 +38,7 @@ interface Props {
 
 interface Draft {
   name: string
+  kind: RoutineKind
   time: string
   duration: string
   cueType: RoutineCueType
@@ -49,6 +52,7 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = {
   name: '',
+  kind: 'timed',
   time: '',
   duration: '15',
   cueType: 'time',
@@ -74,7 +78,8 @@ function routineSubtitle(routine: Routine): string {
   const days = config.days_of_week.length === 7
     ? '매일'
     : config.days_of_week.map(day => ROUTINE_WEEKDAYS[day]).join('·')
-  return `${schedule} · ${config.duration_min}분 · ${days}`
+  const kind = routineKind(routine) === 'timed' ? `시간형 · ${config.duration_min}분` : '체크형'
+  return `${kind} · ${schedule} · ${days}`
 }
 
 export function RoutineManagerDialog({
@@ -135,6 +140,7 @@ export function RoutineManagerDialog({
     const config = routineConfig(routine)
     setDraft({
       name: routine.name,
+      kind: config.kind,
       time: routine.time ?? '',
       duration: String(config.duration_min),
       cueType: config.cue_type,
@@ -152,11 +158,12 @@ export function RoutineManagerDialog({
 
   function save() {
     const name = draft.name.trim()
-    const duration = Math.max(5, Number.parseInt(draft.duration, 10) || 0)
-    if (!name || duration <= 0 || draft.days.length === 0) {
-      setError('이름, 소요시간, 실행 요일을 확인해주세요.')
+    const parsedDuration = Number.parseInt(draft.duration, 10)
+    if (!name || draft.days.length === 0 || (draft.kind === 'timed' && (!Number.isFinite(parsedDuration) || parsedDuration < 5))) {
+      setError(draft.kind === 'timed' ? '이름, 소요시간, 실행 요일을 확인해주세요.' : '이름과 실행 요일을 확인해주세요.')
       return
     }
+    const duration = Math.max(5, parsedDuration || 5)
     const editingRoutine = routines.find(routine => routine.id === editingId)
     const enteringForming = draft.stage === 'forming' && (!editingRoutine || routineStage(editingRoutine) !== 'forming')
     if (enteringForming && formingCount >= 3) {
@@ -165,11 +172,12 @@ export function RoutineManagerDialog({
     }
     const config: RoutineConfig = {
       days_of_week: [...draft.days].sort(),
-      duration_min: duration,
+      kind: draft.kind,
+      duration_min: draft.kind === 'timed' ? duration : undefined,
       cue_type: draft.cueType,
       cue_label: draft.cueLabel.trim() || undefined,
-      minimum_version: draft.minimumVersion.trim() || undefined,
-      bundle: draft.bundle.trim() || undefined,
+      minimum_version: draft.kind === 'timed' ? draft.minimumVersion.trim() || undefined : undefined,
+      bundle: draft.kind === 'timed' ? draft.bundle.trim() || undefined : undefined,
       stage: draft.stage,
       category_color: draft.color,
     }
@@ -259,17 +267,31 @@ export function RoutineManagerDialog({
                 </div>
 
                 <div className="flex flex-col gap-3">
+                  <div>
+                    <span className="text-xs font-semibold text-[var(--text-2)]">루틴 종류</span>
+                    <div className="mt-1.5 grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setDraft(value => ({ ...value, kind: 'timed' }))} className={clsx('rounded-[11px] border px-3 py-3 text-left transition-colors', draft.kind === 'timed' ? 'border-[var(--purple)] bg-[var(--purple-bg)] text-[var(--purple-text)]' : 'border-[var(--border)] bg-white text-[var(--text-3)]')}>
+                        <span className="flex items-center gap-1.5 text-xs font-bold"><Timer size={14} /> 시간형</span>
+                        <span className="mt-1 block text-[10px] leading-relaxed">러닝·공부처럼 시간을 쓰고 타임라인에 표시</span>
+                      </button>
+                      <button type="button" onClick={() => setDraft(value => ({ ...value, kind: 'check' }))} className={clsx('rounded-[11px] border px-3 py-3 text-left transition-colors', draft.kind === 'check' ? 'border-[var(--teal)] bg-[var(--teal-bg)] text-[var(--teal-text)]' : 'border-[var(--border)] bg-white text-[var(--text-3)]')}>
+                        <span className="flex items-center gap-1.5 text-xs font-bold"><CheckCircle2 size={14} /> 체크형</span>
+                        <span className="mt-1 block text-[10px] leading-relaxed">물·영양제처럼 했는지만 한 번 체크</span>
+                      </button>
+                    </div>
+                  </div>
+
                   <label className="text-xs font-semibold text-[var(--text-2)]">행동
                     <input autoFocus value={draft.name} onChange={event => setDraft(value => ({ ...value, name: event.target.value }))} placeholder="예: 스트레칭" className="mt-1.5 w-full rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
                   </label>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="text-xs font-semibold text-[var(--text-2)]">표시 시간
+                  <div className={clsx('grid gap-2', draft.kind === 'timed' && 'grid-cols-2')}>
+                    <label className="text-xs font-semibold text-[var(--text-2)]">{draft.kind === 'timed' ? '시작 시간' : '알림 시간 (선택)'}
                       <div className="mt-1.5 flex items-center gap-1 rounded-[10px] bg-[var(--surface-2)] px-2.5"><Clock3 size={13} className="text-[var(--text-3)]" /><input type="time" value={draft.time} onChange={event => setDraft(value => ({ ...value, time: event.target.value }))} className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none" /></div>
                     </label>
-                    <label className="text-xs font-semibold text-[var(--text-2)]">소요시간
+                    {draft.kind === 'timed' && <label className="text-xs font-semibold text-[var(--text-2)]">소요시간
                       <div className="mt-1.5 flex items-center rounded-[10px] bg-[var(--surface-2)] px-3"><input inputMode="numeric" value={draft.duration} onChange={event => setDraft(value => ({ ...value, duration: event.target.value.replace(/\D/g, '').slice(0, 3) }))} className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none" /><span className="text-xs text-[var(--text-3)]">분</span></div>
-                    </label>
+                    </label>}
                   </div>
 
                   <div>
@@ -287,12 +309,12 @@ export function RoutineManagerDialog({
                     </div>
                   </div>
 
-                  <label className="text-xs font-semibold text-[var(--text-2)]">최소 버전
+                  {draft.kind === 'timed' && <label className="text-xs font-semibold text-[var(--text-2)]">최소 버전
                     <input value={draft.minimumVersion} onChange={event => setDraft(value => ({ ...value, minimumVersion: event.target.value }))} placeholder="예: 1분만 하기" className="mt-1.5 w-full rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
-                  </label>
-                  <label className="text-xs font-semibold text-[var(--text-2)]">타임라인 묶음
+                  </label>}
+                  {draft.kind === 'timed' && <label className="text-xs font-semibold text-[var(--text-2)]">타임라인 묶음
                     <input value={draft.bundle} onChange={event => setDraft(value => ({ ...value, bundle: event.target.value }))} placeholder="예: 기상 루틴" className="mt-1.5 w-full rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
-                  </label>
+                  </label>}
 
                   <div>
                     <span className="text-xs font-semibold text-[var(--text-2)]">관리 상태</span>

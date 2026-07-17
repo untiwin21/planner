@@ -123,10 +123,13 @@ export type RoutinePeriod = 'morning' | 'afternoon' | 'evening' | 'anytime'
 
 export type RoutineStage = 'forming' | 'maintenance' | 'backlog'
 export type RoutineCueType = 'time' | 'event'
+export type RoutineKind = 'timed' | 'check'
 
 export interface RoutineConfig {
   /** Monday=0 ... Sunday=6. Missing means every day for legacy routines. */
   days_of_week?: number[]
+  /** Legacy routines without a kind are treated as timed routines. */
+  kind?: RoutineKind
   duration_min?: number
   cue_type?: RoutineCueType
   cue_label?: string

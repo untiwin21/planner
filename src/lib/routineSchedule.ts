@@ -1,6 +1,6 @@
 import { parseISO } from 'date-fns'
 import { timeToMinutes } from '@/lib/plannerTime'
-import type { BadgeColor, Routine, RoutineConfig, RoutinePeriod, RoutineStage } from '@/types'
+import type { BadgeColor, Routine, RoutineConfig, RoutineKind, RoutinePeriod, RoutineStage } from '@/types'
 
 export const ROUTINE_WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일'] as const
 export const ROUTINE_PERIOD_ORDER: RoutinePeriod[] = ['morning', 'afternoon', 'evening', 'anytime']
@@ -13,17 +13,27 @@ export const ROUTINE_PERIOD_LABELS: Record<RoutinePeriod, string> = {
 
 const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6]
 
-export function routineConfig(routine: Routine): Required<Pick<RoutineConfig, 'days_of_week' | 'duration_min' | 'cue_type' | 'stage' | 'category_color'>> & RoutineConfig {
+export function routineConfig(routine: Routine): Required<Pick<RoutineConfig, 'days_of_week' | 'kind' | 'duration_min' | 'cue_type' | 'stage' | 'category_color'>> & RoutineConfig {
   const config = routine.config ?? {}
   const validDays = config.days_of_week?.filter(day => Number.isInteger(day) && day >= 0 && day <= 6) ?? []
+  const kind = config.kind ?? 'timed'
   return {
     ...config,
     days_of_week: validDays.length ? validDays : EVERY_DAY,
-    duration_min: Math.max(5, config.duration_min ?? 15),
+    kind,
+    duration_min: kind === 'timed' ? Math.max(5, config.duration_min ?? 15) : 0,
     cue_type: config.cue_type ?? (routine.time ? 'time' : 'event'),
     stage: config.stage ?? 'maintenance',
     category_color: config.category_color ?? 'amber',
   }
+}
+
+export function routineKind(routine: Routine): RoutineKind {
+  return routineConfig(routine).kind
+}
+
+export function isTimedRoutine(routine: Routine): boolean {
+  return routineKind(routine) === 'timed'
 }
 
 export function routineStage(routine: Routine): RoutineStage {

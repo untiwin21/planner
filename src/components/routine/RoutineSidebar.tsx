@@ -5,7 +5,7 @@ import { CircleCheck, ProgressBar } from '@/components/ui'
 import type { Routine, RoutineLog, RoutineStatus, RoutinePeriod } from '@/types'
 import { subDays, parseISO } from 'date-fns'
 import clsx from 'clsx'
-import { isRoutineScheduledOn } from '@/lib/routineSchedule'
+import { isRoutineScheduledOn, isTimedRoutine, routineConfig } from '@/lib/routineSchedule'
 import { RoutineManagerDialog } from '@/components/routine/RoutineManagerDialog'
 import type { RoutineConfig } from '@/types'
 
@@ -101,7 +101,7 @@ export function RoutineSidebar({
   return (
     <div className="flex flex-col gap-4">
 
-      {/* Zone A: 루틴 (check-only) — grouped by period */}
+      {/* Zone A: scheduled routines — grouped by period */}
       <div className="bg-white border border-[var(--border)] rounded-[16px] p-4">
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-sm font-semibold">{isToday ? '오늘 루틴' : `${viewDate.slice(5)} 루틴`}</h3>
@@ -132,6 +132,9 @@ export function RoutineSidebar({
                         done && 'line-through text-[var(--text-3)]',
                       )}>
                         {r.name}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-[var(--surface-2)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--text-3)]">
+                        {isTimedRoutine(r) ? `${routineConfig(r).duration_min}분` : '체크'}
                       </span>
                       {streak > 0 && (() => {
                         const badge = streakBadge(streak)

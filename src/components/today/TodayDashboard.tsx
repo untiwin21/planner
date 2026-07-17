@@ -49,6 +49,7 @@ import {
   ROUTINE_PERIOD_LABELS,
   ROUTINE_PERIOD_ORDER,
   isRoutineScheduledOn,
+  isTimedRoutine,
   routineBundleLabel,
   routineColor,
   routineConfig,
@@ -203,7 +204,7 @@ export function TodayDashboard({
   }, [categoryId, selectableCategories])
 
   const routineCapacityTasks = useMemo<Task[]>(() => routines
-    .filter(routine => isRoutineScheduledOn(routine, date) && Boolean(routine.time))
+    .filter(routine => isRoutineScheduledOn(routine, date) && isTimedRoutine(routine) && Boolean(routine.time))
     .map(routine => ({
       id: `routine-capacity:${routine.id}`,
       day_id: entry.id,
@@ -293,6 +294,7 @@ export function TodayDashboard({
   const routineTimelineGroups = useMemo(() => {
     const grouped = new Map<string, Routine[]>()
     for (const routine of activeRoutines) {
+      if (!isTimedRoutine(routine)) continue
       const start = routineStartMinute(routine)
       if (start === null || start < TIMELINE_START || start >= TIMELINE_END) continue
       const bundle = routine.config?.bundle?.trim()
@@ -919,17 +921,18 @@ export function TodayDashboard({
                                 const done = Boolean(log?.done)
                                 const minimum = done && log?.completion === 'minimum'
                                 const config = routineConfig(routine)
+                                const timed = isTimedRoutine(routine)
                                 return (
                                   <div key={routine.id} className={clsx('flex items-stretch overflow-hidden rounded-[12px] border', done ? 'border-transparent bg-[var(--teal-bg)] opacity-70' : 'border-[var(--border)] bg-white')}>
                                     <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'full')} className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left">
                                       <span className={clsx('flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2', done ? 'border-[var(--teal)] bg-[var(--teal)] text-white' : `cat-${config.category_color}`)}>{done && (minimum ? <span className="text-[9px] font-black">M</span> : <Check size={11} strokeWidth={3} />)}</span>
                                       <span className="min-w-0 flex-1">
                                         <span className={clsx('block truncate text-sm font-medium', done && !minimum && 'line-through')}>{routine.name}</span>
-                                        {(config.cue_label || config.minimum_version || config.bundle) && <span className="block truncate text-[10px] text-[var(--text-3)]">{config.cue_label || config.bundle}{config.minimum_version ? ` · 최소 ${config.minimum_version}` : ''}</span>}
+                                        <span className="block truncate text-[10px] text-[var(--text-3)]">{timed ? '시간형' : '체크형'}{config.cue_label || config.bundle ? ` · ${config.cue_label || config.bundle}` : ''}{timed && config.minimum_version ? ` · 최소 ${config.minimum_version}` : ''}</span>
                                       </span>
-                                      <span className="shrink-0 text-right text-[10px] text-[var(--text-3)]"><span className="block tabular-nums">{routine.time ?? '유동'}</span><span>{config.duration_min}분</span></span>
+                                      <span className="shrink-0 text-right text-[10px] text-[var(--text-3)]"><span className="block tabular-nums">{routine.time ?? (timed ? '유동' : '언제든')}</span><span>{timed ? `${config.duration_min}분` : '체크'}</span></span>
                                     </button>
-                                    {config.minimum_version && <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'minimum')} className={clsx('border-l px-2 text-[10px] font-bold', minimum ? 'border-[var(--teal)] text-[var(--teal-text)]' : 'border-[var(--border)] text-[var(--text-3)] hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]')} title={`최소 버전: ${config.minimum_version}`}>최소</button>}
+                                    {timed && config.minimum_version && <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'minimum')} className={clsx('border-l px-2 text-[10px] font-bold', minimum ? 'border-[var(--teal)] text-[var(--teal-text)]' : 'border-[var(--border)] text-[var(--text-3)] hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]')} title={`최소 버전: ${config.minimum_version}`}>최소</button>}
                                   </div>
                                 )
                               })}
