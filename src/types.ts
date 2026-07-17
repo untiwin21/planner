@@ -121,6 +121,21 @@ export type RoutineStatus = 'active' | 'archived' | 'paused'
 
 export type RoutinePeriod = 'morning' | 'afternoon' | 'evening' | 'anytime'
 
+export type RoutineStage = 'forming' | 'maintenance' | 'backlog'
+export type RoutineCueType = 'time' | 'event'
+
+export interface RoutineConfig {
+  /** Monday=0 ... Sunday=6. Missing means every day for legacy routines. */
+  days_of_week?: number[]
+  duration_min?: number
+  cue_type?: RoutineCueType
+  cue_label?: string
+  minimum_version?: string
+  bundle?: string
+  stage?: RoutineStage
+  category_color?: BadgeColor
+}
+
 export interface Routine {
   id: string
   name: string
@@ -129,6 +144,7 @@ export interface Routine {
   time?: string
   order?: number
   period?: RoutinePeriod
+  config?: RoutineConfig
   updated_at?: number
 }
 
@@ -137,6 +153,7 @@ export interface RoutineLog {
   routine_id: string
   date: string
   done: boolean
+  completion?: 'full' | 'minimum'
   updated_at?: number
 }
 

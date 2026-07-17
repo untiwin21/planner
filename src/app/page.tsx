@@ -2,8 +2,9 @@
 import { useState, useMemo, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Plus, X, LogOut, Timer } from 'lucide-react'
 import { addWeeks, subWeeks, parseISO, startOfWeek as dfStartOfWeek, format } from 'date-fns'
-import { getWeekDays, formatDate, formatMonth, isGoalActive } from '@/lib/dates'
+import { getWeekDays, formatDate, formatMonth } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
+import { isRoutineScheduledOn } from '@/lib/routineSchedule'
 import { usePlanrStore } from '@/hooks/usePlanrStore'
 import { DayCard } from '@/components/weekly/DayCard'
 import { GoalSpanRow } from '@/components/weekly/GoalSpanRow'
@@ -138,13 +139,6 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncReady, weekKey, big3SyncKey, mantraSyncKey, journalSyncKey, store.weeklyReviews])
 
-  const todayShortGoals = useMemo(
-    () => store.goals.filter(g => isGoalActive(g, new Date())),
-    [store.goals],
-  )
-  const todayGoalRoutines = todayShortGoals[0]?.routines ?? []
-  const todayGoalLabel = todayShortGoals[0]?.title
-
   // Top bar stats (subtask-aware) — excludes schedule/deadline, includes linked goal tasks/subtasks.
   const weekStats = useMemo(() => {
     let taskTotal = 0, taskDone = 0
@@ -176,15 +170,12 @@ export default function Home() {
       taskDone += p.done
     }
     const taskRate = taskTotal > 0 ? Math.round((taskDone / taskTotal) * 100) : null
-    const activeRoutines = store.routines.filter(r => r.status === 'active')
-    let routineDoneDays = 0
-    if (activeRoutines.length > 0) {
-      for (const d of weekDays) {
-        const ds = formatDate(d)
-        if (activeRoutines.every(r => store.logs.find(l => l.routine_id === r.id && l.date === ds && l.done))) routineDoneDays++
-      }
-    }
-    const routineRate = activeRoutines.length > 0 ? Math.round((routineDoneDays / 7) * 100) : null
+    const routineOccurrences = weekDays.flatMap(day => {
+      const date = formatDate(day)
+      return store.routines.filter(routine => isRoutineScheduledOn(routine, date)).map(routine => ({ routine, date }))
+    })
+    const routineDone = routineOccurrences.filter(({ routine, date }) => store.logs.some(log => log.routine_id === routine.id && log.date === date && log.done)).length
+    const routineRate = routineOccurrences.length > 0 ? Math.round((routineDone / routineOccurrences.length) * 100) : null
     const goalCount = store.goals.filter(g => {
       const ws = formatDate(weekDays[0]), we = formatDate(weekDays[6])
       return g.date_from <= we && g.date_to >= ws
@@ -258,6 +249,10 @@ export default function Home() {
         deleteTask={store.deleteTask}
         updateMeta={store.updateMeta}
         toggleRoutineLog={store.toggleRoutineLog}
+        addRoutine={store.addRoutine}
+        updateRoutine={store.updateRoutine}
+        setRoutineStatus={store.setRoutineStatus}
+        deleteRoutine={store.deleteRoutine}
         toggleGoalTask={store.toggleGoalTask}
         addGoalTask={store.addGoalTask}
         deleteGoalTask={store.deleteGoalTask}
@@ -405,15 +400,11 @@ export default function Home() {
             {view !== 'today' && <RoutineSidebar
               routines={store.routines}
               logs={store.logs}
-              goalRoutines={todayGoalRoutines}
-              goalLabel={todayGoalLabel}
               selectedDate={selectedDate}
               onToggleLog={store.toggleRoutineLog}
               onAddRoutine={store.addRoutine}
               onSetStatus={store.setRoutineStatus}
-              onUpdateName={store.updateRoutineName}
               onUpdateRoutine={store.updateRoutine}
-              onReorderRoutine={store.reorderRoutine}
               onDeleteRoutine={store.deleteRoutine}
             />}
           </div>
@@ -439,6 +430,10 @@ export default function Home() {
                 onAddCategory={store.addGlobalCategory}
                 onDeleteCategory={store.deleteGlobalCategory}
                 onToggleRoutine={store.toggleRoutineLog}
+                onAddRoutine={store.addRoutine}
+                onUpdateRoutine={store.updateRoutine}
+                onSetRoutineStatus={store.setRoutineStatus}
+                onDeleteRoutine={store.deleteRoutine}
               />
             ) : view === 'journal' ? (
               <Card className="p-5">

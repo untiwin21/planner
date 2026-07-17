@@ -17,6 +17,8 @@ import {
   Pencil,
   Percent,
   Plus,
+  Repeat2,
+  Settings2,
   Target,
   Tag,
   Trash2,
@@ -25,7 +27,7 @@ import {
 import { addDays, format, parseISO, subDays } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import clsx from 'clsx'
-import type { BadgeColor, Category, DayEntry, DayMeta, LongGoal, Routine, RoutineLog, ShortGoal, Task, TaskScheduleInput } from '@/types'
+import type { BadgeColor, Category, DayEntry, DayMeta, LongGoal, Routine, RoutineConfig, RoutineLog, RoutinePeriod, RoutineStatus, ShortGoal, Task, TaskScheduleInput } from '@/types'
 import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
 import { formatDate, formatSleepMin } from '@/lib/dates'
 import {
@@ -42,6 +44,16 @@ import {
 } from '@/lib/plannerTime'
 import { taskProgressPercent, tasksProgress } from '@/lib/taskProgress'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
+import { RoutineManagerDialog } from '@/components/routine/RoutineManagerDialog'
+import {
+  ROUTINE_PERIOD_LABELS,
+  ROUTINE_PERIOD_ORDER,
+  isRoutineScheduledOn,
+  routineBundleLabel,
+  routineColor,
+  routineConfig,
+  routineStartMinute,
+} from '@/lib/routineSchedule'
 
 interface Props {
   date: string
@@ -60,7 +72,11 @@ interface Props {
   onMetaChange: (patch: Partial<DayMeta>) => void
   onAddCategory?: (category: Omit<Category, 'id'>) => void
   onDeleteCategory?: (categoryId: string) => void
-  onToggleRoutine?: (routineId: string, date: string) => void
+  onToggleRoutine?: (routineId: string, date: string, completion?: 'full' | 'minimum') => void
+  onAddRoutine?: (name: string, time?: string, period?: RoutinePeriod, config?: RoutineConfig) => void
+  onUpdateRoutine?: (id: string, patch: Partial<Omit<Routine, 'id'>>) => void
+  onSetRoutineStatus?: (id: string, status: RoutineStatus) => void
+  onDeleteRoutine?: (id: string) => void
   compact?: boolean
 }
 
@@ -140,6 +156,10 @@ export function TodayDashboard({
   onAddCategory,
   onDeleteCategory,
   onToggleRoutine,
+  onAddRoutine,
+  onUpdateRoutine,
+  onSetRoutineStatus,
+  onDeleteRoutine,
   compact = false,
 }: Props) {
   const [nowMinute, setNowMinute] = useState(nowAsMinutes)
@@ -157,6 +177,7 @@ export function TodayDashboard({
   const [actualError, setActualError] = useState('')
   const [progressEditor, setProgressEditor] = useState<ProgressEditorState | null>(null)
   const [progressError, setProgressError] = useState('')
+  const [showRoutineManager, setShowRoutineManager] = useState(false)
   const timelineRef = useRef<HTMLDivElement>(null)
   const pointerTaskIdRef = useRef<string | null>(null)
   const selectableCategories = useMemo(() => categories.filter(category => category.id !== SCHEDULE_CAT_ID && category.id !== DEADLINE_CAT_ID), [categories])
@@ -181,9 +202,25 @@ export function TodayDashboard({
     }
   }, [categoryId, selectableCategories])
 
+  const routineCapacityTasks = useMemo<Task[]>(() => routines
+    .filter(routine => isRoutineScheduledOn(routine, date) && Boolean(routine.time))
+    .map(routine => ({
+      id: `routine-capacity:${routine.id}`,
+      day_id: entry.id,
+      text: routine.name,
+      done: false,
+      category_id: SCHEDULE_CAT_ID,
+      category_name: '루틴',
+      category_color: routineColor(routine),
+      time: routine.time,
+      start_time: routine.time,
+      duration_min: routineConfig(routine).duration_min,
+      fixed: true,
+    })), [date, entry.id, routines])
+
   const capacity = useMemo(
-    () => remainingCapacity(entry.tasks, dayStart, dayEnd, isToday ? nowMinute : undefined),
-    [entry.tasks, dayStart, dayEnd, isToday, nowMinute],
+    () => remainingCapacity([...entry.tasks, ...routineCapacityTasks], dayStart, dayEnd, isToday ? nowMinute : undefined),
+    [entry.tasks, routineCapacityTasks, dayStart, dayEnd, isToday, nowMinute],
   )
 
   const editableUntil = isPastDate
@@ -247,13 +284,63 @@ export function TodayDashboard({
   const currentCategory = selectableCategories.find(category => category.id === categoryId)
   const filledTop3 = (entry.meta.top3 ?? []).filter(item => item.trim())
   const activeRoutines = useMemo(() => routines
-    .filter(routine => routine.status === 'active')
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), [routines])
+    .filter(routine => isRoutineScheduledOn(routine, date))
+    .sort((a, b) => {
+      const aStart = routineStartMinute(a) ?? Number.MAX_SAFE_INTEGER
+      const bStart = routineStartMinute(b) ?? Number.MAX_SAFE_INTEGER
+      return aStart - bStart || (a.order ?? 0) - (b.order ?? 0)
+    }), [date, routines])
+  const routineTimelineGroups = useMemo(() => {
+    const grouped = new Map<string, Routine[]>()
+    for (const routine of activeRoutines) {
+      const start = routineStartMinute(routine)
+      if (start === null || start < TIMELINE_START || start >= TIMELINE_END) continue
+      const bundle = routine.config?.bundle?.trim()
+      const key = bundle ? `bundle:${routine.period ?? 'anytime'}:${bundle}` : `routine:${routine.id}`
+      grouped.set(key, [...(grouped.get(key) ?? []), routine])
+    }
+    return [...grouped.entries()].map(([key, items]) => {
+      const starts = items.map(item => routineStartMinute(item)!).sort((a, b) => a - b)
+      const start = starts[0]
+      const sameStart = starts.every(itemStart => itemStart === start)
+      const end = Math.min(
+        TIMELINE_END,
+        sameStart
+          ? start + items.reduce((sum, item) => sum + routineConfig(item).duration_min, 0)
+          : Math.max(...items.map(item => (routineStartMinute(item) ?? start) + routineConfig(item).duration_min)),
+      )
+      const doneCount = items.filter(item => routineLogs.some(log => log.routine_id === item.id && log.date === date && log.done)).length
+      const minimumCount = items.filter(item => routineLogs.some(log => log.routine_id === item.id && log.date === date && log.done && log.completion === 'minimum')).length
+      return {
+        key,
+        items,
+        label: routineBundleLabel(items[0]),
+        start,
+        end,
+        doneCount,
+        minimumCount,
+        color: routineColor(items[0]),
+      }
+    }).sort((a, b) => a.start - b.start)
+  }, [activeRoutines, date, routineLogs])
+  const normalizedNow = nowMinute < TIMELINE_START ? nowMinute + 24 * 60 : nowMinute
+  const currentRoutineGroup = isToday
+    ? routineTimelineGroups.find(group => group.start <= normalizedNow && group.end >= normalizedNow && group.doneCount < group.items.length)
+    : undefined
   const focusGoals = useMemo(() => goals
     .filter(goal => goal.date_from <= date && goal.date_to >= date)
     .sort((a, b) => a.date_to.localeCompare(b.date_to))
     .slice(0, 3), [date, goals])
   const longGoalNames = useMemo(() => new Map(longGoals.map(goal => [goal.id, goal.title])), [longGoals])
+
+  function toggleRoutineGroup(items: Routine[]) {
+    if (!onToggleRoutine) return
+    const allDone = items.every(item => routineLogs.some(log => log.routine_id === item.id && log.date === date && log.done))
+    for (const item of items) {
+      const done = routineLogs.some(log => log.routine_id === item.id && log.date === date && log.done)
+      if ((allDone && done) || (!allDone && !done)) onToggleRoutine(item.id, date)
+    }
+  }
 
   function addTask() {
     const title = taskText.trim()
@@ -624,9 +711,35 @@ export function TodayDashboard({
                 </div>
               )}
 
+              {routineTimelineGroups.map(group => {
+                const top = ((group.start - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
+                const height = Math.max(30, ((group.end - group.start) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
+                const complete = group.doneCount === group.items.length
+                const overdue = group.end < editableUntil && !complete
+                const overlapsPlan = chronological.some(item => item.start < group.end && item.end > group.start)
+                return (
+                  <button
+                    type="button"
+                    key={`routine-plan:${group.key}`}
+                    onClick={() => toggleRoutineGroup(group.items)}
+                    className={clsx('absolute z-[15] overflow-hidden rounded-[9px] border-2 border-dashed px-2 py-1.5 text-left shadow-sm hover:ring-2 hover:ring-black/10', complete && 'opacity-60', overdue && 'ring-1 ring-[var(--amber)]', TIMELINE_CATEGORY_STYLE[group.color])}
+                    style={{ top, height, left: overlapsPlan ? 'calc(25% + 2px)' : 2, width: overlapsPlan ? 'calc(25% - 4px)' : 'calc(50% - 4px)' }}
+                    title={group.items.map(item => item.name).join(' · ')}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Repeat2 size={11} className="shrink-0" />
+                      <span className={clsx('min-w-0 flex-1 truncate text-xs font-semibold', complete && 'line-through')}>{group.label}</span>
+                      <span className="shrink-0 text-[9px] opacity-70">{group.doneCount}/{group.items.length}{group.minimumCount > 0 ? ` · 최소 ${group.minimumCount}` : ''}</span>
+                    </div>
+                    {height >= 42 && <p className="mt-0.5 truncate text-[10px] opacity-70">{minutesToTime(group.start)}–{minutesToTime(group.end)} · 반복 루틴</p>}
+                  </button>
+                )
+              })}
+
               {chronological.map(({ task, start, end, fixed }) => {
                 const top = ((start - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
                 const height = Math.max(30, ((end - start) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
+                const overlapsRoutine = routineTimelineGroups.some(group => group.start < end && group.end > start)
                 return (
                   <div
                     key={task.id}
@@ -644,7 +757,7 @@ export function TodayDashboard({
                     tabIndex={start < editableUntil ? 0 : undefined}
                     aria-label={start < editableUntil ? `${task.text} 실제 시간 정리` : undefined}
                     className={clsx('absolute z-10 rounded-[9px] border px-2 py-1.5 overflow-hidden shadow-sm', start < editableUntil && 'hover:ring-2 hover:ring-black/10 cursor-pointer', !fixed && !task.done && 'active:cursor-grabbing', TIMELINE_CATEGORY_STYLE[task.category_color])}
-                    style={{ top, height, left: 2, width: 'calc(50% - 4px)' }}
+                    style={{ top, height, left: 2, width: overlapsRoutine ? 'calc(25% - 2px)' : 'calc(50% - 4px)' }}
                   >
                     <div className="flex items-center gap-1.5">
                       <span className={clsx('text-xs font-semibold flex-1 min-w-0 truncate', task.done && 'line-through')}>{task.text}</span>
@@ -658,13 +771,14 @@ export function TodayDashboard({
               {actualBlocks.map(({ task, start, end }) => {
                 const top = ((start - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
                 const height = Math.max(30, ((end - start) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
+                const overlapsRoutine = routineTimelineGroups.some(group => group.doneCount > 0 && group.start < end && group.end > start)
                 return (
                   <button
                     type="button"
                     key={`actual:${task.id}`}
                     onClick={() => openActualEditor(task, start, end)}
                     className={clsx('absolute right-0.5 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-sm hover:ring-2 hover:ring-black/10', TIMELINE_CATEGORY_STYLE[task.category_color])}
-                    style={{ top, height, left: 'calc(50% + 2px)' }}
+                    style={{ top, height, left: 'calc(50% + 2px)', right: overlapsRoutine ? '25%' : 2 }}
                     title="실제 시간 수정"
                   >
                     <div className="flex items-center gap-1.5">
@@ -676,7 +790,30 @@ export function TodayDashboard({
                 )
               })}
 
-              {chronological.length === 0 && actualBlocks.length === 0 && !draggedTaskId && (
+              {routineTimelineGroups.filter(group => group.doneCount > 0).map(group => {
+                const top = ((group.start - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
+                const height = Math.max(30, ((group.end - group.start) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
+                const overlapsActual = actualBlocks.some(item => item.start < group.end && item.end > group.start)
+                return (
+                  <button
+                    type="button"
+                    key={`routine-actual:${group.key}`}
+                    onClick={() => toggleRoutineGroup(group.items)}
+                    className={clsx('absolute z-[21] overflow-hidden rounded-[9px] border px-2 py-1.5 text-left shadow-sm hover:ring-2 hover:ring-black/10', TIMELINE_CATEGORY_STYLE[group.color])}
+                    style={{ top, height, left: overlapsActual ? 'calc(75% + 2px)' : 'calc(50% + 2px)', right: 2 }}
+                    title="루틴 수행 기록"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Repeat2 size={11} className="shrink-0" />
+                      <span className="min-w-0 flex-1 truncate text-xs font-semibold">{group.label}</span>
+                      <span className="shrink-0 text-[9px] opacity-70">{group.doneCount}/{group.items.length}{group.minimumCount > 0 ? ` · 최소 ${group.minimumCount}` : ''}</span>
+                    </div>
+                    {height >= 42 && <p className="mt-0.5 truncate text-[10px] opacity-70">{minutesToTime(group.start)}–{minutesToTime(group.end)} · 수행</p>}
+                  </button>
+                )
+              })}
+
+              {chronological.length === 0 && actualBlocks.length === 0 && routineTimelineGroups.length === 0 && !draggedTaskId && (
                 <div className="absolute inset-x-3 top-16 rounded-[12px] border border-dashed border-[var(--border-strong)] py-5 flex flex-col items-center text-center pointer-events-none">
                   <CalendarClock size={20} className="text-[var(--text-3)] mb-1.5" />
                   <span className="text-xs font-medium">할 일을 이 시간축으로 끌어오세요.</span>
@@ -687,9 +824,14 @@ export function TodayDashboard({
         </div>
 
         <div className="bg-white border border-[var(--border)] rounded-[18px] overflow-visible self-start">
-          <div className="px-4 py-3 border-b border-[var(--border)]">
-            <h3 className="text-sm font-bold">오늘 할 일</h3>
-            <p className="text-xs text-[var(--text-3)] mt-0.5">카테고리별로 모아보고, 드래그해 왼쪽 타임라인에 배치하세요.</p>
+          <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+            <div>
+              <h3 className="text-sm font-bold">오늘 할 일</h3>
+              <p className="mt-0.5 text-xs text-[var(--text-3)]">카테고리별로 모아보고, 드래그해 왼쪽 타임라인에 배치하세요.</p>
+            </div>
+            {onAddRoutine && onUpdateRoutine && onSetRoutineStatus && onDeleteRoutine && (
+              <button type="button" onClick={() => setShowRoutineManager(true)} className="flex shrink-0 items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-xs font-semibold text-[var(--text-2)] hover:bg-[var(--surface-2)]"><Settings2 size={13} /> 루틴 관리</button>
+            )}
           </div>
           <div className="p-3 border-b border-[var(--border)] bg-[var(--surface-2)]/45">
             <div className={clsx('grid gap-2', compact ? 'grid-cols-[auto_1fr_76px_auto]' : 'grid-cols-[minmax(104px,auto)_1fr_92px_auto]')}>
@@ -754,20 +896,45 @@ export function TodayDashboard({
                       <h4 className="text-xs font-bold text-[var(--text-2)]">루틴</h4>
                       <span className="text-[10px] text-[var(--text-3)]">{activeRoutines.length}개</span>
                     </div>
-                    <div className="flex flex-col gap-2">
-                      {activeRoutines.map(routine => {
-                        const done = routineLogs.some(log => log.routine_id === routine.id && log.date === date && log.done)
+                    {currentRoutineGroup && (
+                      <button type="button" onClick={() => toggleRoutineGroup(currentRoutineGroup.items)} className="mb-2 flex w-full items-center gap-2 rounded-[11px] bg-[var(--amber-bg)] px-3 py-2 text-left text-[var(--amber-text)]">
+                        <Clock3 size={13} className="shrink-0" />
+                        <span className="min-w-0 flex-1 truncate text-xs font-bold">지금 · {currentRoutineGroup.label}</span>
+                        <span className="text-[10px]">{currentRoutineGroup.doneCount}/{currentRoutineGroup.items.length}</span>
+                      </button>
+                    )}
+                    <div className="flex flex-col gap-3">
+                      {ROUTINE_PERIOD_ORDER.map(period => {
+                        const periodRoutines = activeRoutines.filter(routine => (routine.period ?? 'anytime') === period)
+                        if (periodRoutines.length === 0) return null
                         return (
-                          <button
-                            type="button"
-                            key={routine.id}
-                            onClick={() => onToggleRoutine?.(routine.id, date)}
-                            className={clsx('w-full rounded-[12px] border px-3 py-2.5 flex items-center gap-2.5 text-left', done ? 'bg-[var(--teal-bg)] border-transparent opacity-65' : 'bg-white border-[var(--border)]')}
-                          >
-                            <span className={clsx('h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : 'border-[var(--amber)]')}>{done && <Check size={11} strokeWidth={3} />}</span>
-                            <span className={clsx('text-sm font-medium flex-1 min-w-0 truncate', done && 'line-through')}>{routine.name}</span>
-                            {routine.time && <span className="text-[11px] text-[var(--text-3)] tabular-nums">{routine.time}</span>}
-                          </button>
+                          <div key={period}>
+                            <div className="mb-1.5 flex items-center gap-2 px-1">
+                              <span className="text-[10px] font-semibold text-[var(--text-3)]">{ROUTINE_PERIOD_LABELS[period]}</span>
+                              <div className="h-px flex-1 bg-[var(--border)]" />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              {periodRoutines.map(routine => {
+                                const log = routineLogs.find(item => item.routine_id === routine.id && item.date === date)
+                                const done = Boolean(log?.done)
+                                const minimum = done && log?.completion === 'minimum'
+                                const config = routineConfig(routine)
+                                return (
+                                  <div key={routine.id} className={clsx('flex items-stretch overflow-hidden rounded-[12px] border', done ? 'border-transparent bg-[var(--teal-bg)] opacity-70' : 'border-[var(--border)] bg-white')}>
+                                    <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'full')} className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left">
+                                      <span className={clsx('flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2', done ? 'border-[var(--teal)] bg-[var(--teal)] text-white' : `cat-${config.category_color}`)}>{done && (minimum ? <span className="text-[9px] font-black">M</span> : <Check size={11} strokeWidth={3} />)}</span>
+                                      <span className="min-w-0 flex-1">
+                                        <span className={clsx('block truncate text-sm font-medium', done && !minimum && 'line-through')}>{routine.name}</span>
+                                        {(config.cue_label || config.minimum_version || config.bundle) && <span className="block truncate text-[10px] text-[var(--text-3)]">{config.cue_label || config.bundle}{config.minimum_version ? ` · 최소 ${config.minimum_version}` : ''}</span>}
+                                      </span>
+                                      <span className="shrink-0 text-right text-[10px] text-[var(--text-3)]"><span className="block tabular-nums">{routine.time ?? '유동'}</span><span>{config.duration_min}분</span></span>
+                                    </button>
+                                    {config.minimum_version && <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'minimum')} className={clsx('border-l px-2 text-[10px] font-bold', minimum ? 'border-[var(--teal)] text-[var(--teal-text)]' : 'border-[var(--border)] text-[var(--text-3)] hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]')} title={`최소 버전: ${config.minimum_version}`}>최소</button>}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
                         )
                       })}
                     </div>
@@ -994,6 +1161,17 @@ export function TodayDashboard({
             <button type="button" onClick={() => setShowWellness(false)} className="w-full mt-5 py-2.5 rounded-[10px] bg-[var(--purple)] text-white text-sm font-semibold">완료</button>
           </div>
         </div>
+      )}
+
+      {showRoutineManager && onAddRoutine && onUpdateRoutine && onSetRoutineStatus && onDeleteRoutine && (
+        <RoutineManagerDialog
+          routines={routines}
+          onClose={() => setShowRoutineManager(false)}
+          onAddRoutine={onAddRoutine}
+          onUpdateRoutine={onUpdateRoutine}
+          onSetStatus={onSetRoutineStatus}
+          onDeleteRoutine={onDeleteRoutine}
+        />
       )}
     </section>
   )

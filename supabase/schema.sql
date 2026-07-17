@@ -104,8 +104,10 @@ create policy "users own their data" on weekly_reviews for all using (auth.uid()
 alter table routines add column if not exists time text;
 alter table routines add column if not exists "order" integer default 0;
 alter table routines add column if not exists period text default 'anytime';
+alter table routines add column if not exists config jsonb default '{}';
 alter table routines add column if not exists updated_at bigint;
 alter table routine_logs add column if not exists updated_at bigint;
+alter table routine_logs add column if not exists completion text;
 alter table short_goals add column if not exists updated_at bigint;
 alter table long_goals add column if not exists updated_at bigint;
 

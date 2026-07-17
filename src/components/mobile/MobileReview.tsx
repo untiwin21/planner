@@ -6,6 +6,7 @@ import clsx from 'clsx'
 import { getWeekDays, formatDate, DAY_NAMES } from '@/lib/dates'
 import { taskProgressPercent, tasksProgress } from '@/lib/taskProgress'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
+import { isRoutineScheduledOn } from '@/lib/routineSchedule'
 import type { DayEntry, ShortGoal, Routine, RoutineLog } from '@/types'
 
 interface Props {
@@ -44,18 +45,13 @@ export function MobileReview({ days, goals, routines, logs, getWeeklyReview, upd
   const partialTasks = weekTasks.filter(task => !task.done && taskProgressPercent(task) > 0).length
 
   // Routine stats for the week
-  const activeRoutines = routines.filter(r => r.status === 'active')
-  const routineRate = activeRoutines.length > 0
-    ? Math.round(
-        activeRoutines.reduce((sum, r) => {
-          const doneDays = weekDays.filter(d => {
-            const ds = formatDate(d)
-            return logs.find(l => l.routine_id === r.id && l.date === ds && l.done)
-          }).length
-          return sum + doneDays
-        }, 0) / (activeRoutines.length * 7) * 100
-      )
-    : null
+  const activeRoutines = routines.filter(r => r.status === 'active' && r.config?.stage !== 'backlog')
+  const routineOccurrences = weekDays.flatMap(day => {
+    const date = formatDate(day)
+    return activeRoutines.filter(routine => isRoutineScheduledOn(routine, date)).map(routine => ({ routine, date }))
+  })
+  const routineDone = routineOccurrences.filter(({ routine, date }) => logs.some(log => log.routine_id === routine.id && log.date === date && log.done)).length
+  const routineRate = routineOccurrences.length > 0 ? Math.round((routineDone / routineOccurrences.length) * 100) : null
 
   // Goals active this week
   const weekGoals = goals.filter(g => g.date_from <= weekEnd && g.date_to >= weekStart)
@@ -126,11 +122,12 @@ export function MobileReview({ days, goals, routines, logs, getWeeklyReview, upd
                     <td className="text-left pr-2 py-1 truncate max-w-[80px] text-[var(--text-2)]">{r.name}</td>
                     {weekDays.map((d, i) => {
                       const ds = formatDate(d)
+                      const scheduled = isRoutineScheduledOn(r, ds)
                       const done = !!logs.find(l => l.routine_id === r.id && l.date === ds && l.done)
                       return (
                         <td key={i} className="px-1 py-1">
                           <div className={clsx('w-5 h-5 rounded-full mx-auto',
-                            done ? 'bg-[var(--teal)]' : 'bg-[var(--surface-2)]')} />
+                            !scheduled ? 'border border-dashed border-[var(--border)] opacity-45' : done ? 'bg-[var(--teal)]' : 'bg-[var(--surface-2)]')} />
                         </td>
                       )
                     })}

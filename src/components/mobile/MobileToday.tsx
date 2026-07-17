@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { Check, Link2, Plus, X } from 'lucide-react'
 import clsx from 'clsx'
-import type { Category, DayEntry, DayMeta, LongGoal, Routine, RoutineLog, ShortGoal, Task, TaskScheduleInput } from '@/types'
+import type { Category, DayEntry, DayMeta, LongGoal, Routine, RoutineConfig, RoutineLog, RoutinePeriod, RoutineStatus, ShortGoal, Task, TaskScheduleInput } from '@/types'
 import { TodayDashboard } from '@/components/today/TodayDashboard'
 
 interface Props {
@@ -21,7 +21,11 @@ interface Props {
   onUpdateTask: (taskId: string, patch: Partial<Task>) => void
   onDeleteTask: (taskId: string) => void
   onMetaChange: (patch: Partial<DayMeta>) => void
-  onToggleRoutine: (routineId: string, date: string) => void
+  onToggleRoutine: (routineId: string, date: string, completion?: 'full' | 'minimum') => void
+  onAddRoutine: (name: string, time?: string, period?: RoutinePeriod, config?: RoutineConfig) => void
+  onUpdateRoutine: (id: string, patch: Partial<Omit<Routine, 'id'>>) => void
+  onSetRoutineStatus: (id: string, status: RoutineStatus) => void
+  onDeleteRoutine: (id: string) => void
   onToggleLinkedTask: (goalId: string, taskId: string) => void
   onLinkGoalTask: (taskId: string) => void
   onUnlinkGoalTask: (taskId: string) => void
@@ -45,6 +49,10 @@ export function MobileToday({
   onDeleteTask,
   onMetaChange,
   onToggleRoutine,
+  onAddRoutine,
+  onUpdateRoutine,
+  onSetRoutineStatus,
+  onDeleteRoutine,
   onToggleLinkedTask,
   onLinkGoalTask,
   onUnlinkGoalTask,
@@ -94,6 +102,10 @@ export function MobileToday({
         onAddCategory={onAddCategory}
         onDeleteCategory={onDeleteCategory}
         onToggleRoutine={onToggleRoutine}
+        onAddRoutine={onAddRoutine}
+        onUpdateRoutine={onUpdateRoutine}
+        onSetRoutineStatus={onSetRoutineStatus}
+        onDeleteRoutine={onDeleteRoutine}
       />
 
       {linkedTasks.length > 0 && (

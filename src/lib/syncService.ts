@@ -151,10 +151,10 @@ export async function deleteTask(userId: string, taskId: string): Promise<void> 
 export async function upsertRoutine(userId: string, routine: Routine): Promise<void> {
   if (!supabase) return
   const db = supabase as any
-  const { id, name, status, created_at, time, order, period, updated_at } = routine
+  const { id, name, status, created_at, time, order, period, config, updated_at } = routine
   const { error } = await db.from('routines').upsert({
     id, user_id: userId, name, status, created_at,
-    time: time ?? null, order: order ?? 0, period: period ?? 'anytime',
+    time: time ?? null, order: order ?? 0, period: period ?? 'anytime', config: config ?? {},
     updated_at: updated_at ?? null,
   })
   if (error) {
@@ -191,10 +191,10 @@ export async function deleteRoutine(userId: string, routineId: string): Promise<
 export async function upsertRoutineLog(userId: string, log: RoutineLog): Promise<void> {
   if (!supabase) return
   const db = supabase as any
-  const { id, routine_id, date, done, updated_at } = log
+  const { id, routine_id, date, done, completion, updated_at } = log
   const { error } = await db.from('routine_logs').upsert(
     {
-      id, user_id: userId, routine_id, date, done,
+      id, user_id: userId, routine_id, date, done, completion: completion ?? null,
       updated_at: updated_at ?? null,
     },
     { onConflict: 'user_id,routine_id,date' },

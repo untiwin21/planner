@@ -1,6 +1,6 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { DayEntry, ShortGoal, Routine, RoutineLog, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod, TaskScheduleInput } from '@/types'
+import type { DayEntry, ShortGoal, Routine, RoutineConfig, RoutineLog, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod, TaskScheduleInput } from '@/types'
 import { tasksProgress } from '@/lib/taskProgress'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
@@ -1160,11 +1160,11 @@ export function usePlanrStore(userId: string) {
   }
 
   // ── ROUTINES ───────────────────────────────────────────────────────────────
-  function addRoutine(name: string, time?: string, period?: RoutinePeriod) {
+  function addRoutine(name: string, time?: string, period?: RoutinePeriod, config?: RoutineConfig) {
     const derivedPeriod = period ?? derivePeriod(time)
     const newRoutine: Routine = {
       id: uid(), name, status: 'active' as RoutineStatus, created_at: formatDate(new Date()),
-      time, order: 0, period: derivedPeriod, updated_at: now(),
+      time, order: 0, period: derivedPeriod, config, updated_at: now(),
     }
     setRoutines(prev => [...prev, newRoutine])
     if (userId) {
@@ -1231,11 +1231,13 @@ export function usePlanrStore(userId: string) {
       trackWrite(deleteRoutineSync(userId, id), () => clearRoutineDirty(id), `routine:${id}`)
     }
   }
-  function toggleRoutineLog(routineId: string, date: string) {
+  function toggleRoutineLog(routineId: string, date: string, completion: 'full' | 'minimum' = 'full') {
     const exists = logsRef.current.find(log => log.routine_id === routineId && log.date === date)
     const updatedLog: RoutineLog = exists
-      ? { ...exists, done: !exists.done, updated_at: now() }
-      : { id: uid(), routine_id: routineId, date, done: true, updated_at: now() }
+      ? exists.done && (exists.completion ?? 'full') === completion
+        ? { ...exists, done: false, completion: undefined, updated_at: now() }
+        : { ...exists, done: true, completion, updated_at: now() }
+      : { id: uid(), routine_id: routineId, date, done: true, completion, updated_at: now() }
     const nextLogs = exists
       ? logsRef.current.map(log => routineLogKey(log) === routineLogKey(updatedLog) ? updatedLog : log)
       : [...logsRef.current, updatedLog]
