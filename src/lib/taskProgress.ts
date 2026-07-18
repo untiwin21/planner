@@ -10,11 +10,12 @@ import { isActualOnlyTask } from '@/lib/taskVisibility'
  *   Task B (2 subs): each subtask = 25%, completing one → +25%
  */
 export function taskWeight(task: Task): number {
+  if (task.discarded) return 0
   if (task.done) return 1
   if (task.progress_target && task.progress_target > 0 && task.progress_current !== undefined) {
     return Math.max(0, Math.min(1, task.progress_current / task.progress_target))
   }
-  const subs = task.subtasks ?? []
+  const subs = (task.subtasks ?? []).filter(subtask => !subtask.discarded)
   if (subs.length === 0) {
     return 0
   }
@@ -27,7 +28,7 @@ export function taskProgressPercent(task: Task): number {
 }
 
 export function tasksProgress(tasks: Task[]): { done: number; total: number; pct: number } {
-  const countableTasks = tasks.filter(task => !isActualOnlyTask(task))
+  const countableTasks = tasks.filter(task => !isActualOnlyTask(task) && !task.discarded)
   const total = countableTasks.length
   if (total === 0) return { done: 0, total: 0, pct: 0 }
   let doneWeight = 0

@@ -157,7 +157,7 @@ export default function Home() {
           for (const s of t.subtasks ?? []) {
             if (linkedSubIds.has(s.id)) {
               linkedTasks.push({
-                id: s.id, text: s.text, done: s.done,
+                id: s.id, text: s.text, done: s.done, discarded: s.discarded,
                 day_id: t.day_id, goal_id: t.goal_id,
                 category_id: t.category_id, category_name: t.category_name, category_color: t.category_color,
               })

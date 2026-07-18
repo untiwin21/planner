@@ -7,6 +7,11 @@ export interface SubTask {
   id: string
   text: string
   done: boolean
+  /** Discarded means the work became unnecessary; it is not a failed task. */
+  discarded?: boolean
+  duration_min?: number
+  start_time?: string
+  end_time?: string
   updated_at?: number
 }
 
@@ -16,6 +21,8 @@ export interface Task {
   goal_id?: string
   text: string
   done: boolean
+  /** Discarded tasks are kept as a decision record and excluded from completion stats. */
+  discarded?: boolean
   category_id: string
   category_name: string
   category_color: BadgeColor

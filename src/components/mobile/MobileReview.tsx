@@ -41,8 +41,8 @@ export function MobileReview({ days, goals, routines, logs, getWeeklyReview, upd
   const weekTasks = weekDayEntries.flatMap(entry => entry.tasks).filter(task => !isActualOnlyTask(task))
   const taskStats = tasksProgress(weekTasks)
   const totalTasks = taskStats.total
-  const doneTasks = weekTasks.filter(task => task.done).length
-  const partialTasks = weekTasks.filter(task => !task.done && taskProgressPercent(task) > 0).length
+  const doneTasks = weekTasks.filter(task => !task.discarded && task.done).length
+  const partialTasks = weekTasks.filter(task => !task.discarded && !task.done && taskProgressPercent(task) > 0).length
 
   // Routine stats for the week
   const activeRoutines = routines.filter(r => r.status === 'active' && r.config?.stage !== 'backlog')

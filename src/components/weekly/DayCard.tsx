@@ -61,7 +61,7 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
       for (const s of t.subtasks ?? []) {
         if (linkedSubIds.has(s.id)) {
           linkedTasks.push({
-            id: s.id, text: s.text, done: s.done,
+            id: s.id, text: s.text, done: s.done, discarded: s.discarded,
             day_id: t.day_id, goal_id: t.goal_id,
             category_id: t.category_id, category_name: t.category_name, category_color: t.category_color,
           })
@@ -77,7 +77,7 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
   const top3Ids = meta?.top3 ?? []
   const top3 = top3Ids.length > 0
     ? top3Ids.map(id => allCountedTasks.find(t => t.id === id)).filter(Boolean)
-    : allCountedTasks.filter(t => !t.done).slice(0, 3)
+    : allCountedTasks.filter(t => !t.done && !t.discarded).slice(0, 3)
   const cardKeywords = meta?.cardKeywords ?? []
 
   return (

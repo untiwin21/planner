@@ -68,7 +68,7 @@ export interface FreeBlock {
 
 export function fixedBlocks(tasks: Task[], windowStart: number, windowEnd: number): TimeBlock[] {
   return tasks
-    .filter(task => !task.done && isFixedTask(task))
+    .filter(task => !task.done && !task.discarded && isFixedTask(task))
     .map(task => {
       const rawStart = getTaskStart(task)
       const rawEnd = getTaskEnd(task)
@@ -120,7 +120,7 @@ export function remainingCapacity(
   const effectiveStart = Math.min(end, Math.max(start, normalizedNow ?? start))
   const free = freeBlocks(tasks, effectiveStart, end)
   const availableMinutes = free.reduce((sum, block) => sum + block.end - block.start, 0)
-  const flexibleTasks = tasks.filter(task => !task.done && !isFixedTask(task))
+  const flexibleTasks = tasks.filter(task => !task.done && !task.discarded && !isFixedTask(task))
   const flexibleMinutes = flexibleTasks.reduce((sum, task) => sum + getTaskDuration(task), 0)
   return {
     start,

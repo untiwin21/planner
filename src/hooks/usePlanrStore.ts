@@ -834,9 +834,14 @@ export function usePlanrStore(userId: string) {
     const task = entry.tasks.find(t => t.id === taskId)
     if (!task) return
     const nextDone = !task.done
+    const updatedSubtasks = task.subtasks?.map(subtask => subtask.discarded
+      ? subtask
+      : { ...subtask, done: nextDone, updated_at: now() })
     const updatedTask: Task = {
       ...task,
       done: nextDone,
+      discarded: false,
+      ...(updatedSubtasks ? { subtasks: updatedSubtasks } : {}),
       ...(nextDone && task.progress_target
         ? { progress_current: task.progress_target }
         : !nextDone
