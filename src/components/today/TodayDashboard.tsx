@@ -29,7 +29,7 @@ import {
 import { addDays, format, parseISO, subDays } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import clsx from 'clsx'
-import type { BadgeColor, Category, DayEntry, DayMeta, LongGoal, Routine, RoutineConfig, RoutineLog, RoutinePeriod, RoutineStatus, ShortGoal, SubTask, Task, TaskScheduleInput } from '@/types'
+import type { BadgeColor, Category, DayEntry, DayMeta, LongGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, RoutinePeriod, RoutineStatus, ShortGoal, SubTask, Task, TaskScheduleInput } from '@/types'
 import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
 import { formatDate, formatSleepMin } from '@/lib/dates'
 import {
@@ -75,7 +75,8 @@ interface Props {
   onMetaChange: (patch: Partial<DayMeta>) => void
   onAddCategory?: (category: Omit<Category, 'id'>) => void
   onDeleteCategory?: (categoryId: string) => void
-  onToggleRoutine?: (routineId: string, date: string, completion?: 'full' | 'minimum') => void
+  onToggleRoutine?: (routineId: string, date: string, completion?: 'full' | 'minimum', actual?: Pick<RoutineLogPatch, 'actual_start_time' | 'actual_end_time'>) => void
+  onUpdateRoutineLog?: (routineId: string, date: string, patch: RoutineLogPatch) => void
   onAddRoutine?: (name: string, time?: string, period?: RoutinePeriod, config?: RoutineConfig) => void
   onUpdateRoutine?: (id: string, patch: Partial<Omit<Routine, 'id'>>) => void
   onSetRoutineStatus?: (id: string, status: RoutineStatus) => void
@@ -85,10 +86,18 @@ interface Props {
 
 interface ActualEditorState {
   taskId?: string
+  subtaskId?: string
   text: string
   start: string
   end: string
   categoryId: string
+}
+
+interface RoutineActualEditorState {
+  routineIds: string[]
+  text: string
+  start: string
+  end: string
 }
 
 interface ProgressEditorState {
@@ -119,6 +128,20 @@ interface PlannedTimelineItem {
   fixed: boolean
   done: boolean
 }
+
+interface ActualTimelineItem {
+  key: string
+  token: string
+  task: Task
+  subtask?: SubTask
+  text: string
+  categoryName: string
+  categoryColor: BadgeColor
+  start: number
+  end: number
+}
+
+type TimelineSide = 'plan' | 'actual'
 
 const CATEGORY_COLORS: BadgeColor[] = ['purple', 'teal', 'amber', 'coral', 'blue']
 const TIMELINE_CATEGORY_STYLE: Record<BadgeColor, string> = {
@@ -163,6 +186,18 @@ function subtaskDragToken(taskId: string, subtaskId: string) {
   return `subtask:${taskId}:${subtaskId}`
 }
 
+function actualTaskDragToken(taskId: string) {
+  return `actual-task:${taskId}`
+}
+
+function actualSubtaskDragToken(taskId: string, subtaskId: string) {
+  return `actual-subtask:${taskId}:${subtaskId}`
+}
+
+function routineGroupDragToken(groupKey: string) {
+  return `routine-group:${encodeURIComponent(groupKey)}`
+}
+
 function CategoryDot({ color }: { color: Category['color'] }) {
   const colors: Record<Category['color'], string> = {
     purple: 'bg-[var(--purple)]',
@@ -194,6 +229,7 @@ export function TodayDashboard({
   onAddCategory,
   onDeleteCategory,
   onToggleRoutine,
+  onUpdateRoutineLog,
   onAddRoutine,
   onUpdateRoutine,
   onSetRoutineStatus,
@@ -211,7 +247,9 @@ export function TodayDashboard({
   const [durationText, setDurationText] = useState('60')
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [dragPreviewMinute, setDragPreviewMinute] = useState<number | null>(null)
+  const [dragTargetSide, setDragTargetSide] = useState<TimelineSide>('plan')
   const [actualEditor, setActualEditor] = useState<ActualEditorState | null>(null)
+  const [routineActualEditor, setRoutineActualEditor] = useState<RoutineActualEditorState | null>(null)
   const [actualError, setActualError] = useState('')
   const [progressEditor, setProgressEditor] = useState<ProgressEditorState | null>(null)
   const [progressError, setProgressError] = useState('')
@@ -224,6 +262,7 @@ export function TodayDashboard({
   const timelineRef = useRef<HTMLDivElement>(null)
   const pointerTaskIdRef = useRef<string | null>(null)
   const selectableCategories = useMemo(() => categories.filter(category => category.id !== SCHEDULE_CAT_ID && category.id !== DEADLINE_CAT_ID), [categories])
+  const taskEditorCategories = useMemo(() => categories.filter(category => category.id !== SCHEDULE_CAT_ID), [categories])
   const [categoryId, setCategoryId] = useState(selectableCategories[0]?.id ?? '')
 
   const dateObject = parseISO(date)
@@ -333,22 +372,43 @@ export function TodayDashboard({
     return items.sort((a, b) => a.start - b.start || Number(b.fixed) - Number(a.fixed))
   }, [entry.tasks])
 
-  const actualBlocks = useMemo(() => entry.tasks
-    .filter(task => task.actual_status === 'recorded' && task.actual_start_time && task.actual_end_time)
-    .map(task => {
-      const rawStart = timeToMinutes(task.actual_start_time)
-      const rawEnd = timeToMinutes(task.actual_end_time)
+  const actualBlocks = useMemo<ActualTimelineItem[]>(() => {
+    const items: ActualTimelineItem[] = []
+    const append = ({ task, subtask }: { task: Task; subtask?: SubTask }) => {
+      const actualStatus = subtask?.actual_status ?? task.actual_status
+      const actualStart = subtask?.actual_start_time ?? (!subtask ? task.actual_start_time : undefined)
+      const actualEnd = subtask?.actual_end_time ?? (!subtask ? task.actual_end_time : undefined)
+      if (actualStatus !== 'recorded' || !actualStart || !actualEnd) return
+      const rawStart = timeToMinutes(actualStart)
+      const rawEnd = timeToMinutes(actualEnd)
       if (rawStart === null || rawEnd === null) return null
       const start = rawStart < TIMELINE_START ? rawStart + 24 * 60 : rawStart
       let end = rawEnd < TIMELINE_START ? rawEnd + 24 * 60 : rawEnd
       if (end <= start) end += 24 * 60
-      return { task, start: Math.max(TIMELINE_START, start), end: Math.min(TIMELINE_END, end) }
-    })
-    .filter((item): item is { task: Task; start: number; end: number } => item !== null && item.end > item.start)
-    .sort((a, b) => a.start - b.start), [entry.tasks])
+      const normalizedStart = Math.max(TIMELINE_START, start)
+      const normalizedEnd = Math.min(TIMELINE_END, end)
+      if (normalizedEnd <= normalizedStart) return
+      items.push({
+        key: subtask ? `actual-subtask:${task.id}:${subtask.id}` : `actual-task:${task.id}`,
+        token: subtask ? actualSubtaskDragToken(task.id, subtask.id) : actualTaskDragToken(task.id),
+        task,
+        subtask,
+        text: subtask?.text ?? task.text,
+        categoryName: subtask ? `${task.text} · 하위` : task.category_name,
+        categoryColor: task.category_color,
+        start: normalizedStart,
+        end: normalizedEnd,
+      })
+    }
+    for (const task of entry.tasks) {
+      append({ task })
+      for (const subtask of task.subtasks ?? []) append({ task, subtask })
+    }
+    return items.sort((a, b) => a.start - b.start)
+  }, [entry.tasks])
 
   const flexible = useMemo(() => entry.tasks
-    .filter(task => !isActualOnlyTask(task) && !isFixedTask(task) && task.category_id !== DEADLINE_CAT_ID)
+    .filter(task => !isActualOnlyTask(task) && !isFixedTask(task))
     .sort((a, b) => Number(a.discarded) - Number(b.discarded) || Number(a.done) - Number(b.done) || (a.updated_at ?? 0) - (b.updated_at ?? 0)), [entry.tasks])
 
   const taskGroups = useMemo(() => {
@@ -410,6 +470,41 @@ export function TodayDashboard({
       }
     }).sort((a, b) => a.start - b.start)
   }, [activeRoutines, date, routineLogs])
+  const routineActualGroups = useMemo(() => {
+    const grouped = new Map<string, Routine[]>()
+    for (const routine of activeRoutines) {
+      if (!isTimedRoutine(routine)) continue
+      const log = routineLogs.find(item => item.routine_id === routine.id && item.date === date && item.done)
+      if (!log) continue
+      const bundle = routine.config?.bundle?.trim()
+      const key = bundle ? `bundle:${routine.period ?? 'anytime'}:${bundle}` : `routine:${routine.id}`
+      grouped.set(key, [...(grouped.get(key) ?? []), routine])
+    }
+    return [...grouped.entries()].flatMap(([key, items]) => {
+      const ranges = items.map(item => {
+        const log = routineLogs.find(candidate => candidate.routine_id === item.id && candidate.date === date && candidate.done)
+        const fallbackStart = routineStartMinute(item)
+        const rawStart = timeToMinutes(log?.actual_start_time) ?? fallbackStart
+        const rawEnd = timeToMinutes(log?.actual_end_time) ?? (rawStart !== null ? rawStart + routineConfig(item).duration_min : null)
+        if (rawStart === null || rawEnd === null) return null
+        const start = rawStart < TIMELINE_START ? rawStart + 24 * 60 : rawStart
+        let end = rawEnd < TIMELINE_START ? rawEnd + 24 * 60 : rawEnd
+        if (end <= start) end += 24 * 60
+        return { start, end }
+      }).filter((range): range is { start: number; end: number } => Boolean(range))
+      if (ranges.length === 0) return []
+      return [{
+        key,
+        items,
+        label: routineBundleLabel(items[0]),
+        start: Math.max(TIMELINE_START, Math.min(...ranges.map(range => range.start))),
+        end: Math.min(TIMELINE_END, Math.max(...ranges.map(range => range.end))),
+        doneCount: items.length,
+        minimumCount: items.filter(item => routineLogs.some(log => log.routine_id === item.id && log.date === date && log.done && log.completion === 'minimum')).length,
+        color: routineColor(items[0]),
+      }]
+    }).sort((a, b) => a.start - b.start)
+  }, [activeRoutines, date, routineLogs])
   const normalizedNow = nowMinute < TIMELINE_START ? nowMinute + 24 * 60 : nowMinute
   const currentRoutineGroup = isToday
     ? routineTimelineGroups.find(group => group.start <= normalizedNow && group.end >= normalizedNow && group.doneCount < group.items.length)
@@ -461,7 +556,8 @@ export function TodayDashboard({
 
   function placePlanItem(token: string, minute: number) {
     const time = minutesToTime(minute)
-    if (token.startsWith('subtask:')) {
+    if (token.startsWith('routine-group:')) return
+    if (token.startsWith('subtask:') || token.startsWith('actual-subtask:')) {
       const [, taskId, subtaskId] = token.split(':')
       const task = entry.tasks.find(item => item.id === taskId)
       if (task) {
@@ -472,26 +568,93 @@ export function TodayDashboard({
         })
       }
     } else {
-      const taskId = token.startsWith('task:') ? token.slice(5) : token
+      const taskId = token.startsWith('actual-task:') ? token.slice(12) : token.startsWith('task:') ? token.slice(5) : token
       onUpdateTask(taskId, { start_time: time, time })
     }
     setDraggedTaskId(null)
     setDragPreviewMinute(null)
   }
 
-  function timelineMinuteAtPoint(clientX: number, clientY: number) {
+  function actualRangeAtDrop(minute: number, duration: number) {
+    if (!canEditActual) return null
+    const available = editableUntil - TIMELINE_START
+    if (available < 15) return null
+    const boundedDuration = Math.min(Math.max(15, duration), available)
+    const start = Math.max(TIMELINE_START, Math.min(minute, editableUntil - boundedDuration))
+    return { start, end: start + boundedDuration }
+  }
+
+  function placeActualItem(token: string, minute: number) {
+    if (!canEditActual) return
+    if (token.startsWith('routine-group:')) {
+      const key = decodeURIComponent(token.slice('routine-group:'.length))
+      const group = routineTimelineGroups.find(item => item.key === key) ?? routineActualGroups.find(item => item.key === key)
+      const range = group ? actualRangeAtDrop(minute, group.end - group.start) : null
+      if (!group || !range) return
+      const actual = { actual_start_time: minutesToTime(range.start), actual_end_time: minutesToTime(range.end) }
+      for (const routine of group.items) {
+        const log = routineLogs.find(item => item.routine_id === routine.id && item.date === date)
+        if (log?.done) onUpdateRoutineLog?.(routine.id, date, actual)
+        else onToggleRoutine?.(routine.id, date, 'full', actual)
+      }
+    } else if (token.startsWith('subtask:') || token.startsWith('actual-subtask:')) {
+      const parts = token.split(':')
+      const taskId = parts[1]
+      const subtaskId = parts[2]
+      const task = entry.tasks.find(item => item.id === taskId)
+      const subtask = task?.subtasks?.find(item => item.id === subtaskId)
+      const range = subtask ? actualRangeAtDrop(minute, subtask.duration_min ?? 30) : null
+      if (!task || !subtask || !range) return
+      const nextSubtasks = (task.subtasks ?? []).map(item => item.id === subtaskId ? {
+        ...item,
+        done: true,
+        actual_start_time: minutesToTime(range.start),
+        actual_end_time: minutesToTime(range.end),
+        actual_status: 'recorded' as const,
+        updated_at: Date.now(),
+      } : item)
+      const activeSubtasks = nextSubtasks.filter(item => !item.discarded)
+      onUpdateTask(taskId, {
+        subtasks: nextSubtasks,
+        done: activeSubtasks.length > 0 && activeSubtasks.every(item => item.done),
+      })
+    } else {
+      const taskId = token.startsWith('actual-task:') ? token.slice(12) : token.startsWith('task:') ? token.slice(5) : token
+      const task = entry.tasks.find(item => item.id === taskId)
+      const range = task ? actualRangeAtDrop(minute, getTaskDuration(task)) : null
+      if (!task || !range) return
+      onUpdateTask(taskId, {
+        actual_start_time: minutesToTime(range.start),
+        actual_end_time: minutesToTime(range.end),
+        actual_status: 'recorded',
+        done: true,
+      })
+    }
+    setDraggedTaskId(null)
+    setDragPreviewMinute(null)
+  }
+
+  function timelineDropAtPoint(clientX: number, clientY: number) {
     const element = timelineRef.current
     if (!element) return null
     const rect = element.getBoundingClientRect()
     if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null
-    return timelineMinuteFromPointer(clientY, element)
+    return {
+      minute: timelineMinuteFromPointer(clientY, element),
+      side: clientX >= rect.left + rect.width / 2 ? 'actual' as const : 'plan' as const,
+    }
+  }
+
+  function placeTimelineItem(token: string, minute: number, side: TimelineSide) {
+    if (side === 'actual') placeActualItem(token, minute)
+    else placePlanItem(token, minute)
   }
 
   function finishPointerDrag(clientX: number, clientY: number) {
     const taskId = pointerTaskIdRef.current
-    const minute = timelineMinuteAtPoint(clientX, clientY)
+    const drop = timelineDropAtPoint(clientX, clientY)
     pointerTaskIdRef.current = null
-    if (taskId && minute !== null) placePlanItem(taskId, minute)
+    if (taskId && drop) placeTimelineItem(taskId, drop.minute, drop.side)
     else {
       setDraggedTaskId(null)
       setDragPreviewMinute(null)
@@ -504,10 +667,10 @@ export function TodayDashboard({
     return minute < TIMELINE_START ? minute + 24 * 60 : minute
   }
 
-  function openActualEditor(task?: Task, plannedStart?: number, plannedEnd?: number) {
+  function openActualEditor(task?: Task, plannedStart?: number, plannedEnd?: number, subtask?: SubTask) {
     if (!canEditActual) return
-    const existingStart = task?.actual_start_time
-    const existingEnd = task?.actual_end_time
+    const existingStart = subtask?.actual_start_time ?? task?.actual_start_time
+    const existingEnd = subtask?.actual_end_time ?? task?.actual_end_time
     const rawEndMinute = Math.min(editableUntil, plannedEnd ?? editableUntil)
     const endMinute = Math.max(TIMELINE_START + 15, Math.floor(rawEndMinute / 15) * 15)
     const startMinute = Math.max(TIMELINE_START, Math.min(endMinute - 15, plannedStart ?? endMinute - 60))
@@ -515,7 +678,8 @@ export function TodayDashboard({
     setActualError('')
     setActualEditor({
       taskId: task?.id,
-      text: task?.text ?? '',
+      subtaskId: subtask?.id,
+      text: subtask?.text ?? task?.text ?? '',
       start: existingStart ?? minutesToTime(startMinute),
       end: existingEnd ?? minutesToTime(endMinute),
       categoryId: task?.category_id ?? categoryId ?? selectableCategories[0]?.id ?? '',
@@ -536,12 +700,29 @@ export function TodayDashboard({
       return
     }
     if (actualEditor.taskId) {
-      onUpdateTask(actualEditor.taskId, {
-        actual_start_time: actualEditor.start,
-        actual_end_time: actualEditor.end,
-        actual_status: 'recorded',
-        done: true,
-      })
+      const task = entry.tasks.find(item => item.id === actualEditor.taskId)
+      if (task && actualEditor.subtaskId) {
+        const nextSubtasks = (task.subtasks ?? []).map(subtask => subtask.id === actualEditor.subtaskId ? {
+          ...subtask,
+          done: true,
+          actual_start_time: actualEditor.start,
+          actual_end_time: actualEditor.end,
+          actual_status: 'recorded' as const,
+          updated_at: Date.now(),
+        } : subtask)
+        const activeSubtasks = nextSubtasks.filter(subtask => !subtask.discarded)
+        onUpdateTask(actualEditor.taskId, {
+          subtasks: nextSubtasks,
+          done: activeSubtasks.length > 0 && activeSubtasks.every(subtask => subtask.done),
+        })
+      } else {
+        onUpdateTask(actualEditor.taskId, {
+          actual_start_time: actualEditor.start,
+          actual_end_time: actualEditor.end,
+          actual_status: 'recorded',
+          done: true,
+        })
+      }
     } else {
       const title = actualEditor.text.trim()
       if (!title || !actualEditor.categoryId) {
@@ -564,6 +745,22 @@ export function TodayDashboard({
 
   function markActualSkipped() {
     if (!actualEditor?.taskId) return
+    const task = entry.tasks.find(item => item.id === actualEditor.taskId)
+    if (task && actualEditor.subtaskId) {
+      onUpdateTask(actualEditor.taskId, {
+        subtasks: (task.subtasks ?? []).map(subtask => subtask.id === actualEditor.subtaskId ? {
+          ...subtask,
+          actual_start_time: undefined,
+          actual_end_time: undefined,
+          actual_status: 'skipped' as const,
+          done: false,
+          updated_at: Date.now(),
+        } : subtask),
+        done: false,
+      })
+      setActualEditor(null)
+      return
+    }
     onUpdateTask(actualEditor.taskId, {
       actual_start_time: undefined,
       actual_end_time: undefined,
@@ -576,6 +773,19 @@ export function TodayDashboard({
   function clearActualRecord() {
     if (!actualEditor?.taskId) return
     const task = entry.tasks.find(item => item.id === actualEditor.taskId)
+    if (task && actualEditor.subtaskId) {
+      onUpdateTask(actualEditor.taskId, {
+        subtasks: (task.subtasks ?? []).map(subtask => subtask.id === actualEditor.subtaskId ? {
+          ...subtask,
+          actual_start_time: undefined,
+          actual_end_time: undefined,
+          actual_status: undefined,
+          updated_at: Date.now(),
+        } : subtask),
+      })
+      setActualEditor(null)
+      return
+    }
     if (task && isActualOnlyTask(task)) {
       onDeleteTask(task.id)
       setActualEditor(null)
@@ -587,6 +797,68 @@ export function TodayDashboard({
       actual_status: undefined,
     })
     setActualEditor(null)
+  }
+
+  function openRoutineActualEditor(items: Routine[]) {
+    if (!canEditActual || items.length === 0) return
+    const logs = items
+      .map(item => routineLogs.find(log => log.routine_id === item.id && log.date === date && log.done))
+      .filter((log): log is RoutineLog => Boolean(log))
+    if (logs.length === 0) return
+    const starts = logs.map(log => toTimelineMinute(log.actual_start_time ?? '')).filter((value): value is number => value !== null)
+    const ends = logs.map(log => toTimelineMinute(log.actual_end_time ?? '')).filter((value): value is number => value !== null)
+    const totalDuration = items.reduce((sum, item) => sum + routineConfig(item).duration_min, 0)
+    const plannedStart = routineStartMinute(items[0]) ?? editableUntil - totalDuration
+    const fallbackStart = Math.max(TIMELINE_START, Math.min(plannedStart, editableUntil - Math.min(totalDuration, editableUntil - TIMELINE_START)))
+    const fallbackEnd = Math.min(editableUntil, fallbackStart + totalDuration)
+    setActualError('')
+    setRoutineActualEditor({
+      routineIds: items.map(item => item.id),
+      text: routineBundleLabel(items[0]),
+      start: minutesToTime(starts.length > 0 ? Math.min(...starts) : fallbackStart),
+      end: minutesToTime(ends.length > 0 ? Math.max(...ends) : fallbackEnd),
+    })
+  }
+
+  function saveRoutineActualRecord() {
+    if (!routineActualEditor || !onUpdateRoutineLog) return
+    const start = toTimelineMinute(routineActualEditor.start)
+    let end = toTimelineMinute(routineActualEditor.end)
+    if (start === null || end === null) {
+      setActualError('시작과 종료 시간을 입력해주세요.')
+      return
+    }
+    if (end <= start) end += 24 * 60
+    if (start < TIMELINE_START || end > editableUntil || end <= start) {
+      setActualError('현재 시각 이전의 구간만 기록할 수 있습니다.')
+      return
+    }
+    for (const routineId of routineActualEditor.routineIds) {
+      onUpdateRoutineLog(routineId, date, {
+        actual_start_time: routineActualEditor.start,
+        actual_end_time: routineActualEditor.end,
+      })
+    }
+    setRoutineActualEditor(null)
+    setActualError('')
+  }
+
+  function toggleTaskWithActualEditor(task: Task) {
+    onToggleTask(task.id)
+    if (task.done || task.discarded || !canEditActual) return
+    const start = getTaskStart(task)
+    const normalizedStart = start === null ? undefined : start < TIMELINE_START ? start + 24 * 60 : start
+    const plannedEnd = normalizedStart === undefined ? undefined : getTaskEnd(task) ?? normalizedStart + getTaskDuration(task)
+    openActualEditor(task, normalizedStart, plannedEnd)
+  }
+
+  function toggleSubtaskWithActualEditor(task: Task, subtask: SubTask) {
+    updateSubtask(task, subtask.id, { done: !subtask.done })
+    if (subtask.done || subtask.discarded || !canEditActual) return
+    const start = timeToMinutes(subtask.start_time)
+    const normalizedStart = start === null ? undefined : start < TIMELINE_START ? start + 24 * 60 : start
+    const plannedEnd = normalizedStart === undefined ? undefined : normalizedStart + (subtask.duration_min ?? 30)
+    openActualEditor(task, normalizedStart, plannedEnd, subtask)
   }
 
   function openProgressEditor(task: Task) {
@@ -614,7 +886,7 @@ export function TodayDashboard({
     if (!taskEditor) return
     const text = taskEditor.text.trim()
     const duration = Number.parseInt(taskEditor.duration, 10)
-    const category = selectableCategories.find(item => item.id === taskEditor.categoryId)
+    const category = taskEditorCategories.find(item => item.id === taskEditor.categoryId)
     if (!text || !category || !Number.isFinite(duration) || duration <= 0) {
       setTaskEditorError('할 일, 카테고리, 예상시간을 확인해주세요.')
       return
@@ -881,6 +1153,8 @@ export function TodayDashboard({
               onDragOver={event => {
                 event.preventDefault()
                 event.dataTransfer.dropEffect = 'move'
+                const rect = event.currentTarget.getBoundingClientRect()
+                setDragTargetSide(event.clientX >= rect.left + rect.width / 2 ? 'actual' : 'plan')
                 setDragPreviewMinute(timelineMinuteFromPointer(event.clientY, event.currentTarget))
               }}
               onDragLeave={event => {
@@ -889,7 +1163,9 @@ export function TodayDashboard({
               onDrop={event => {
                 event.preventDefault()
                 const taskId = draggedTaskId ?? event.dataTransfer.getData('text/plain')
-                if (taskId) placePlanItem(taskId, timelineMinuteFromPointer(event.clientY, event.currentTarget))
+                const rect = event.currentTarget.getBoundingClientRect()
+                const side: TimelineSide = event.clientX >= rect.left + rect.width / 2 ? 'actual' : 'plan'
+                if (taskId) placeTimelineItem(taskId, timelineMinuteFromPointer(event.clientY, event.currentTarget), side)
               }}
             >
               <div className="absolute bottom-0 left-1/2 top-0 z-[5] border-l border-[var(--border-strong)]" aria-hidden="true" />
@@ -910,8 +1186,8 @@ export function TodayDashboard({
               })()}
 
               {dragPreviewMinute !== null && (
-                <div className="absolute left-0 right-1/2 z-30 border-t-2 border-dashed border-[var(--purple)] pointer-events-none" style={{ top: ((dragPreviewMinute - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT }}>
-                  <span className="absolute left-2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-[var(--purple)] text-white text-[10px] font-bold">{minutesToTime(dragPreviewMinute)}</span>
+                <div className={clsx('absolute z-30 border-t-2 border-dashed pointer-events-none', dragTargetSide === 'actual' ? 'left-1/2 right-0 border-[var(--teal)]' : 'left-0 right-1/2 border-[var(--purple)]')} style={{ top: ((dragPreviewMinute - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT }}>
+                  <span className={clsx('absolute -translate-y-1/2 px-1.5 py-0.5 rounded text-white text-[10px] font-bold', dragTargetSide === 'actual' ? 'left-2 bg-[var(--teal)]' : 'left-2 bg-[var(--purple)]')}>{dragTargetSide === 'actual' ? '완료 ' : '계획 '}{minutesToTime(dragPreviewMinute)}</span>
                 </div>
               )}
 
@@ -925,6 +1201,15 @@ export function TodayDashboard({
                   <button
                     type="button"
                     key={`routine-plan:${group.key}`}
+                    draggable={!complete}
+                    onDragStart={event => {
+                      if (complete) return
+                      const token = routineGroupDragToken(group.key)
+                      setDraggedTaskId(token)
+                      event.dataTransfer.setData('text/plain', token)
+                      event.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
                     onClick={() => toggleRoutineGroup(group.items)}
                     className={clsx('absolute z-[15] overflow-hidden rounded-[9px] border-2 border-dashed px-2 py-1.5 text-left shadow-sm hover:ring-2 hover:ring-black/10', complete && 'opacity-60', overdue && 'ring-1 ring-[var(--amber)]', TIMELINE_CATEGORY_STYLE[group.color])}
                     style={{ top, height, left: overlapsPlan ? 'calc(25% + 2px)' : 2, width: overlapsPlan ? 'calc(25% - 4px)' : 'calc(50% - 4px)' }}
@@ -948,9 +1233,9 @@ export function TodayDashboard({
                 return (
                   <div
                     key={item.key}
-                    draggable={!fixed && !done}
+                    draggable={!done}
                     onDragStart={event => {
-                      if (fixed || done) return
+                      if (done) return
                       setDraggedTaskId(token)
                       event.dataTransfer.setData('text/plain', token)
                       event.dataTransfer.effectAllowed = 'move'
@@ -961,7 +1246,7 @@ export function TodayDashboard({
                     role={!subtask && start < editableUntil ? 'button' : undefined}
                     tabIndex={!subtask && start < editableUntil ? 0 : undefined}
                     aria-label={!subtask && start < editableUntil ? `${text} 실제 시간 정리` : undefined}
-                    className={clsx('absolute z-10 rounded-[9px] border px-2 py-1.5 overflow-hidden shadow-sm', !subtask && start < editableUntil && 'hover:ring-2 hover:ring-black/10 cursor-pointer', !fixed && !done && 'active:cursor-grabbing', TIMELINE_CATEGORY_STYLE[categoryColor])}
+                    className={clsx('absolute z-10 rounded-[9px] border px-2 py-1.5 overflow-hidden shadow-sm', !subtask && start < editableUntil && 'hover:ring-2 hover:ring-black/10 cursor-pointer', !done && 'active:cursor-grabbing', TIMELINE_CATEGORY_STYLE[categoryColor])}
                     style={{ top, height, left: 2, width: overlapsRoutine ? 'calc(25% - 2px)' : 'calc(50% - 4px)' }}
                   >
                     <div className="flex items-center gap-1.5">
@@ -973,37 +1258,55 @@ export function TodayDashboard({
                 )
               })}
 
-              {actualBlocks.map(({ task, start, end }) => {
+              {actualBlocks.map(item => {
+                const { task, subtask, token, text, categoryName, categoryColor, start, end } = item
                 const top = ((start - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
                 const height = Math.max(30, ((end - start) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
-                const overlapsRoutine = routineTimelineGroups.some(group => group.doneCount > 0 && group.start < end && group.end > start)
+                const overlapsRoutine = routineActualGroups.some(group => group.start < end && group.end > start)
                 return (
                   <button
                     type="button"
-                    key={`actual:${task.id}`}
-                    onClick={() => openActualEditor(task, start, end)}
-                    className={clsx('absolute right-0.5 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-sm hover:ring-2 hover:ring-black/10', TIMELINE_CATEGORY_STYLE[task.category_color])}
+                    key={item.key}
+                    draggable
+                    onDragStart={event => {
+                      setDraggedTaskId(token)
+                      event.dataTransfer.setData('text/plain', token)
+                      event.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
+                    onClick={() => openActualEditor(task, start, end, subtask)}
+                    className={clsx('absolute right-0.5 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-sm hover:ring-2 hover:ring-black/10 active:cursor-grabbing', TIMELINE_CATEGORY_STYLE[categoryColor])}
                     style={{ top, height, left: 'calc(50% + 2px)', right: overlapsRoutine ? '25%' : 2 }}
                     title="실제 시간 수정"
                   >
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-semibold flex-1 min-w-0 truncate">{task.text}</span>
-                      <span className="text-[9px] opacity-65 shrink-0">{task.category_name}</span>
+                      <span className="text-xs font-semibold flex-1 min-w-0 truncate">{text}</span>
+                      <span className="text-[9px] opacity-65 shrink-0">{subtask ? '하위' : categoryName}</span>
                     </div>
                     {height >= 42 && <p className="text-[10px] opacity-70 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>}
                   </button>
                 )
               })}
 
-              {routineTimelineGroups.filter(group => group.doneCount > 0).map(group => {
-                const top = ((group.start - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
-                const height = Math.max(30, ((group.end - group.start) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
-                const overlapsActual = actualBlocks.some(item => item.start < group.end && item.end > group.start)
+              {routineActualGroups.map(group => {
+                const actualStart = group.start
+                const actualEnd = group.end
+                const top = ((actualStart - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
+                const height = Math.max(30, ((actualEnd - actualStart) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
+                const overlapsActual = actualBlocks.some(item => item.start < actualEnd && item.end > actualStart)
                 return (
                   <button
                     type="button"
                     key={`routine-actual:${group.key}`}
-                    onClick={() => toggleRoutineGroup(group.items)}
+                    draggable
+                    onDragStart={event => {
+                      const token = routineGroupDragToken(group.key)
+                      setDraggedTaskId(token)
+                      event.dataTransfer.setData('text/plain', token)
+                      event.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
+                    onClick={() => openRoutineActualEditor(group.items)}
                     className={clsx('absolute z-[21] overflow-hidden rounded-[9px] border px-2 py-1.5 text-left shadow-sm hover:ring-2 hover:ring-black/10', TIMELINE_CATEGORY_STYLE[group.color])}
                     style={{ top, height, left: overlapsActual ? 'calc(75% + 2px)' : 'calc(50% + 2px)', right: 2 }}
                     title="루틴 수행 기록"
@@ -1013,12 +1316,12 @@ export function TodayDashboard({
                       <span className="min-w-0 flex-1 truncate text-xs font-semibold">{group.label}</span>
                       <span className="shrink-0 text-[9px] opacity-70">{group.doneCount}/{group.items.length}{group.minimumCount > 0 ? ` · 최소 ${group.minimumCount}` : ''}</span>
                     </div>
-                    {height >= 42 && <p className="mt-0.5 truncate text-[10px] opacity-70">{minutesToTime(group.start)}–{minutesToTime(group.end)} · 수행</p>}
+                    {height >= 42 && <p className="mt-0.5 truncate text-[10px] opacity-70">{minutesToTime(actualStart)}–{minutesToTime(actualEnd)} · 수행</p>}
                   </button>
                 )
               })}
 
-              {chronological.length === 0 && actualBlocks.length === 0 && routineTimelineGroups.length === 0 && !draggedTaskId && (
+              {chronological.length === 0 && actualBlocks.length === 0 && routineTimelineGroups.length === 0 && routineActualGroups.length === 0 && !draggedTaskId && (
                 <div className="absolute inset-x-3 top-16 rounded-[12px] border border-dashed border-[var(--border-strong)] py-5 flex flex-col items-center text-center pointer-events-none">
                   <CalendarClock size={20} className="text-[var(--text-3)] mb-1.5" />
                   <span className="text-xs font-medium">할 일을 이 시간축으로 끌어오세요.</span>
@@ -1135,6 +1438,12 @@ export function TodayDashboard({
                                       </span>
                                       <span className="shrink-0 text-right text-[10px] text-[var(--text-3)]"><span className="block tabular-nums">{routine.time ?? (timed ? '유동' : '언제든')}</span><span>{timed ? `${config.duration_min}분` : '체크'}</span></span>
                                     </button>
+                                    {done && timed && (
+                                      <button type="button" onClick={() => openRoutineActualEditor([routine])} className="border-l border-[var(--teal)] px-2 text-[10px] font-semibold text-[var(--teal-text)] hover:bg-white/60" title="실제 수행 시간 수정">
+                                        <Clock3 size={11} className="mx-auto mb-0.5" />
+                                        {log?.actual_start_time ?? '시간'}
+                                      </button>
+                                    )}
                                     {timed && config.minimum_version && <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'minimum')} className={clsx('border-l px-2 text-[10px] font-bold', minimum ? 'border-[var(--teal)] text-[var(--teal-text)]' : 'border-[var(--border)] text-[var(--text-3)] hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]')} title={`최소 버전: ${config.minimum_version}`}>최소</button>}
                                   </div>
                                 )
@@ -1189,7 +1498,9 @@ export function TodayDashboard({
                           onPointerMove={event => {
                             if (pointerTaskIdRef.current !== token) return
                             event.preventDefault()
-                            setDragPreviewMinute(timelineMinuteAtPoint(event.clientX, event.clientY))
+                            const drop = timelineDropAtPoint(event.clientX, event.clientY)
+                            setDragPreviewMinute(drop?.minute ?? null)
+                            if (drop) setDragTargetSide(drop.side)
                           }}
                           onPointerUp={event => finishPointerDrag(event.clientX, event.clientY)}
                           onPointerCancel={() => finishPointerDrag(-1, -1)}
@@ -1199,7 +1510,7 @@ export function TodayDashboard({
                         <button
                           type="button"
                           aria-label={task.discarded ? '폐기된 할 일' : task.done ? '완료 취소' : '완료'}
-                          onClick={() => onToggleTask(task.id)}
+                          onClick={() => toggleTaskWithActualEditor(task)}
                           disabled={task.discarded}
                           className={clsx('mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', task.discarded ? 'border-[var(--text-3)] cursor-not-allowed' : task.done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : isPartial ? 'border-[var(--amber)]' : 'border-[var(--border-strong)]')}
                           style={isPartial ? { background: `conic-gradient(var(--amber) ${progressPercent}%, white ${progressPercent}%)` } : undefined}
@@ -1243,8 +1554,8 @@ export function TodayDashboard({
                               const subToken = subtaskDragToken(task.id, subtask.id)
                               return (
                                 <div key={subtask.id} className={clsx('group/sub flex items-center gap-2 rounded-[9px] px-2 py-1.5', subtask.discarded ? 'bg-[var(--surface-2)] opacity-60' : 'bg-white/70')}>
-                                  <button type="button" aria-label={`${subtask.text} 타임라인에 배치`} draggable={!subtask.done && !subtask.discarded} onDragStart={event => { setDraggedTaskId(subToken); event.dataTransfer.setData('text/plain', subToken); event.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }} onPointerDown={event => { if (subtask.done || subtask.discarded || !event.isPrimary) return; pointerTaskIdRef.current = subToken; setDraggedTaskId(subToken); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={event => { if (pointerTaskIdRef.current !== subToken) return; event.preventDefault(); setDragPreviewMinute(timelineMinuteAtPoint(event.clientX, event.clientY)) }} onPointerUp={event => finishPointerDrag(event.clientX, event.clientY)} onPointerCancel={() => finishPointerDrag(-1, -1)} className={clsx('flex h-6 w-6 shrink-0 touch-none items-center justify-center rounded-[6px] text-[var(--text-3)]', !subtask.done && !subtask.discarded ? 'cursor-grab hover:bg-[var(--surface-2)]' : 'cursor-not-allowed opacity-30')}><GripVertical size={13} /></button>
-                                  <button type="button" disabled={subtask.discarded} aria-label={subtask.done ? '하위 할 일 완료 취소' : '하위 할 일 완료'} onClick={() => updateSubtask(task, subtask.id, { done: !subtask.done })} className={clsx('flex h-4 w-4 shrink-0 items-center justify-center rounded-full border', subtask.done ? 'border-[var(--teal)] bg-[var(--teal)] text-white' : 'border-[var(--border-strong)]', subtask.discarded && 'cursor-not-allowed')} >{subtask.done && <Check size={9} strokeWidth={3} />}</button>
+                                  <button type="button" aria-label={`${subtask.text} 타임라인에 배치`} draggable={!subtask.done && !subtask.discarded} onDragStart={event => { setDraggedTaskId(subToken); event.dataTransfer.setData('text/plain', subToken); event.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }} onPointerDown={event => { if (subtask.done || subtask.discarded || !event.isPrimary) return; pointerTaskIdRef.current = subToken; setDraggedTaskId(subToken); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={event => { if (pointerTaskIdRef.current !== subToken) return; event.preventDefault(); const drop = timelineDropAtPoint(event.clientX, event.clientY); setDragPreviewMinute(drop?.minute ?? null); if (drop) setDragTargetSide(drop.side) }} onPointerUp={event => finishPointerDrag(event.clientX, event.clientY)} onPointerCancel={() => finishPointerDrag(-1, -1)} className={clsx('flex h-6 w-6 shrink-0 touch-none items-center justify-center rounded-[6px] text-[var(--text-3)]', !subtask.done && !subtask.discarded ? 'cursor-grab hover:bg-[var(--surface-2)]' : 'cursor-not-allowed opacity-30')}><GripVertical size={13} /></button>
+                                  <button type="button" disabled={subtask.discarded} aria-label={subtask.done ? '하위 할 일 완료 취소' : '하위 할 일 완료'} onClick={() => toggleSubtaskWithActualEditor(task, subtask)} className={clsx('flex h-4 w-4 shrink-0 items-center justify-center rounded-full border', subtask.done ? 'border-[var(--teal)] bg-[var(--teal)] text-white' : 'border-[var(--border-strong)]', subtask.discarded && 'cursor-not-allowed')} >{subtask.done && <Check size={9} strokeWidth={3} />}</button>
                                   <input key={`${subtask.id}:${subtask.updated_at ?? 0}`} defaultValue={subtask.text} disabled={subtask.discarded} onBlur={event => { const text = event.target.value.trim(); if (text && text !== subtask.text) updateSubtask(task, subtask.id, { text }) }} className={clsx('min-w-0 flex-1 bg-transparent text-xs outline-none focus:border-b focus:border-[var(--purple)]', (subtask.done || subtask.discarded) && 'line-through text-[var(--text-3)]')} />
                                   <label className="flex shrink-0 items-center gap-1 text-[10px] text-[var(--text-3)]"><input inputMode="numeric" disabled={subtask.discarded} key={`${subtask.id}:duration:${subtask.duration_min ?? 30}`} defaultValue={subtask.duration_min ?? 30} onBlur={event => { const value = Number.parseInt(event.target.value, 10); if (value > 0 && value !== subtask.duration_min) updateSubtask(task, subtask.id, { duration_min: value }) }} className="w-10 rounded-[5px] bg-[var(--surface-2)] px-1 py-1 text-right text-[10px] outline-none" />분</label>
                                   {subtask.start_time && <span className="shrink-0 text-[10px] font-mono text-[var(--purple)]">{subtask.start_time}</span>}
@@ -1292,7 +1603,7 @@ export function TodayDashboard({
               <div className="grid grid-cols-[1fr_110px] gap-2">
                 <label className="text-xs font-semibold text-[var(--text-2)]">카테고리
                   <select value={taskEditor.categoryId} onChange={event => setTaskEditor(current => current ? { ...current, categoryId: event.target.value } : current)} className="mt-1.5 w-full rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]">
-                    {selectableCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+                    {taskEditorCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
                   </select>
                 </label>
                 <label className="text-xs font-semibold text-[var(--text-2)]">예상시간
@@ -1301,6 +1612,33 @@ export function TodayDashboard({
               </div>
               {taskEditorError && <p className="rounded-[9px] bg-[var(--red-bg)] px-3 py-2 text-xs font-medium text-[var(--red)]">{taskEditorError}</p>}
               <button type="button" onClick={saveTaskEdit} className="mt-1 rounded-[10px] bg-[var(--purple)] px-4 py-2.5 text-sm font-bold text-white">수정 저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {routineActualEditor && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4" onClick={() => setRoutineActualEditor(null)}>
+          <div role="dialog" aria-modal="true" aria-label="루틴 실제 시간 수정" className="w-full max-w-md rounded-[20px] bg-white p-5 shadow-xl" onClick={event => event.stopPropagation()}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold">루틴 실제 시간</h3>
+                <p className="mt-1 text-xs text-[var(--text-3)]">예정 시간과 무관하게 실제 수행한 구간을 기록합니다.</p>
+              </div>
+              <button type="button" aria-label="닫기" onClick={() => setRoutineActualEditor(null)} className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-[var(--surface-2)]"><X size={17} /></button>
+            </div>
+            <div className="mb-4 rounded-[11px] bg-[var(--amber-bg)] px-3 py-2.5 text-sm font-semibold text-[var(--amber-text)]">{routineActualEditor.text}</div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs font-semibold text-[var(--text-2)]">시작
+                <input type="time" step="900" value={routineActualEditor.start} onChange={event => setRoutineActualEditor(value => value ? { ...value, start: event.target.value } : value)} className="mt-1.5 w-full rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
+              </label>
+              <label className="text-xs font-semibold text-[var(--text-2)]">종료
+                <input type="time" step="900" value={routineActualEditor.end} onChange={event => setRoutineActualEditor(value => value ? { ...value, end: event.target.value } : value)} className="mt-1.5 w-full rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
+              </label>
+            </div>
+            {actualError && <p className="mt-3 text-xs text-[var(--red)]">{actualError}</p>}
+            <div className="mt-5 flex justify-end">
+              <button type="button" onClick={saveRoutineActualRecord} className="rounded-[9px] bg-[var(--purple)] px-4 py-2 text-xs font-semibold text-white">실제 시간 저장</button>
             </div>
           </div>
         </div>
@@ -1344,7 +1682,13 @@ export function TodayDashboard({
 
             <div className="flex flex-wrap gap-2 mt-5">
               {actualEditor.taskId && !isActualOnlyTask(entry.tasks.find(task => task.id === actualEditor.taskId)) && <button type="button" onClick={markActualSkipped} className="px-3 py-2 rounded-[9px] bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-2)]">미수행</button>}
-              {actualEditor.taskId && entry.tasks.find(task => task.id === actualEditor.taskId)?.actual_status === 'recorded' && <button type="button" onClick={clearActualRecord} className="px-3 py-2 rounded-[9px] text-xs font-semibold text-[var(--red)] hover:bg-[var(--red-bg)]">실제 기록 삭제</button>}
+              {actualEditor.taskId && (() => {
+                const task = entry.tasks.find(item => item.id === actualEditor.taskId)
+                const recorded = actualEditor.subtaskId
+                  ? task?.subtasks?.find(item => item.id === actualEditor.subtaskId)?.actual_status === 'recorded'
+                  : task?.actual_status === 'recorded'
+                return recorded ? <button type="button" onClick={clearActualRecord} className="px-3 py-2 rounded-[9px] text-xs font-semibold text-[var(--red)] hover:bg-[var(--red-bg)]">실제 기록 삭제</button> : null
+              })()}
               <button type="button" onClick={saveActualRecord} className="ml-auto px-4 py-2 rounded-[9px] bg-[var(--purple)] text-white text-xs font-semibold">{actualEditor.taskId ? '실제 시간 저장' : '기록 추가'}</button>
             </div>
           </div>

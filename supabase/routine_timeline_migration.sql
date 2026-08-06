@@ -7,6 +7,10 @@ alter table routines
 alter table routine_logs
   add column if not exists completion text;
 
+alter table routine_logs
+  add column if not exists actual_start_time text,
+  add column if not exists actual_end_time text;
+
 update routines
 set config = '{}'
 where config is null;

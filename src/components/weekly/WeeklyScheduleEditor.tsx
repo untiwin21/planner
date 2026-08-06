@@ -18,7 +18,10 @@ interface Props {
 export function WeeklyScheduleEditor({ entry, onAddTask, onUpdateTask, onDeleteTask, onToggleTask, compact = false }: Props) {
   const [scheduleText, setScheduleText] = useState('')
   const [scheduleTime, setScheduleTime] = useState('')
+  const [scheduleDuration, setScheduleDuration] = useState('60')
   const [deadlineText, setDeadlineText] = useState('')
+  const [deadlineTime, setDeadlineTime] = useState('')
+  const [deadlineDuration, setDeadlineDuration] = useState('30')
 
   const schedules = entry.tasks
     .filter(task => task.category_id === SCHEDULE_CAT_ID)
@@ -28,7 +31,11 @@ export function WeeklyScheduleEditor({ entry, onAddTask, onUpdateTask, onDeleteT
   function addSchedule() {
     const text = scheduleText.trim()
     if (!text) return
-    onAddTask(SCHEDULE_CAT_ID, text, scheduleTime || undefined)
+    onAddTask(SCHEDULE_CAT_ID, text, {
+      start_time: scheduleTime || undefined,
+      duration_min: Math.max(15, Number.parseInt(scheduleDuration, 10) || 60),
+      fixed: true,
+    })
     setScheduleText('')
     setScheduleTime('')
   }
@@ -36,8 +43,13 @@ export function WeeklyScheduleEditor({ entry, onAddTask, onUpdateTask, onDeleteT
   function addDeadline() {
     const text = deadlineText.trim()
     if (!text) return
-    onAddTask(DEADLINE_CAT_ID, text)
+    onAddTask(DEADLINE_CAT_ID, text, {
+      start_time: deadlineTime || undefined,
+      duration_min: Math.max(15, Number.parseInt(deadlineDuration, 10) || 30),
+      fixed: false,
+    })
     setDeadlineText('')
+    setDeadlineTime('')
   }
 
   function renderTask(task: Task, schedule: boolean) {
@@ -46,15 +58,16 @@ export function WeeklyScheduleEditor({ entry, onAddTask, onUpdateTask, onDeleteT
         <button type="button" onClick={() => onToggleTask(task.id)} className={clsx('h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', task.done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : schedule ? 'border-[var(--blue)]' : 'border-[var(--red)]')}>
           {task.done && <Check size={11} strokeWidth={3} />}
         </button>
-        {schedule && (
+        {(schedule || task.start_time) && (
           <input
             aria-label={`${task.text} 시간`}
             type="time"
             value={task.start_time ?? task.time ?? ''}
-            onChange={event => onUpdateTask(task.id, { start_time: event.target.value || undefined, time: event.target.value || undefined, fixed: true })}
-            className="w-[78px] bg-transparent font-mono text-xs text-[var(--blue-text)] outline-none"
+            onChange={event => onUpdateTask(task.id, { start_time: event.target.value || undefined, time: event.target.value || undefined, fixed: schedule })}
+            className={clsx('w-[78px] bg-transparent font-mono text-xs outline-none', schedule ? 'text-[var(--blue-text)]' : 'text-[var(--red-text)]')}
           />
         )}
+        {!schedule && !task.start_time && <span className="shrink-0 text-[10px] font-semibold text-[var(--red-text)]">시간 미정</span>}
         <input
           aria-label={`${task.text} 내용`}
           value={task.text}
@@ -73,9 +86,10 @@ export function WeeklyScheduleEditor({ entry, onAddTask, onUpdateTask, onDeleteT
       <section className="rounded-[16px] border border-[var(--border)] bg-white p-4">
         <div className="flex items-center gap-2 mb-3"><CalendarClock size={15} className="text-[var(--blue)]" /><h3 className="text-sm font-bold">일정</h3><span className="text-[11px] text-[var(--text-3)] ml-auto">오늘 타임라인에 자동 표시</span></div>
         <div className="flex flex-col gap-1.5 mb-3">{schedules.map(task => renderTask(task, true))}</div>
-        <div className="grid grid-cols-[86px_1fr_auto] gap-2">
+        <div className="grid grid-cols-[86px_1fr_72px_auto] gap-2">
           <input type="time" value={scheduleTime} onChange={event => setScheduleTime(event.target.value)} className="min-w-0 px-2 py-2 rounded-[9px] bg-[var(--surface-2)] text-xs font-mono outline-none focus:ring-1 focus:ring-[var(--blue)]" />
           <input value={scheduleText} onChange={event => setScheduleText(event.target.value)} onKeyDown={event => event.key === 'Enter' && addSchedule()} placeholder="수업, 약속, 이동 등" className="min-w-0 px-3 py-2 rounded-[9px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--blue)]" />
+          <label className="flex min-w-0 items-center rounded-[9px] bg-[var(--surface-2)] px-2"><input aria-label="일정 소요시간" inputMode="numeric" value={scheduleDuration} onChange={event => setScheduleDuration(event.target.value.replace(/\D/g, '').slice(0, 3))} className="min-w-0 flex-1 bg-transparent text-right text-xs outline-none" /><span className="ml-1 text-[10px] text-[var(--text-3)]">분</span></label>
           <button type="button" onClick={addSchedule} className="h-9 w-9 rounded-[9px] bg-[var(--blue)] text-white flex items-center justify-center"><Plus size={16} /></button>
         </div>
       </section>
@@ -83,8 +97,10 @@ export function WeeklyScheduleEditor({ entry, onAddTask, onUpdateTask, onDeleteT
       <section className="rounded-[16px] border border-[var(--border)] bg-white p-4">
         <div className="flex items-center gap-2 mb-3"><Flag size={15} className="text-[var(--red)]" /><h3 className="text-sm font-bold">데드라인</h3><span className="text-[11px] text-[var(--text-3)] ml-auto">마감일에 기록</span></div>
         <div className="flex flex-col gap-1.5 mb-3">{deadlines.map(task => renderTask(task, false))}</div>
-        <div className="grid grid-cols-[1fr_auto] gap-2">
+        <div className="grid grid-cols-[86px_1fr_72px_auto] gap-2">
+          <input aria-label="데드라인 처리 시간" type="time" value={deadlineTime} onChange={event => setDeadlineTime(event.target.value)} className="min-w-0 px-2 py-2 rounded-[9px] bg-[var(--surface-2)] text-xs font-mono outline-none focus:ring-1 focus:ring-[var(--red)]" />
           <input value={deadlineText} onChange={event => setDeadlineText(event.target.value)} onKeyDown={event => event.key === 'Enter' && addDeadline()} placeholder="제출, 신청, 결제 등" className="min-w-0 px-3 py-2 rounded-[9px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--red)]" />
+          <label className="flex min-w-0 items-center rounded-[9px] bg-[var(--surface-2)] px-2"><input aria-label="데드라인 처리 예상시간" inputMode="numeric" value={deadlineDuration} onChange={event => setDeadlineDuration(event.target.value.replace(/\D/g, '').slice(0, 3))} className="min-w-0 flex-1 bg-transparent text-right text-xs outline-none" /><span className="ml-1 text-[10px] text-[var(--text-3)]">분</span></label>
           <button type="button" onClick={addDeadline} className="h-9 w-9 rounded-[9px] bg-[var(--red)] text-white flex items-center justify-center"><Plus size={16} /></button>
         </div>
       </section>

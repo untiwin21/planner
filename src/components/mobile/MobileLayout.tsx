@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { formatDate } from '@/lib/dates'
-import type { DayEntry, Category, ShortGoal, Routine, RoutineConfig, RoutineLog, RoutinePeriod, RoutineStatus, LongGoal, DayMeta, Task, TaskScheduleInput } from '@/types'
+import type { DayEntry, Category, ShortGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, RoutinePeriod, RoutineStatus, LongGoal, DayMeta, Task, TaskScheduleInput } from '@/types'
 import { BottomTabBar, type MobileTab } from './BottomTabBar'
 import { MobileToday } from './MobileToday'
 import { MobileWeekly } from './MobileWeekly'
@@ -21,7 +21,8 @@ interface Props {
   updateTask: (date: string, taskId: string, patch: Partial<Task>) => void
   deleteTask: (date: string, taskId: string) => void
   updateMeta: (date: string, patch: Partial<DayMeta>) => void
-  toggleRoutineLog: (routineId: string, date: string, completion?: 'full' | 'minimum') => void
+  toggleRoutineLog: (routineId: string, date: string, completion?: 'full' | 'minimum', actual?: Pick<RoutineLogPatch, 'actual_start_time' | 'actual_end_time'>) => void
+  updateRoutineLog: (routineId: string, date: string, patch: RoutineLogPatch) => void
   addRoutine: (name: string, time?: string, period?: RoutinePeriod, config?: RoutineConfig) => void
   updateRoutine: (id: string, patch: Partial<Omit<Routine, 'id'>>) => void
   setRoutineStatus: (id: string, status: RoutineStatus) => void
@@ -43,7 +44,7 @@ interface Props {
 export function MobileLayout({
   days, goals, longGoals, categories, routines, logs,
   getDay, toggleTask, addTask, updateTask, deleteTask, updateMeta,
-  toggleRoutineLog, addRoutine, updateRoutine, setRoutineStatus, deleteRoutine,
+  toggleRoutineLog, updateRoutineLog, addRoutine, updateRoutine, setRoutineStatus, deleteRoutine,
   toggleGoalTask, addGoalTask, deleteGoalTask,
   addGoal, deleteGoal, linkGoalTask, unlinkGoalTask,
   getWeeklyReview, updateWeeklyReview,
@@ -75,6 +76,7 @@ export function MobileLayout({
             onDeleteTask={taskId => deleteTask(selectedDate, taskId)}
             onMetaChange={patch => updateMeta(selectedDate, patch)}
             onToggleRoutine={toggleRoutineLog}
+            onUpdateRoutineLog={updateRoutineLog}
             onAddRoutine={addRoutine}
             onUpdateRoutine={updateRoutine}
             onSetRoutineStatus={setRoutineStatus}

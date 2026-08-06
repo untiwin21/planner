@@ -249,6 +249,7 @@ export default function Home() {
         deleteTask={store.deleteTask}
         updateMeta={store.updateMeta}
         toggleRoutineLog={store.toggleRoutineLog}
+        updateRoutineLog={store.updateRoutineLog}
         addRoutine={store.addRoutine}
         updateRoutine={store.updateRoutine}
         setRoutineStatus={store.setRoutineStatus}
@@ -430,6 +431,7 @@ export default function Home() {
                 onAddCategory={store.addGlobalCategory}
                 onDeleteCategory={store.deleteGlobalCategory}
                 onToggleRoutine={store.toggleRoutineLog}
+                onUpdateRoutineLog={store.updateRoutineLog}
                 onAddRoutine={store.addRoutine}
                 onUpdateRoutine={store.updateRoutine}
                 onSetRoutineStatus={store.setRoutineStatus}
@@ -637,6 +639,7 @@ export default function Home() {
                 <MonthlyGoalCalendar
                   monthBase={monthBase}
                   goals={store.goals}
+                  days={store.days}
                   selectedDate={selectedDate}
                   onMonthChange={setMonthBase}
                   onSelectDate={date => { setSelectedDate(date); setSelectedGoalId(null) }}

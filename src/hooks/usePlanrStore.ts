@@ -1,9 +1,10 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { DayEntry, ShortGoal, Routine, RoutineConfig, RoutineLog, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod, TaskScheduleInput } from '@/types'
+import type { DayEntry, ShortGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod, TaskScheduleInput } from '@/types'
 import { tasksProgress } from '@/lib/taskProgress'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
+import { minutesToTime } from '@/lib/plannerTime'
 import {
   fetchAll,
   upsertDayEntry,
@@ -1236,18 +1237,63 @@ export function usePlanrStore(userId: string) {
       trackWrite(deleteRoutineSync(userId, id), () => clearRoutineDirty(id), `routine:${id}`)
     }
   }
-  function toggleRoutineLog(routineId: string, date: string, completion: 'full' | 'minimum' = 'full') {
+  function defaultRoutineActualWindow(routineId: string, date: string) {
+    const routine = routinesRef.current.find(item => item.id === routineId)
+    if (!routine || routine.config?.kind === 'check') return {}
+    const duration = Math.max(5, routine.config?.duration_min ?? 15)
+    if (date === formatDate(new Date())) {
+      const current = new Date()
+      const end = current.getHours() * 60 + current.getMinutes()
+      return {
+        actual_start_time: minutesToTime(Math.max(0, end - duration)),
+        actual_end_time: minutesToTime(end),
+      }
+    }
+    if (routine.time) {
+      const [hour, minute] = routine.time.split(':').map(Number)
+      const start = hour * 60 + minute
+      return { actual_start_time: routine.time, actual_end_time: minutesToTime(start + duration) }
+    }
+    return {}
+  }
+
+  function toggleRoutineLog(
+    routineId: string,
+    date: string,
+    completion: 'full' | 'minimum' = 'full',
+    actual?: Pick<RoutineLogPatch, 'actual_start_time' | 'actual_end_time'>,
+  ) {
     const exists = logsRef.current.find(log => log.routine_id === routineId && log.date === date)
+    const actualWindow = actual ?? (exists?.actual_start_time && exists.actual_end_time
+      ? { actual_start_time: exists.actual_start_time, actual_end_time: exists.actual_end_time }
+      : defaultRoutineActualWindow(routineId, date))
     const updatedLog: RoutineLog = exists
       ? exists.done && (exists.completion ?? 'full') === completion
-        ? { ...exists, done: false, completion: undefined, updated_at: now() }
-        : { ...exists, done: true, completion, updated_at: now() }
-      : { id: uid(), routine_id: routineId, date, done: true, completion, updated_at: now() }
+        ? { ...exists, done: false, completion: undefined, actual_start_time: undefined, actual_end_time: undefined, updated_at: now() }
+        : { ...exists, done: true, completion, ...actualWindow, updated_at: now() }
+      : { id: uid(), routine_id: routineId, date, done: true, completion, ...actualWindow, updated_at: now() }
     const nextLogs = exists
       ? logsRef.current.map(log => routineLogKey(log) === routineLogKey(updatedLog) ? updatedLog : log)
       : [...logsRef.current, updatedLog]
     // Update the ref synchronously so rapid taps and an immediate background sync
     // always see the same optimistic value that is rendered on screen.
+    logsRef.current = nextLogs
+    setLogs(nextLogs)
+    if (userId) {
+      const key = routineLogKey(updatedLog)
+      markRoutineLogDirty(key)
+      trackWrite(upsertRoutineLog(userId, updatedLog), () => clearRoutineLogDirty(key), `routine-log:${key}`)
+    }
+  }
+
+  function updateRoutineLog(routineId: string, date: string, patch: RoutineLogPatch) {
+    const exists = logsRef.current.find(log => log.routine_id === routineId && log.date === date)
+    const updatedLog: RoutineLog = exists
+      ? { ...exists, ...patch, done: true, updated_at: now() }
+      : { id: uid(), routine_id: routineId, date, done: true, completion: patch.completion ?? 'full', ...patch, updated_at: now() }
+    const nextLogs = exists
+      ? logsRef.current.map(log => routineLogKey(log) === routineLogKey(updatedLog) ? updatedLog : log)
+      : [...logsRef.current, updatedLog]
     logsRef.current = nextLogs
     setLogs(nextLogs)
     if (userId) {
@@ -1384,7 +1430,7 @@ export function usePlanrStore(userId: string) {
     addGoalNote, updateGoalNote, deleteGoalNote,
     addLongGoal, updateLongGoal, deleteLongGoal,
     addGlobalCategory, deleteGlobalCategory, updateGlobalCategory, reorderCategory,
-    addRoutine, setRoutineStatus, updateRoutineName, updateRoutine, reorderRoutine, deleteRoutine, toggleRoutineLog, isRoutineDone,
+    addRoutine, setRoutineStatus, updateRoutineName, updateRoutine, reorderRoutine, deleteRoutine, toggleRoutineLog, updateRoutineLog, isRoutineDone,
     quickAddTask,
     reorderDayTasks, reorderGoalTasks,
     linkGoalTask, unlinkGoalTask,

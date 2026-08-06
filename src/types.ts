@@ -12,6 +12,9 @@ export interface SubTask {
   duration_min?: number
   start_time?: string
   end_time?: string
+  actual_start_time?: string
+  actual_end_time?: string
+  actual_status?: 'recorded' | 'skipped'
   updated_at?: number
 }
 
@@ -164,7 +167,16 @@ export interface RoutineLog {
   date: string
   done: boolean
   completion?: 'full' | 'minimum'
+  /** Actual execution time is independent from the routine's planned cue time. */
+  actual_start_time?: string
+  actual_end_time?: string
   updated_at?: number
+}
+
+export interface RoutineLogPatch {
+  completion?: 'full' | 'minimum'
+  actual_start_time?: string
+  actual_end_time?: string
 }
 
 export interface WeeklyReview {

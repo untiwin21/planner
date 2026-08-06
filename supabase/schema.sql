@@ -108,6 +108,8 @@ alter table routines add column if not exists config jsonb default '{}';
 alter table routines add column if not exists updated_at bigint;
 alter table routine_logs add column if not exists updated_at bigint;
 alter table routine_logs add column if not exists completion text;
+alter table routine_logs add column if not exists actual_start_time text;
+alter table routine_logs add column if not exists actual_end_time text;
 alter table short_goals add column if not exists updated_at bigint;
 alter table long_goals add column if not exists updated_at bigint;
 

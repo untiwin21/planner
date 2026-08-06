@@ -19,11 +19,13 @@ import {
 import { ko } from 'date-fns/locale'
 import clsx from 'clsx'
 import { formatDate } from '@/lib/dates'
-import type { ShortGoal } from '@/types'
+import type { DayEntry, ShortGoal, Task } from '@/types'
+import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
 
 interface Props {
   monthBase: Date
   goals: ShortGoal[]
+  days?: DayEntry[]
   selectedDate: string
   onMonthChange: (date: Date) => void
   onSelectDate: (date: string) => void
@@ -37,6 +39,11 @@ interface WeekGoalSegment {
   startColumn: number
   endColumn: number
   lane: number
+}
+
+interface CalendarTaskEvent {
+  date: string
+  task: Task
 }
 
 type GoalDragMode = 'move' | 'resize-start' | 'resize-end'
@@ -87,7 +94,7 @@ function packWeekGoals(week: Date[], goals: ShortGoal[]): WeekGoalSegment[] {
   })
 }
 
-export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthChange, onSelectDate, onAddGoal, onUpdateGoal, onEditGoal }: Props) {
+export function MonthlyGoalCalendar({ monthBase, goals, days: dayEntries = [], selectedDate, onMonthChange, onSelectDate, onAddGoal, onUpdateGoal, onEditGoal }: Props) {
   const [dragStart, setDragStart] = useState<string | null>(null)
   const [dragEnd, setDragEnd] = useState<string | null>(null)
   const goalDragRef = useRef<GoalDragState | null>(null)
@@ -102,6 +109,21 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
   }, [monthBase])
   const weeks = useMemo(() => Array.from({ length: Math.ceil(days.length / 7) }, (_, index) => days.slice(index * 7, index * 7 + 7)), [days])
   const goalColor = useMemo(() => new Map(goals.map((goal, index) => [goal.id, GOAL_COLORS[index % GOAL_COLORS.length]])), [goals])
+  const eventsByDate = useMemo(() => {
+    const result = new Map<string, CalendarTaskEvent[]>()
+    for (const entry of dayEntries) {
+      const events = entry.tasks
+        .filter(task => !task.discarded && (task.category_id === SCHEDULE_CAT_ID || task.category_id === DEADLINE_CAT_ID))
+        .sort((a, b) => {
+          if (a.category_id === DEADLINE_CAT_ID && b.category_id !== DEADLINE_CAT_ID) return -1
+          if (a.category_id !== DEADLINE_CAT_ID && b.category_id === DEADLINE_CAT_ID) return 1
+          return (a.start_time ?? a.time ?? '99:99').localeCompare(b.start_time ?? b.time ?? '99:99')
+        })
+        .map(task => ({ date: entry.date, task }))
+      if (events.length > 0) result.set(entry.date, events)
+    }
+    return result
+  }, [dayEntries])
   const selectedRange = dragStart && dragEnd ? orderedRange(dragStart, dragEnd) : null
 
   function finishRange(date: string) {
@@ -197,7 +219,7 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border)]">
         <div>
           <h3 className="text-sm font-bold">월간 단기 일정</h3>
-          <p className="text-xs text-[var(--text-3)] mt-0.5">빈 날짜를 드래그해 만들고, 일정 바는 옮기거나 양끝을 잡아 기간을 조정할 수 있습니다.</p>
+          <p className="text-xs text-[var(--text-3)] mt-0.5">단기목표와 날짜별 일정·데드라인을 함께 봅니다. 일정 바는 옮기거나 기간을 조정할 수 있습니다.</p>
         </div>
         <div className="flex items-center gap-1">
           <button type="button" aria-label="이전 달" onClick={() => onMonthChange(subMonths(monthBase, 1))} className="w-8 h-8 rounded-[8px] hover:bg-[var(--surface-2)] flex items-center justify-center"><ChevronLeft size={15} /></button>
@@ -214,7 +236,12 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
         {weeks.map((week, weekIndex) => {
           const segments = packWeekGoals(week, goals)
           const laneCount = segments.reduce((max, segment) => Math.max(max, segment.lane + 1), 0)
-          const rowHeight = Math.max(112, 44 + laneCount * 25 + 10)
+          const visibleWeekEvents = week.flatMap((day, dayIndex) => {
+            const date = formatDate(day)
+            return (eventsByDate.get(date) ?? []).slice(0, 3).map((event, eventIndex) => ({ ...event, dayIndex, eventIndex }))
+          })
+          const maxEventCount = visibleWeekEvents.reduce((max, event) => Math.max(max, event.eventIndex + 1), 0)
+          const rowHeight = Math.max(112, 44 + (laneCount + maxEventCount) * 25 + 10)
           return (
             <div key={formatDate(week[0])} className={clsx('relative', weekIndex > 0 && 'border-t border-[var(--border)]')} style={{ height: rowHeight }}>
               <div className="absolute inset-0 grid grid-cols-7">
@@ -296,6 +323,31 @@ export function MonthlyGoalCalendar({ monthBase, goals, selectedDate, onMonthCha
                     )}
                   </div>
                 ))}
+                {visibleWeekEvents.map(event => {
+                  const isDeadline = event.task.category_id === DEADLINE_CAT_ID
+                  const time = event.task.start_time ?? event.task.time
+                  return (
+                    <button
+                      type="button"
+                      key={`${event.date}:${event.task.id}`}
+                      onPointerDown={pointerEvent => pointerEvent.stopPropagation()}
+                      onMouseDown={mouseEvent => mouseEvent.stopPropagation()}
+                      onMouseUp={mouseEvent => mouseEvent.stopPropagation()}
+                      onClick={clickEvent => { clickEvent.stopPropagation(); onSelectDate(event.date) }}
+                      className={clsx(
+                        'pointer-events-auto mx-0.5 flex min-w-0 items-center gap-1 truncate rounded-[6px] border px-1.5 text-left text-[10px] font-semibold',
+                        isDeadline
+                          ? 'border-red-200 bg-[var(--red-bg)] text-[var(--red-text)]'
+                          : 'border-blue-200 bg-[var(--blue-bg)] text-[var(--blue-text)]',
+                      )}
+                      style={{ gridColumn: event.dayIndex + 1, gridRow: laneCount + event.eventIndex + 1 }}
+                      title={`${isDeadline ? '데드라인' : '일정'} · ${time ? `${time} ` : ''}${event.task.text}`}
+                    >
+                      <span className="shrink-0">{isDeadline ? '●' : time ?? '일정'}</span>
+                      <span className="min-w-0 flex-1 truncate">{event.task.text}</span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           )

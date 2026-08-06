@@ -191,23 +191,34 @@ export async function deleteRoutine(userId: string, routineId: string): Promise<
 export async function upsertRoutineLog(userId: string, log: RoutineLog): Promise<void> {
   if (!supabase) return
   const db = supabase as any
-  const { id, routine_id, date, done, completion, updated_at } = log
+  const { id, routine_id, date, done, completion, actual_start_time, actual_end_time, updated_at } = log
   const { error } = await db.from('routine_logs').upsert(
     {
       id, user_id: userId, routine_id, date, done, completion: completion ?? null,
+      actual_start_time: actual_start_time ?? null,
+      actual_end_time: actual_end_time ?? null,
       updated_at: updated_at ?? null,
     },
     { onConflict: 'user_id,routine_id,date' },
   )
   if (error) {
     if (error.code === '42703' || (error.message && error.message.includes('column'))) {
-      // Fallback for instances where updated_at column hasn't been added yet.
+      // Preserve completion and LWW fields when only actual-time columns are
+      // missing, then fall back once more for older schemas.
+      const { error: withoutActualError } = await db.from('routine_logs').upsert(
+        {
+          id, user_id: userId, routine_id, date, done, completion: completion ?? null,
+          updated_at: updated_at ?? null,
+        },
+        { onConflict: 'user_id,routine_id,date' },
+      )
+      if (!withoutActualError) return
       const { error: e2 } = await db.from('routine_logs').upsert(
         { id, user_id: userId, routine_id, date, done },
         { onConflict: 'user_id,routine_id,date' },
       )
       if (e2) {
-        console.error('Error upserting routine log (fallback):', e2.message, e2)
+        console.error('Error upserting routine log (legacy fallback):', e2.message, e2)
         throw new Error(`upsertRoutineLog fallback failed: ${e2.message}`)
       }
       return
