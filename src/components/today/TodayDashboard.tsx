@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle,
   Ban,
   CalendarClock,
   Check,
@@ -33,15 +32,12 @@ import type { BadgeColor, Category, DayEntry, DayMeta, LongGoal, Routine, Routin
 import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
 import { formatDate, formatSleepMin } from '@/lib/dates'
 import {
-  DEFAULT_DAY_END,
-  DEFAULT_DAY_START,
   formatDuration,
   getTaskDuration,
   getTaskEnd,
   getTaskStart,
   isFixedTask,
   minutesToTime,
-  remainingCapacity,
   timeToMinutes,
 } from '@/lib/plannerTime'
 import { taskProgressPercent, tasksProgress } from '@/lib/taskProgress'
@@ -162,10 +158,21 @@ const CONDITION_LABELS: Record<number, string> = {
 }
 const CONDITION_EMOJI: Record<number, string> = { 1: '😞', 2: '😕', 3: '😐', 4: '🙂', 5: '😄' }
 const TIMELINE_START = 5 * 60
-const TIMELINE_END = 25 * 60
-const TIMELINE_HOUR_HEIGHT = 48
-const TIMELINE_HEIGHT = ((TIMELINE_END - TIMELINE_START) / 60) * TIMELINE_HOUR_HEIGHT
-const TIMELINE_HOURS = Array.from({ length: 21 }, (_, index) => TIMELINE_START + index * 60)
+const TIMELINE_END = 29 * 60
+const TIMELINE_DURATION = TIMELINE_END - TIMELINE_START
+const TIMELINE_HOURS = Array.from({ length: TIMELINE_DURATION / 60 + 1 }, (_, index) => TIMELINE_START + index * 60)
+
+function timelinePosition(minute: number) {
+  return `${((minute - TIMELINE_START) / TIMELINE_DURATION) * 100}%`
+}
+
+function timelineBlockHeight(start: number, end: number) {
+  return `max(30px, ${((end - start) / TIMELINE_DURATION) * 100}%)`
+}
+
+function normalizeTimelineMinute(minute: number) {
+  return minute < TIMELINE_START ? minute + 24 * 60 : minute
+}
 
 function nowAsMinutes() {
   const date = new Date()
@@ -237,7 +244,6 @@ export function TodayDashboard({
   compact = false,
 }: Props) {
   const [nowMinute, setNowMinute] = useState(nowAsMinutes)
-  const [editingTop3, setEditingTop3] = useState(false)
   const [showWellness, setShowWellness] = useState(false)
   const [showCategories, setShowCategories] = useState(false)
   const [showCategoryForm, setShowCategoryForm] = useState(false)
@@ -269,8 +275,6 @@ export function TodayDashboard({
   const todayKey = formatDate(new Date())
   const isToday = date === todayKey
   const isPastDate = date < todayKey
-  const dayStart = DEFAULT_DAY_START
-  const dayEnd = DEFAULT_DAY_END
 
   useEffect(() => {
     if (!isToday) return
@@ -283,50 +287,6 @@ export function TodayDashboard({
       setCategoryId(selectableCategories[0]?.id ?? '')
     }
   }, [categoryId, selectableCategories])
-
-  const routineCapacityTasks = useMemo<Task[]>(() => routines
-    .filter(routine => isRoutineScheduledOn(routine, date) && isTimedRoutine(routine) && Boolean(routine.time))
-    .map(routine => ({
-      id: `routine-capacity:${routine.id}`,
-      day_id: entry.id,
-      text: routine.name,
-      done: false,
-      category_id: SCHEDULE_CAT_ID,
-      category_name: '루틴',
-      category_color: routineColor(routine),
-      time: routine.time,
-      start_time: routine.time,
-      duration_min: routineConfig(routine).duration_min,
-      fixed: true,
-    })), [date, entry.id, routines])
-
-  const taskCapacityItems = useMemo<Task[]>(() => entry.tasks.flatMap(task => {
-    if (task.discarded || isActualOnlyTask(task)) return []
-    if (isFixedTask(task)) return [task]
-    const allSubtasks = task.subtasks ?? []
-    const activeSubtasks = allSubtasks.filter(subtask => !subtask.discarded)
-    if (allSubtasks.length === 0) return [task]
-    if (activeSubtasks.length === 0) return []
-    const fallbackDuration = Math.max(5, Math.round(getTaskDuration(task) / activeSubtasks.length))
-    return activeSubtasks.map(subtask => ({
-      id: `capacity:${task.id}:${subtask.id}`,
-      day_id: task.day_id,
-      text: subtask.text,
-      done: subtask.done,
-      category_id: task.category_id,
-      category_name: task.category_name,
-      category_color: task.category_color,
-      start_time: subtask.start_time,
-      end_time: subtask.end_time,
-      duration_min: subtask.duration_min ?? fallbackDuration,
-      fixed: false,
-    }))
-  }), [entry.tasks])
-
-  const capacity = useMemo(
-    () => remainingCapacity([...taskCapacityItems, ...routineCapacityTasks], dayStart, dayEnd, isToday ? nowMinute : undefined),
-    [taskCapacityItems, routineCapacityTasks, dayStart, dayEnd, isToday, nowMinute],
-  )
 
   const editableUntil = isPastDate
     ? TIMELINE_END
@@ -428,33 +388,38 @@ export function TodayDashboard({
   }, [flexible, selectableCategories])
 
   const currentCategory = selectableCategories.find(category => category.id === categoryId)
-  const filledTop3 = (entry.meta.top3 ?? []).filter(item => item.trim())
   const activeRoutines = useMemo(() => routines
     .filter(routine => isRoutineScheduledOn(routine, date))
     .sort((a, b) => {
-      const aStart = routineStartMinute(a) ?? Number.MAX_SAFE_INTEGER
-      const bStart = routineStartMinute(b) ?? Number.MAX_SAFE_INTEGER
+      const rawAStart = routineStartMinute(a)
+      const rawBStart = routineStartMinute(b)
+      const aStart = rawAStart === null ? Number.MAX_SAFE_INTEGER : normalizeTimelineMinute(rawAStart)
+      const bStart = rawBStart === null ? Number.MAX_SAFE_INTEGER : normalizeTimelineMinute(rawBStart)
       return aStart - bStart || (a.order ?? 0) - (b.order ?? 0)
     }), [date, routines])
   const routineTimelineGroups = useMemo(() => {
     const grouped = new Map<string, Routine[]>()
     for (const routine of activeRoutines) {
       if (!isTimedRoutine(routine)) continue
-      const start = routineStartMinute(routine)
-      if (start === null || start < TIMELINE_START || start >= TIMELINE_END) continue
+      const rawStart = routineStartMinute(routine)
+      const start = rawStart === null ? null : normalizeTimelineMinute(rawStart)
+      if (start === null || start >= TIMELINE_END) continue
       const bundle = routine.config?.bundle?.trim()
       const key = bundle ? `bundle:${routine.period ?? 'anytime'}:${bundle}` : `routine:${routine.id}`
       grouped.set(key, [...(grouped.get(key) ?? []), routine])
     }
     return [...grouped.entries()].map(([key, items]) => {
-      const starts = items.map(item => routineStartMinute(item)!).sort((a, b) => a - b)
+      const starts = items.map(item => normalizeTimelineMinute(routineStartMinute(item)!)).sort((a, b) => a - b)
       const start = starts[0]
       const sameStart = starts.every(itemStart => itemStart === start)
       const end = Math.min(
         TIMELINE_END,
         sameStart
           ? start + items.reduce((sum, item) => sum + routineConfig(item).duration_min, 0)
-          : Math.max(...items.map(item => (routineStartMinute(item) ?? start) + routineConfig(item).duration_min)),
+          : Math.max(...items.map(item => {
+            const itemStart = routineStartMinute(item)
+            return (itemStart === null ? start : normalizeTimelineMinute(itemStart)) + routineConfig(item).duration_min
+          })),
       )
       const doneCount = items.filter(item => routineLogs.some(log => log.routine_id === item.id && log.date === date && log.done)).length
       const minimumCount = items.filter(item => routineLogs.some(log => log.routine_id === item.id && log.date === date && log.done && log.completion === 'minimum')).length
@@ -483,7 +448,8 @@ export function TodayDashboard({
     return [...grouped.entries()].flatMap(([key, items]) => {
       const ranges = items.map(item => {
         const log = routineLogs.find(candidate => candidate.routine_id === item.id && candidate.date === date && candidate.done)
-        const fallbackStart = routineStartMinute(item)
+        const rawFallbackStart = routineStartMinute(item)
+        const fallbackStart = rawFallbackStart === null ? null : normalizeTimelineMinute(rawFallbackStart)
         const rawStart = timeToMinutes(log?.actual_start_time) ?? fallbackStart
         const rawEnd = timeToMinutes(log?.actual_end_time) ?? (rawStart !== null ? rawStart + routineConfig(item).duration_min : null)
         if (rawStart === null || rawEnd === null) return null
@@ -511,9 +477,17 @@ export function TodayDashboard({
     : undefined
   const focusGoals = useMemo(() => goals
     .filter(goal => goal.date_from <= date && goal.date_to >= date)
-    .sort((a, b) => a.date_to.localeCompare(b.date_to))
-    .slice(0, 3), [date, goals])
+    .sort((a, b) => a.date_to.localeCompare(b.date_to)), [date, goals])
   const longGoalNames = useMemo(() => new Map(longGoals.map(goal => [goal.id, goal.title])), [longGoals])
+  const todaySchedules = useMemo(() => entry.tasks
+    .filter(task => !task.discarded && !isActualOnlyTask(task) && (task.category_id === SCHEDULE_CAT_ID || isFixedTask(task)))
+    .sort((a, b) => {
+      const rawAStart = getTaskStart(a)
+      const rawBStart = getTaskStart(b)
+      const aStart = rawAStart === null ? Number.MAX_SAFE_INTEGER : normalizeTimelineMinute(rawAStart)
+      const bStart = rawBStart === null ? Number.MAX_SAFE_INTEGER : normalizeTimelineMinute(rawBStart)
+      return aStart - bStart
+    }), [entry.tasks])
 
   function toggleRoutineGroup(items: Routine[]) {
     if (!onToggleRoutine) return
@@ -538,13 +512,6 @@ export function TodayDashboard({
     onAddCategory({ name, color: newCategoryColor })
     setNewCategoryName('')
     setShowCategoryForm(false)
-  }
-
-  function setTop3(index: number, value: string) {
-    const next = [...(entry.meta.top3 ?? [])]
-    while (next.length <= index) next.push('')
-    next[index] = value
-    onMetaChange({ top3: next })
   }
 
   function timelineMinuteFromPointer(clientY: number, element: HTMLDivElement) {
@@ -1027,7 +994,7 @@ export function TodayDashboard({
         <div className={clsx(onDateChange ? 'text-center' : '')}>
           <p className="text-xs font-semibold text-[var(--purple)] mb-1">{isToday ? 'TODAY' : 'DAY PLAN'}</p>
           <h2 className={clsx('font-bold tracking-tight', compact ? 'text-lg' : 'text-2xl')}>{format(dateObject, 'M월 d일 EEEE', { locale: ko })}</h2>
-          <p className="text-sm text-[var(--text-3)] mt-1">남은 시간을 먼저 보고, 할 수 있는 만큼만 계획하세요.</p>
+          <p className="text-sm text-[var(--text-3)] mt-1">오늘의 일정과 단기계획을 확인하고 하루를 배치하세요.</p>
         </div>
         {onDateChange && (
           <button type="button" aria-label="다음 날짜" onClick={() => onDateChange(formatDate(addDays(dateObject, 1)))} className="h-9 w-9 rounded-full flex items-center justify-center hover:bg-white">
@@ -1036,13 +1003,7 @@ export function TodayDashboard({
         )}
       </div>
 
-      <div className={clsx('grid gap-3', compact ? 'grid-cols-2' : 'grid-cols-4')}>
-        <div className="rounded-[16px] bg-[var(--purple)] text-white p-4">
-          <div className="flex items-center gap-2 text-xs text-white/70"><Clock3 size={14} /> 남은 가용시간</div>
-          <p className="text-2xl font-bold mt-2">{formatDuration(capacity.availableMinutes)}</p>
-          <p className="text-[11px] text-white/65 mt-1">현재부터 활동 종료까지</p>
-        </div>
-
+      <div className="grid grid-cols-2 gap-3">
         <button type="button" onClick={() => setShowWellness(true)} className="rounded-[16px] bg-white border border-[var(--border)] p-4 text-left hover:border-[var(--purple)] transition-colors">
           <div className="flex items-center gap-2 text-xs text-[var(--text-3)]"><Moon size={14} /> 수면시간</div>
           <p className="text-2xl font-bold mt-2">{entry.meta.sleep != null ? formatSleepMin(entry.meta.sleep) : '기록 전'}</p>
@@ -1054,80 +1015,63 @@ export function TodayDashboard({
           <p className="text-2xl font-bold mt-2">{entry.meta.condition != null ? `${CONDITION_EMOJI[entry.meta.condition]} ${CONDITION_LABELS[entry.meta.condition]}` : '기록 전'}</p>
           <p className="text-[11px] text-[var(--purple)] mt-1">클릭하여 기록</p>
         </button>
-
-        <div className={clsx('rounded-[16px] border p-4', capacity.overloadMinutes > 0 ? 'bg-[var(--red-bg)] border-[var(--red)]' : 'bg-[var(--teal-bg)] border-[var(--teal)]')}>
-          <div className={clsx('flex items-center gap-2 text-xs', capacity.overloadMinutes > 0 ? 'text-[var(--red-text)]' : 'text-[var(--teal-text)]')}>
-            {capacity.overloadMinutes > 0 ? <AlertTriangle size={14} /> : <Check size={14} />}
-            {capacity.overloadMinutes > 0 ? '과부하' : '현실적인 계획'}
-          </div>
-          <p className="text-2xl font-bold mt-2">{capacity.overloadMinutes > 0 ? `+${formatDuration(capacity.overloadMinutes)}` : '여유 있음'}</p>
-          <p className="text-[11px] opacity-70 mt-1">가용시간 대비 예상 작업량</p>
-        </div>
       </div>
 
-      {focusGoals.length > 0 && (
-        <div className="bg-white border border-[var(--border)] rounded-[18px] p-4 mt-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Target size={15} className="text-[var(--teal)]" />
-            <div>
-              <h3 className="text-sm font-bold">집중 단기목표</h3>
-              <p className="text-xs text-[var(--text-3)] mt-0.5">현재 진행 중인 단기목표를 최대 3개만 계속 보여줍니다.</p>
-            </div>
-          </div>
-          <div className={clsx('grid gap-2', compact ? 'grid-cols-1' : 'md:grid-cols-3')}>
-            {focusGoals.map(goal => {
-              const progress = tasksProgress(goal.tasks)
-              const total = progress.total
-              const pct = progress.pct
-              return (
-                <div key={goal.id} className="rounded-[12px] border border-[var(--border)] bg-[var(--teal-bg)]/45 px-3 py-2.5">
-                  <p className="text-sm font-semibold leading-snug">{goal.title}</p>
-                  {goal.long_goal_id && longGoalNames.get(goal.long_goal_id) && <p className="text-[10px] text-[var(--teal-text)] mt-1">{longGoalNames.get(goal.long_goal_id)}</p>}
-                  <div className="flex items-center gap-2 mt-2">
-                    <div className="h-1.5 flex-1 rounded-full bg-white overflow-hidden"><div className="h-full bg-[var(--teal)] rounded-full" style={{ width: `${pct}%` }} /></div>
-                    <span className="text-[10px] font-semibold text-[var(--teal-text)]">{total > 0 ? `${pct}%` : '다음 행동 필요'}</span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       <div className="bg-white border border-[var(--border)] rounded-[18px] p-4 mt-4">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div>
-            <h3 className="text-sm font-bold">오늘의 핵심 3가지</h3>
-            <p className="text-xs text-[var(--text-3)] mt-0.5">이 세 가지가 끝나면 오늘은 성공입니다.</p>
-          </div>
-          <button type="button" onClick={() => setEditingTop3(value => !value)} className="px-2.5 py-1.5 rounded-[8px] text-xs font-semibold text-[var(--purple)] hover:bg-[var(--purple-bg)] flex items-center gap-1">
-            {editingTop3 ? <><Check size={13} /> 완료</> : <><Pencil size={13} /> 편집</>}
-          </button>
+        <div className="mb-3">
+          <h3 className="text-sm font-bold">오늘 한눈에</h3>
+          <p className="text-xs text-[var(--text-3)] mt-0.5">선택한 날짜의 일정과 진행 중인 단기계획이 자동으로 표시됩니다.</p>
         </div>
-        {editingTop3 ? (
-          <div className={clsx('grid gap-2', compact ? 'grid-cols-1' : 'md:grid-cols-3')}>
-            {[0, 1, 2].map(index => (
-              <label key={index} className="flex items-center gap-2 rounded-[12px] bg-[var(--surface-2)] px-3 py-2.5 border border-transparent focus-within:border-[var(--purple)] focus-within:bg-white">
-                <span className="h-6 w-6 rounded-full bg-[var(--purple)] text-white text-xs font-bold flex items-center justify-center shrink-0">{index + 1}</span>
-                <input value={(entry.meta.top3 ?? [])[index] ?? ''} onChange={event => setTop3(index, event.target.value)} placeholder="핵심 작업 입력" className="w-full min-w-0 bg-transparent outline-none text-sm" />
-              </label>
-            ))}
-          </div>
-        ) : filledTop3.length > 0 ? (
-          <div className={clsx('grid gap-2', compact ? 'grid-cols-1' : 'md:grid-cols-3')}>
-            {[0, 1, 2].map(index => {
-              const value = (entry.meta.top3 ?? [])[index]?.trim()
-              return (
-                <div key={index} className={clsx('rounded-[13px] px-3.5 py-3 min-h-16 flex items-center gap-3', value ? 'bg-gradient-to-br from-[var(--purple-bg)] to-white border border-purple-100' : 'bg-[var(--surface-2)] border border-dashed border-[var(--border)]')}>
-                  <span className={clsx('h-7 w-7 rounded-full text-xs font-bold flex items-center justify-center shrink-0', value ? 'bg-[var(--purple)] text-white' : 'bg-white text-[var(--text-3)]')}>{index + 1}</span>
-                  <p className={clsx('text-sm font-semibold leading-snug', !value && 'text-[var(--text-3)] font-normal')}>{value || '비어 있음'}</p>
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <button type="button" onClick={() => setEditingTop3(true)} className="w-full py-6 rounded-[13px] border border-dashed border-[var(--border-strong)] text-sm text-[var(--text-3)] hover:bg-[var(--surface-2)]">오늘 반드시 끝낼 세 가지를 정해보세요.</button>
-        )}
+        <div className={clsx('grid gap-3', compact ? 'grid-cols-1' : 'md:grid-cols-2')}>
+          <section className="rounded-[14px] border border-[var(--border)] bg-[var(--purple-bg)]/35 p-3">
+            <div className="mb-2 flex items-center gap-2">
+              <CalendarClock size={14} className="text-[var(--purple)]" />
+              <h4 className="text-xs font-bold">오늘의 일정</h4>
+              <span className="ml-auto text-[10px] font-semibold text-[var(--purple-text)]">{todaySchedules.length}개</span>
+            </div>
+            {todaySchedules.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                {todaySchedules.map(task => {
+                  const start = getTaskStart(task)
+                  return (
+                    <div key={task.id} className="flex items-center gap-2 rounded-[10px] bg-white/80 px-2.5 py-2">
+                      <span className="w-11 shrink-0 text-[10px] font-bold tabular-nums text-[var(--purple-text)]">{start === null ? '미정' : minutesToTime(start)}</span>
+                      <span className={clsx('min-w-0 flex-1 truncate text-xs font-semibold', task.done && 'line-through opacity-55')}>{task.text}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="rounded-[10px] border border-dashed border-[var(--border-strong)] bg-white/45 px-3 py-4 text-center text-xs text-[var(--text-3)]">등록된 일정이 없습니다.</p>
+            )}
+          </section>
+
+          <section className="rounded-[14px] border border-[var(--border)] bg-[var(--teal-bg)]/35 p-3">
+            <div className="mb-2 flex items-center gap-2">
+              <Target size={14} className="text-[var(--teal)]" />
+              <h4 className="text-xs font-bold">오늘의 단기계획</h4>
+              <span className="ml-auto text-[10px] font-semibold text-[var(--teal-text)]">{focusGoals.length}개</span>
+            </div>
+            {focusGoals.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                {focusGoals.map(goal => {
+                  const progress = tasksProgress(goal.tasks)
+                  return (
+                    <div key={goal.id} className="rounded-[10px] bg-white/80 px-2.5 py-2">
+                      <div className="flex items-start gap-2">
+                        <p className="min-w-0 flex-1 text-xs font-semibold leading-snug">{goal.title}</p>
+                        <span className="shrink-0 text-[10px] font-bold text-[var(--teal-text)]">{progress.total > 0 ? `${progress.pct}%` : '준비'}</span>
+                      </div>
+                      {goal.long_goal_id && longGoalNames.get(goal.long_goal_id) && <p className="mt-1 truncate text-[9px] text-[var(--teal-text)]">{longGoalNames.get(goal.long_goal_id)}</p>}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="rounded-[10px] border border-dashed border-[var(--border-strong)] bg-white/45 px-3 py-4 text-center text-xs text-[var(--text-3)]">진행 중인 단기계획이 없습니다.</p>
+            )}
+          </section>
+        </div>
       </div>
 
       <div className={clsx('grid gap-4 mt-4', compact ? 'grid-cols-1' : 'xl:grid-cols-[1.15fr_1fr]')}>
@@ -1141,7 +1085,10 @@ export function TodayDashboard({
               <History size={13} /> 지난 시간 기록
             </button>
           </div>
-          <div className="max-h-[680px] overflow-y-auto scrollbar-thin">
+          <div
+            className="overflow-y-auto scrollbar-thin"
+            style={{ maxHeight: compact ? 'calc(100svh - 11rem)' : 'calc(100dvh - 10rem)' }}
+          >
             <div className="sticky top-0 z-40 ml-14 mr-3 grid grid-cols-2 border-b border-[var(--border)] bg-white/95 backdrop-blur-sm">
               <div className="py-2 text-center text-[11px] font-bold text-[var(--purple-text)]">PLAN</div>
               <div className="border-l border-[var(--border-strong)] py-2 text-center text-[11px] font-bold text-[var(--teal-text)]">실제</div>
@@ -1149,7 +1096,7 @@ export function TodayDashboard({
             <div
               ref={timelineRef}
               className={clsx('relative ml-14 mr-3 transition-colors', draggedTaskId && 'bg-[var(--purple-bg)]/20')}
-              style={{ height: TIMELINE_HEIGHT }}
+              style={{ height: compact ? 'clamp(760px, calc(100svh - 13rem), 1152px)' : 'clamp(760px, calc(100dvh - 13rem), 1200px)' }}
               onDragOver={event => {
                 event.preventDefault()
                 event.dataTransfer.dropEffect = 'move'
@@ -1170,7 +1117,7 @@ export function TodayDashboard({
             >
               <div className="absolute bottom-0 left-1/2 top-0 z-[5] border-l border-[var(--border-strong)]" aria-hidden="true" />
               {TIMELINE_HOURS.map(minute => {
-                const top = ((minute - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
+                const top = timelinePosition(minute)
                 return (
                   <div key={minute} className="absolute left-0 right-0 border-t border-[var(--border)]" style={{ top }}>
                     <span className="absolute right-full -translate-y-1/2 pr-2 text-[10px] font-medium text-[var(--text-3)] tabular-nums">{minutesToTime(minute)}</span>
@@ -1181,19 +1128,19 @@ export function TodayDashboard({
               {isToday && (() => {
                 const normalizedNow = nowMinute < TIMELINE_START ? nowMinute + 24 * 60 : nowMinute
                 if (normalizedNow < TIMELINE_START || normalizedNow > TIMELINE_END) return null
-                const top = ((normalizedNow - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
+                const top = timelinePosition(normalizedNow)
                 return <div className="absolute left-0 right-0 z-30 border-t border-[var(--red)]" style={{ top }}><span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-[var(--red)]" /><span className="absolute right-1 -top-4 text-[9px] font-semibold text-[var(--red)]">현재</span></div>
               })()}
 
               {dragPreviewMinute !== null && (
-                <div className={clsx('absolute z-30 border-t-2 border-dashed pointer-events-none', dragTargetSide === 'actual' ? 'left-1/2 right-0 border-[var(--teal)]' : 'left-0 right-1/2 border-[var(--purple)]')} style={{ top: ((dragPreviewMinute - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT }}>
+                <div className={clsx('absolute z-30 border-t-2 border-dashed pointer-events-none', dragTargetSide === 'actual' ? 'left-1/2 right-0 border-[var(--teal)]' : 'left-0 right-1/2 border-[var(--purple)]')} style={{ top: timelinePosition(dragPreviewMinute) }}>
                   <span className={clsx('absolute -translate-y-1/2 px-1.5 py-0.5 rounded text-white text-[10px] font-bold', dragTargetSide === 'actual' ? 'left-2 bg-[var(--teal)]' : 'left-2 bg-[var(--purple)]')}>{dragTargetSide === 'actual' ? '완료 ' : '계획 '}{minutesToTime(dragPreviewMinute)}</span>
                 </div>
               )}
 
               {routineTimelineGroups.map(group => {
-                const top = ((group.start - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
-                const height = Math.max(30, ((group.end - group.start) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
+                const top = timelinePosition(group.start)
+                const height = timelineBlockHeight(group.start, group.end)
                 const complete = group.doneCount === group.items.length
                 const overdue = group.end < editableUntil && !complete
                 const overlapsPlan = chronological.some(item => item.start < group.end && item.end > group.start)
@@ -1220,15 +1167,15 @@ export function TodayDashboard({
                       <span className={clsx('min-w-0 flex-1 truncate text-xs font-semibold', complete && 'line-through')}>{group.label}</span>
                       <span className="shrink-0 text-[9px] opacity-70">{group.doneCount}/{group.items.length}{group.minimumCount > 0 ? ` · 최소 ${group.minimumCount}` : ''}</span>
                     </div>
-                    {height >= 42 && <p className="mt-0.5 truncate text-[10px] opacity-70">{minutesToTime(group.start)}–{minutesToTime(group.end)} · 반복 루틴</p>}
+                    {group.end - group.start >= 45 && <p className="mt-0.5 truncate text-[10px] opacity-70">{minutesToTime(group.start)}–{minutesToTime(group.end)} · 반복 루틴</p>}
                   </button>
                 )
               })}
 
               {chronological.map(item => {
                 const { task, subtask, token, text, categoryName, categoryColor, start, end, fixed, done } = item
-                const top = ((start - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
-                const height = Math.max(30, ((end - start) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
+                const top = timelinePosition(start)
+                const height = timelineBlockHeight(start, end)
                 const overlapsRoutine = routineTimelineGroups.some(group => group.start < end && group.end > start)
                 return (
                   <div
@@ -1253,15 +1200,15 @@ export function TodayDashboard({
                       <span className={clsx('text-xs font-semibold flex-1 min-w-0 truncate', done && 'line-through')}>{text}</span>
                       <span className="text-[9px] opacity-65 shrink-0">{subtask ? '하위' : fixed ? '일정' : categoryName}</span>
                     </div>
-                    {height >= 42 && <p className="text-[10px] opacity-70 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}{subtask ? ` · ${task.text}` : ''}</p>}
+                    {end - start >= 45 && <p className="text-[10px] opacity-70 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}{subtask ? ` · ${task.text}` : ''}</p>}
                   </div>
                 )
               })}
 
               {actualBlocks.map(item => {
                 const { task, subtask, token, text, categoryName, categoryColor, start, end } = item
-                const top = ((start - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
-                const height = Math.max(30, ((end - start) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
+                const top = timelinePosition(start)
+                const height = timelineBlockHeight(start, end)
                 const overlapsRoutine = routineActualGroups.some(group => group.start < end && group.end > start)
                 return (
                   <button
@@ -1283,7 +1230,7 @@ export function TodayDashboard({
                       <span className="text-xs font-semibold flex-1 min-w-0 truncate">{text}</span>
                       <span className="text-[9px] opacity-65 shrink-0">{subtask ? '하위' : categoryName}</span>
                     </div>
-                    {height >= 42 && <p className="text-[10px] opacity-70 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>}
+                    {end - start >= 45 && <p className="text-[10px] opacity-70 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>}
                   </button>
                 )
               })}
@@ -1291,8 +1238,8 @@ export function TodayDashboard({
               {routineActualGroups.map(group => {
                 const actualStart = group.start
                 const actualEnd = group.end
-                const top = ((actualStart - TIMELINE_START) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT
-                const height = Math.max(30, ((actualEnd - actualStart) / (TIMELINE_END - TIMELINE_START)) * TIMELINE_HEIGHT)
+                const top = timelinePosition(actualStart)
+                const height = timelineBlockHeight(actualStart, actualEnd)
                 const overlapsActual = actualBlocks.some(item => item.start < actualEnd && item.end > actualStart)
                 return (
                   <button
@@ -1316,7 +1263,7 @@ export function TodayDashboard({
                       <span className="min-w-0 flex-1 truncate text-xs font-semibold">{group.label}</span>
                       <span className="shrink-0 text-[9px] opacity-70">{group.doneCount}/{group.items.length}{group.minimumCount > 0 ? ` · 최소 ${group.minimumCount}` : ''}</span>
                     </div>
-                    {height >= 42 && <p className="mt-0.5 truncate text-[10px] opacity-70">{minutesToTime(actualStart)}–{minutesToTime(actualEnd)} · 수행</p>}
+                    {actualEnd - actualStart >= 45 && <p className="mt-0.5 truncate text-[10px] opacity-70">{minutesToTime(actualStart)}–{minutesToTime(actualEnd)} · 수행</p>}
                   </button>
                 )
               })}
@@ -1650,7 +1597,7 @@ export function TodayDashboard({
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <h3 className="text-lg font-bold">{actualEditor.taskId ? '실제 시간 정리' : '지난 시간 기록'}</h3>
-                <p className="text-xs text-[var(--text-3)] mt-1">{isToday ? `현재 시각 ${minutesToTime(editableUntil)} 이전만 기록할 수 있습니다.` : '지난 날은 05:00~다음 날 01:00을 정리할 수 있습니다.'}</p>
+                <p className="text-xs text-[var(--text-3)] mt-1">{isToday ? `현재 시각 ${minutesToTime(editableUntil)} 이전만 기록할 수 있습니다.` : '지난 날은 05:00~다음 날 05:00을 정리할 수 있습니다.'}</p>
               </div>
               <button type="button" onClick={() => setActualEditor(null)} className="w-8 h-8 rounded-full hover:bg-[var(--surface-2)] flex items-center justify-center"><X size={17} /></button>
             </div>
