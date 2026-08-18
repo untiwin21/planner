@@ -161,6 +161,10 @@ const TIMELINE_START = 5 * 60
 const TIMELINE_END = 29 * 60
 const TIMELINE_DURATION = TIMELINE_END - TIMELINE_START
 const TIMELINE_HOURS = Array.from({ length: TIMELINE_DURATION / 60 + 1 }, (_, index) => TIMELINE_START + index * 60)
+const MIN_TIMELINE_CANVAS_HEIGHT = 760
+const TIMELINE_PANEL_CHROME_HEIGHT = 102
+const MIN_TODAY_PANELS_HEIGHT = 620
+const VIEWPORT_BOTTOM_GAP = 24
 
 function timelinePosition(minute: number) {
   return `${((minute - TIMELINE_START) / TIMELINE_DURATION) * 100}%`
@@ -265,8 +269,10 @@ export function TodayDashboard({
   const [subtaskInputs, setSubtaskInputs] = useState<Record<string, string>>({})
   const [subtaskDurations, setSubtaskDurations] = useState<Record<string, string>>({})
   const [showRoutineManager, setShowRoutineManager] = useState(false)
+  const panelsRef = useRef<HTMLDivElement>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const pointerTaskIdRef = useRef<string | null>(null)
+  const [panelsHeight, setPanelsHeight] = useState(680)
   const selectableCategories = useMemo(() => categories.filter(category => category.id !== SCHEDULE_CAT_ID && category.id !== DEADLINE_CAT_ID), [categories])
   const taskEditorCategories = useMemo(() => categories.filter(category => category.id !== SCHEDULE_CAT_ID), [categories])
   const [categoryId, setCategoryId] = useState(selectableCategories[0]?.id ?? '')
@@ -478,6 +484,30 @@ export function TodayDashboard({
   const focusGoals = useMemo(() => goals
     .filter(goal => goal.date_from <= date && goal.date_to >= date)
     .sort((a, b) => a.date_to.localeCompare(b.date_to)), [date, goals])
+
+  useEffect(() => {
+    const updatePanelsHeight = () => {
+      const top = panelsRef.current?.getBoundingClientRect().top
+      if (top === undefined) return
+      const available = Math.max(
+        MIN_TODAY_PANELS_HEIGHT,
+        Math.floor(window.innerHeight - top - VIEWPORT_BOTTOM_GAP),
+      )
+      setPanelsHeight(current => current === available ? current : available)
+    }
+
+    const frame = window.requestAnimationFrame(updatePanelsHeight)
+    window.addEventListener('resize', updatePanelsHeight)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', updatePanelsHeight)
+    }
+  }, [compact, date, focusGoals.length])
+
+  const timelineCanvasHeight = Math.max(
+    MIN_TIMELINE_CANVAS_HEIGHT,
+    panelsHeight - TIMELINE_PANEL_CHROME_HEIGHT,
+  )
   const longGoalNames = useMemo(() => new Map(longGoals.map(goal => [goal.id, goal.title])), [longGoals])
   const todaySchedules = useMemo(() => entry.tasks
     .filter(task => !task.discarded && !isActualOnlyTask(task) && (task.category_id === SCHEDULE_CAT_ID || isFixedTask(task)))
@@ -1074,8 +1104,8 @@ export function TodayDashboard({
         </div>
       </div>
 
-      <div className={clsx('grid gap-4 mt-4', compact ? 'grid-cols-1' : 'xl:grid-cols-[1.15fr_1fr]')}>
-        <div className="bg-white border border-[var(--border)] rounded-[18px] overflow-hidden">
+      <div ref={panelsRef} className={clsx('grid gap-4 mt-4', compact ? 'grid-cols-1' : 'xl:grid-cols-[1.15fr_1fr]')}>
+        <div className="bg-white border border-[var(--border)] rounded-[18px] overflow-hidden flex flex-col" style={{ height: panelsHeight }}>
           <div className="px-4 py-3 border-b border-[var(--border)] flex items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold">계획과 실제 타임라인</h3>
@@ -1085,10 +1115,7 @@ export function TodayDashboard({
               <History size={13} /> 지난 시간 기록
             </button>
           </div>
-          <div
-            className="overflow-y-auto scrollbar-thin"
-            style={{ maxHeight: compact ? 'calc(100svh - 11rem)' : 'calc(100dvh - 10rem)' }}
-          >
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
             <div className="sticky top-0 z-40 ml-14 mr-3 grid grid-cols-2 border-b border-[var(--border)] bg-white/95 backdrop-blur-sm">
               <div className="py-2 text-center text-[11px] font-bold text-[var(--purple-text)]">PLAN</div>
               <div className="border-l border-[var(--border-strong)] py-2 text-center text-[11px] font-bold text-[var(--teal-text)]">실제</div>
@@ -1096,7 +1123,7 @@ export function TodayDashboard({
             <div
               ref={timelineRef}
               className={clsx('relative ml-14 mr-3 transition-colors', draggedTaskId && 'bg-[var(--purple-bg)]/20')}
-              style={{ height: compact ? 'clamp(760px, calc(100svh - 13rem), 1152px)' : 'clamp(760px, calc(100dvh - 13rem), 1200px)' }}
+              style={{ height: timelineCanvasHeight }}
               onDragOver={event => {
                 event.preventDefault()
                 event.dataTransfer.dropEffect = 'move'
@@ -1278,7 +1305,7 @@ export function TodayDashboard({
           </div>
         </div>
 
-        <div className="bg-white border border-[var(--border)] rounded-[18px] overflow-visible self-start">
+        <div className="bg-white border border-[var(--border)] rounded-[18px] overflow-visible self-start flex flex-col" style={{ height: panelsHeight }}>
           <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
             <div>
               <h3 className="text-sm font-bold">오늘 할 일</h3>
@@ -1339,7 +1366,7 @@ export function TodayDashboard({
             </div>
           </div>
 
-          <div className="p-3 flex flex-col gap-4 max-h-[680px] overflow-y-auto scrollbar-thin">
+          <div className="p-3 min-h-0 flex-1 flex flex-col gap-4 overflow-y-auto scrollbar-thin">
             {flexible.length === 0 && activeRoutines.length === 0 ? (
               <div className="py-10 text-center text-sm text-[var(--text-3)]">오늘 할 일을 추가해보세요.</div>
             ) : (

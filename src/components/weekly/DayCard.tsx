@@ -57,8 +57,9 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
   const linkedTasks: Task[] = []
   for (const g of activeGoals) {
     for (const t of g.tasks) {
-      if (linkedTaskIds.has(t.id)) linkedTasks.push(t)
-      for (const s of t.subtasks ?? []) {
+      const wholeTaskLinked = linkedTaskIds.has(t.id)
+      if (wholeTaskLinked) linkedTasks.push(t)
+      for (const s of wholeTaskLinked ? [] : (t.subtasks ?? [])) {
         if (linkedSubIds.has(s.id)) {
           linkedTasks.push({
             id: s.id, text: s.text, done: s.done, discarded: s.discarded,
@@ -69,7 +70,9 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
       }
     }
   }
-  const allCountedTasks = [...workTasks, ...linkedTasks]
+  const allCountedTasks = Array.from(
+    new Map([...workTasks, ...linkedTasks].map(task => [task.id, task])).values(),
+  )
   const progress = tasksProgress(allCountedTasks)
   const totalCnt = progress.total
   const pct = progress.pct
