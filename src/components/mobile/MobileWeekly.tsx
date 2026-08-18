@@ -1,12 +1,15 @@
 'use client'
 import { useState, useMemo } from 'react'
 import { ChevronLeft, ChevronRight, Plus, X } from 'lucide-react'
-import { addWeeks, subWeeks, parseISO } from 'date-fns'
+import { addWeeks, subWeeks } from 'date-fns'
 import clsx from 'clsx'
 import { getWeekDays, formatDate, isToday, DAY_NAMES } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
-import type { DayEntry, Category, ShortGoal, Routine, RoutineLog, DayMeta, Task } from '@/types'
-import { MobileToday } from './MobileToday'
+import { isActualOnlyTask } from '@/lib/taskVisibility'
+import type { DayEntry, Category, ShortGoal, Routine, RoutineLog, DayMeta, Task, TaskScheduleInput } from '@/types'
+import { WeeklyScheduleEditor } from '@/components/weekly/WeeklyScheduleEditor'
+import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
+import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
 
 interface Props {
   selectedDate: string
@@ -18,7 +21,8 @@ interface Props {
   onSelectDate: (date: string) => void
   getDay: (date: string) => DayEntry
   onToggleTask: (date: string, taskId: string) => void
-  onAddTask: (date: string, catId: string, text: string, time?: string) => void
+  onAddTask: (date: string, catId: string, text: string, schedule?: string | TaskScheduleInput) => void
+  onUpdateTask: (date: string, taskId: string, patch: Partial<Task>) => void
   onDeleteTask: (date: string, taskId: string) => void
   onMetaChange: (date: string, patch: Partial<DayMeta>) => void
   onToggleRoutine: (routineId: string, date: string) => void
@@ -26,6 +30,7 @@ interface Props {
   onLinkGoalTask: (date: string, taskId: string) => void
   onUnlinkGoalTask: (date: string, taskId: string) => void
   onAddGoal: (g: Omit<ShortGoal, 'id'>) => void
+  onUpdateGoal: (goalId: string, patch: Partial<ShortGoal>) => void
 }
 
 function packGoalsIntoRows(goals: ShortGoal[], weekDays: Date[]) {
@@ -58,12 +63,15 @@ const GOAL_COLORS = [
 
 export function MobileWeekly({
   selectedDate, days, categories, goals, routines, logs,
-  onSelectDate, getDay, onToggleTask, onAddTask, onDeleteTask,
+  onSelectDate, getDay, onToggleTask, onAddTask, onUpdateTask, onDeleteTask,
   onMetaChange, onToggleRoutine, onToggleLinkedTask, onLinkGoalTask, onUnlinkGoalTask,
   onAddGoal,
+  onUpdateGoal,
 }: Props) {
   const [weekBase, setWeekBase] = useState(new Date())
+  const [monthBase, setMonthBase] = useState(new Date())
   const [showGoalForm, setShowGoalForm] = useState(false)
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
   const [newGoalTitle, setNewGoalTitle] = useState('')
   const [newGoalFrom, setNewGoalFrom] = useState('')
   const [newGoalTo, setNewGoalTo] = useState('')
@@ -71,6 +79,7 @@ export function MobileWeekly({
   const weekDays = useMemo(() => getWeekDays(weekBase), [weekBase])
   const goalRows = useMemo(() => packGoalsIntoRows(goals, weekDays), [goals, weekDays])
   const entry = getDay(selectedDate)
+  const editingGoal = editingGoalId ? goals.find(goal => goal.id === editingGoalId) ?? null : null
 
   function handleCreateGoal() {
     if (!newGoalTitle.trim() || !newGoalFrom || !newGoalTo) return
@@ -100,7 +109,7 @@ export function MobileWeekly({
         {weekDays.map(d => {
           const ds = formatDate(d)
           const dayEntry = days.find(e => e.date === ds)
-          const taskCount = dayEntry?.tasks.length ?? 0
+          const taskCount = dayEntry?.tasks.filter(task => !isActualOnlyTask(task)).length ?? 0
           const isSelected = selectedDate === ds
           const isT = isToday(d)
           const dayIdx = d.getDay() === 0 ? 6 : d.getDay() - 1
@@ -135,14 +144,16 @@ export function MobileWeekly({
                 const colorClass = GOAL_COLORS[i % GOAL_COLORS.length]
                 const prog = tasksProgress(goal.tasks)
                 return (
-                  <div key={goal.id}
-                    className={clsx('flex-1 px-2 py-1 rounded-[8px] border-l-2', colorClass)}
+                  <button key={goal.id}
+                    type="button"
+                    onClick={() => setEditingGoalId(goal.id)}
+                    className={clsx('flex-1 px-2 py-1 rounded-[8px] border-l-2 text-left', colorClass)}
                   >
                     <p className="text-[11px] font-semibold truncate">{goal.title}</p>
                     {prog.total > 0 && (
                       <p className="text-[10px] opacity-70 tabular-nums">{prog.pct}%</p>
                     )}
-                  </div>
+                  </button>
                 )
               })}
             </div>
@@ -184,24 +195,38 @@ export function MobileWeekly({
       {/* Divider */}
       <div className="border-t border-[var(--border)] mx-4 my-2" />
 
-      {/* Inline day detail */}
-      <MobileToday
+      {/* Weekly input stays focused on schedules and deadlines. */}
+      <div className="mx-4">
+        <WeeklyScheduleEditor
         key={selectedDate}
-        date={selectedDate}
+        compact
         entry={entry}
-        categories={categories}
-        goals={goals}
-        routines={routines}
-        logs={logs}
-        onDateChange={onSelectDate}
         onToggleTask={taskId => onToggleTask(selectedDate, taskId)}
-        onAddTask={(catId, text, time) => onAddTask(selectedDate, catId, text, time)}
+        onAddTask={(catId, text, schedule) => onAddTask(selectedDate, catId, text, schedule)}
+        onUpdateTask={(taskId, patch) => onUpdateTask(selectedDate, taskId, patch)}
         onDeleteTask={taskId => onDeleteTask(selectedDate, taskId)}
-        onMetaChange={patch => onMetaChange(selectedDate, patch)}
-        onToggleRoutine={onToggleRoutine}
-        onToggleLinkedTask={onToggleLinkedTask}
-        onLinkGoalTask={taskId => onLinkGoalTask(selectedDate, taskId)}
-        onUnlinkGoalTask={taskId => onUnlinkGoalTask(selectedDate, taskId)}
+        />
+      </div>
+
+      <div className="mx-4 mt-4 overflow-x-auto rounded-[18px]">
+        <div className="min-w-[700px]">
+          <MonthlyGoalCalendar
+            monthBase={monthBase}
+            goals={goals}
+            selectedDate={selectedDate}
+            onMonthChange={setMonthBase}
+            onSelectDate={onSelectDate}
+            onAddGoal={onAddGoal}
+            onUpdateGoal={onUpdateGoal}
+            onEditGoal={setEditingGoalId}
+          />
+        </div>
+      </div>
+
+      <ShortGoalEditModal
+        goal={editingGoal}
+        onClose={() => setEditingGoalId(null)}
+        onSave={onUpdateGoal}
       />
     </div>
   )

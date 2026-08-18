@@ -7,6 +7,11 @@ export interface SubTask {
   id: string
   text: string
   done: boolean
+  /** Discarded means the work became unnecessary; it is not a failed task. */
+  discarded?: boolean
+  duration_min?: number
+  start_time?: string
+  end_time?: string
   updated_at?: number
 }
 
@@ -16,10 +21,32 @@ export interface Task {
   goal_id?: string
   text: string
   done: boolean
+  /** Discarded tasks are kept as a decision record and excluded from completion stats. */
+  discarded?: boolean
   category_id: string
   category_name: string
   category_color: BadgeColor
+  /** Legacy single start-time field kept for existing data. */
   time?: string
+  /** Start/end are local wall-clock values in HH:mm format. */
+  start_time?: string
+  end_time?: string
+  /** Estimated effort for flexible work. */
+  duration_min?: number
+  /** Fixed events consume timeline capacity; flexible work consumes available capacity. */
+  fixed?: boolean
+  /** Retrospective execution record. Kept separate from the planned timeline. */
+  actual_start_time?: string
+  actual_end_time?: string
+  actual_status?: 'recorded' | 'skipped'
+  /** Retrospective-only item: shown on the actual timeline, never as a planned task. */
+  actual_only?: boolean
+  /** Optional measurable completion, e.g. 6 / 7 km. `done` still means 100%. */
+  progress_current?: number
+  progress_target?: number
+  progress_unit?: string
+  /** Embedded tombstone used to propagate deletions between devices. */
+  deleted_at?: number
   subtasks?: SubTask[]
   // Last-write-wins timestamp (ms epoch). Set on every mutation; merge takes newer.
   updated_at?: number
@@ -47,6 +74,8 @@ export interface DayMeta {
   notes?: JournalEntry[]
   linkedGoalTaskIds?: string[]   // IDs of short-goal tasks linked to this day
   linkedGoalSubtaskIds?: string[] // IDs of specific subtasks linked to this day
+  dayStart?: string               // Start of the usable planning window (HH:mm)
+  dayEnd?: string                 // End of the usable planning window (HH:mm)
   // Last-write-wins timestamp (ms epoch) for non-task meta fields (sleep/condition/focus/top3/note links etc.)
   // Per-task fields use Task.updated_at directly; this covers everything else in the day entry.
   updated_at?: number
@@ -57,6 +86,7 @@ export interface DayEntry {
   date: string
   note: string
   tasks: Task[]
+  task_tombstones?: Task[]
   categories: Category[]
   meta: DayMeta
 }
@@ -74,6 +104,7 @@ export interface ShortGoal {
   date_to: string
   note: string
   tasks: Task[]
+  task_tombstones?: Task[]
   long_goal_id?: string
   routines: any[]
   categories: any[]
@@ -90,11 +121,30 @@ export interface LongGoal {
   date_from: string
   date_to: string
   color: string
+  updated_at?: number
 }
 
 export type RoutineStatus = 'active' | 'archived' | 'paused'
 
 export type RoutinePeriod = 'morning' | 'afternoon' | 'evening' | 'anytime'
+
+export type RoutineStage = 'forming' | 'maintenance' | 'backlog'
+export type RoutineCueType = 'time' | 'event'
+export type RoutineKind = 'timed' | 'check'
+
+export interface RoutineConfig {
+  /** Monday=0 ... Sunday=6. Missing means every day for legacy routines. */
+  days_of_week?: number[]
+  /** Legacy routines without a kind are treated as timed routines. */
+  kind?: RoutineKind
+  duration_min?: number
+  cue_type?: RoutineCueType
+  cue_label?: string
+  minimum_version?: string
+  bundle?: string
+  stage?: RoutineStage
+  category_color?: BadgeColor
+}
 
 export interface Routine {
   id: string
@@ -104,6 +154,7 @@ export interface Routine {
   time?: string
   order?: number
   period?: RoutinePeriod
+  config?: RoutineConfig
   updated_at?: number
 }
 
@@ -112,6 +163,7 @@ export interface RoutineLog {
   routine_id: string
   date: string
   done: boolean
+  completion?: 'full' | 'minimum'
   updated_at?: number
 }
 
@@ -119,4 +171,19 @@ export interface WeeklyReview {
   id: string
   week_key: string
   content: string
+}
+
+export interface TaskScheduleInput {
+  start_time?: string
+  end_time?: string
+  duration_min?: number
+  fixed?: boolean
+  actual_start_time?: string
+  actual_end_time?: string
+  actual_status?: 'recorded' | 'skipped'
+  actual_only?: boolean
+  done?: boolean
+  progress_current?: number
+  progress_target?: number
+  progress_unit?: string
 }

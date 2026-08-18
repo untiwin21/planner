@@ -4,6 +4,7 @@ import { isToday, DAY_NAMES, formatSleepMin, formatDate } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
 import type { DayEntry, ShortGoal, Task } from '@/types'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
+import { isActualOnlyTask } from '@/lib/taskVisibility'
 
 interface DayCardProps {
   date: Date
@@ -44,7 +45,7 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
     .slice(0, 4)
 
   // Day-native tasks that count toward progress (everything except schedule/deadline).
-  const workTasks = tasks.filter(t => t.category_id !== SCHEDULE_CAT_ID && t.category_id !== DEADLINE_CAT_ID)
+  const workTasks = tasks.filter(t => !isActualOnlyTask(t) && t.category_id !== SCHEDULE_CAT_ID && t.category_id !== DEADLINE_CAT_ID)
 
   // Linked goal tasks/subtasks imported into this day also count — they belong to a
   // user-managed category just like native tasks. Synthesize standalone Task records
@@ -56,11 +57,12 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
   const linkedTasks: Task[] = []
   for (const g of activeGoals) {
     for (const t of g.tasks) {
-      if (linkedTaskIds.has(t.id)) linkedTasks.push(t)
-      for (const s of t.subtasks ?? []) {
+      const wholeTaskLinked = linkedTaskIds.has(t.id)
+      if (wholeTaskLinked) linkedTasks.push(t)
+      for (const s of wholeTaskLinked ? [] : (t.subtasks ?? [])) {
         if (linkedSubIds.has(s.id)) {
           linkedTasks.push({
-            id: s.id, text: s.text, done: s.done,
+            id: s.id, text: s.text, done: s.done, discarded: s.discarded,
             day_id: t.day_id, goal_id: t.goal_id,
             category_id: t.category_id, category_name: t.category_name, category_color: t.category_color,
           })
@@ -68,7 +70,9 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
       }
     }
   }
-  const allCountedTasks = [...workTasks, ...linkedTasks]
+  const allCountedTasks = Array.from(
+    new Map([...workTasks, ...linkedTasks].map(task => [task.id, task])).values(),
+  )
   const progress = tasksProgress(allCountedTasks)
   const totalCnt = progress.total
   const pct = progress.pct
@@ -76,7 +80,7 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
   const top3Ids = meta?.top3 ?? []
   const top3 = top3Ids.length > 0
     ? top3Ids.map(id => allCountedTasks.find(t => t.id === id)).filter(Boolean)
-    : allCountedTasks.filter(t => !t.done).slice(0, 3)
+    : allCountedTasks.filter(t => !t.done && !t.discarded).slice(0, 3)
   const cardKeywords = meta?.cardKeywords ?? []
 
   return (

@@ -4,9 +4,9 @@ import { Plus, Trash2, ChevronRight, ChevronDown, Pencil } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { dayRangeLabel } from '@/lib/dates'
-import { Badge, Checkbox, CircleCheck, Input, Textarea, IconBtn, ProgressBar } from '@/components/ui'
+import { Badge, Checkbox, Input, Textarea, IconBtn, ProgressBar } from '@/components/ui'
 import { tasksProgress } from '@/lib/taskProgress'
-import type { ShortGoal, Category, Routine, Task, SubTask, NoteEntry } from '@/types'
+import type { ShortGoal, Category, Task, SubTask, NoteEntry } from '@/types'
 import clsx from 'clsx'
 
 const genId = () => Math.random().toString(36).slice(2, 10)
@@ -14,14 +14,12 @@ const genId = () => Math.random().toString(36).slice(2, 10)
 interface Props {
   goal: ShortGoal
   categories: Category[]
-  allRoutines: Routine[]
   onUpdate: (patch: Partial<ShortGoal>) => void
   onDelete: () => void
   onToggleTask: (taskId: string) => void
   onAddTask: (catId: string, text: string) => void
   onDeleteTask: (taskId: string) => void
   onUpdateTask: (taskId: string, patch: Partial<Task>) => void
-  onAddRoutine: (name: string) => void
   onAddNote: (text: string) => void
   onUpdateNote: (noteId: string, text: string) => void
   onDeleteNote: (noteId: string) => void
@@ -29,13 +27,11 @@ interface Props {
 }
 
 export function GoalDetail({
-  goal, categories, allRoutines,
-  onUpdate, onDelete, onToggleTask, onAddTask, onDeleteTask, onUpdateTask, onAddRoutine,
+  goal, categories,
+  onUpdate, onDelete, onToggleTask, onAddTask, onDeleteTask, onUpdateTask,
   onAddNote, onUpdateNote, onDeleteNote, onReorderTasks,
 }: Props) {
   const [newTaskTexts, setNewTaskTexts] = useState<Record<string, string>>({})
-  const [newRoutineName, setNewRoutineName] = useState('')
-  const [showRoutineInput, setShowRoutineInput] = useState(false)
 
   // ── Task edit / expand ───────────────────────────────────────────────────
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -85,23 +81,6 @@ export function GoalDetail({
 
   const notes = [...(goal.notes ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   const progress = tasksProgress(goal.tasks)
-
-  // ── Routine helpers ──────────────────────────────────────────────────────
-  function handleToggleRoutine(routineId: string) {
-    const exists = goal.routines.find((r: any) => r.id === routineId)
-    if (exists) {
-      onUpdate({ routines: goal.routines.filter((r: any) => r.id !== routineId) })
-    } else {
-      const r = allRoutines.find(r => r.id === routineId)
-      if (r) onUpdate({ routines: [...goal.routines, r] })
-    }
-  }
-  function handleAddRoutine() {
-    if (!newRoutineName.trim()) return
-    onAddRoutine(newRoutineName.trim())
-    setNewRoutineName('')
-    setShowRoutineInput(false)
-  }
 
   // ── Task row ─────────────────────────────────────────────────────────────
   function renderTaskRow(task: Task) {
@@ -241,36 +220,6 @@ export function GoalDetail({
           <ProgressBar value={progress.pct} max={100} color="teal" />
         </div>
       )}
-
-      {/* ── Routines ── */}
-      <div>
-        <label className="block text-[13px] font-medium text-[var(--text-3)] uppercase tracking-wider mb-2">이 기간 루틴</label>
-        <div className="flex flex-col gap-1 mb-2">
-          {allRoutines.map(r => {
-            const active = !!goal.routines.find((gr: any) => gr.id === r.id)
-            return (
-              <label key={r.id} className="flex items-center gap-2 cursor-pointer py-0.5">
-                <CircleCheck checked={active} onChange={() => handleToggleRoutine(r.id)} />
-                <span className={`text-sm ${active ? 'text-[var(--text)]' : 'text-[var(--text-3)]'}`}>{r.name}</span>
-              </label>
-            )
-          })}
-        </div>
-        {showRoutineInput ? (
-          <div className="flex gap-2">
-            <Input value={newRoutineName} onChange={e => setNewRoutineName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAddRoutine()}
-              placeholder="새 루틴..." className="text-sm py-1.5" autoFocus />
-            <button onClick={handleAddRoutine} className="px-3 py-1.5 rounded-[8px] text-sm bg-[var(--teal)] text-white">추가</button>
-            <button onClick={() => setShowRoutineInput(false)} className="px-3 py-1.5 rounded-[8px] text-sm text-[var(--text-2)] hover:bg-[var(--border)]">취소</button>
-          </div>
-        ) : (
-          <button onClick={() => setShowRoutineInput(true)}
-            className="flex items-center gap-1.5 text-sm text-[var(--text-3)] hover:text-[var(--text-2)] transition-colors">
-            <Plus size={13} /> 루틴 추가
-          </button>
-        )}
-      </div>
 
       {/* ── Tasks by global category ── */}
       {categories.length === 0 ? (

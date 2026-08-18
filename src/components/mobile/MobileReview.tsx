@@ -4,7 +4,9 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { addWeeks, subWeeks } from 'date-fns'
 import clsx from 'clsx'
 import { getWeekDays, formatDate, DAY_NAMES } from '@/lib/dates'
-import { tasksProgress } from '@/lib/taskProgress'
+import { taskProgressPercent, tasksProgress } from '@/lib/taskProgress'
+import { isActualOnlyTask } from '@/lib/taskVisibility'
+import { isRoutineScheduledOn } from '@/lib/routineSchedule'
 import type { DayEntry, ShortGoal, Routine, RoutineLog } from '@/types'
 
 interface Props {
@@ -36,22 +38,20 @@ export function MobileReview({ days, goals, routines, logs, getWeeklyReview, upd
   const avgCondition = conditionValues.length > 0 ? (conditionValues.reduce((a, b) => a + b, 0) / conditionValues.length).toFixed(1) : null
   const avgFocus = focusValues.length > 0 ? (focusValues.reduce((a, b) => a + b, 0) / focusValues.length).toFixed(1) : null
 
-  const totalTasks = weekDayEntries.reduce((s, d) => s + d.tasks.length, 0)
-  const doneTasks = weekDayEntries.reduce((s, d) => s + d.tasks.filter(t => t.done).length, 0)
+  const weekTasks = weekDayEntries.flatMap(entry => entry.tasks).filter(task => !isActualOnlyTask(task))
+  const taskStats = tasksProgress(weekTasks)
+  const totalTasks = taskStats.total
+  const doneTasks = weekTasks.filter(task => !task.discarded && task.done).length
+  const partialTasks = weekTasks.filter(task => !task.discarded && !task.done && taskProgressPercent(task) > 0).length
 
   // Routine stats for the week
-  const activeRoutines = routines.filter(r => r.status === 'active')
-  const routineRate = activeRoutines.length > 0
-    ? Math.round(
-        activeRoutines.reduce((sum, r) => {
-          const doneDays = weekDays.filter(d => {
-            const ds = formatDate(d)
-            return logs.find(l => l.routine_id === r.id && l.date === ds && l.done)
-          }).length
-          return sum + doneDays
-        }, 0) / (activeRoutines.length * 7) * 100
-      )
-    : null
+  const activeRoutines = routines.filter(r => r.status === 'active' && r.config?.stage !== 'backlog')
+  const routineOccurrences = weekDays.flatMap(day => {
+    const date = formatDate(day)
+    return activeRoutines.filter(routine => isRoutineScheduledOn(routine, date)).map(routine => ({ routine, date }))
+  })
+  const routineDone = routineOccurrences.filter(({ routine, date }) => logs.some(log => log.routine_id === routine.id && log.date === date && log.done)).length
+  const routineRate = routineOccurrences.length > 0 ? Math.round((routineDone / routineOccurrences.length) * 100) : null
 
   // Goals active this week
   const weekGoals = goals.filter(g => g.date_from <= weekEnd && g.date_to >= weekStart)
@@ -96,9 +96,9 @@ export function MobileReview({ days, goals, routines, logs, getWeeklyReview, upd
         <div className="bg-white border border-[var(--border)] rounded-[12px] p-3">
           <p className="text-[11px] text-[var(--text-3)] mb-1">할 일 완료율</p>
           <p className="text-lg font-bold text-[var(--purple-text)]">
-            {totalTasks > 0 ? `${Math.round((doneTasks / totalTasks) * 100)}%` : '-'}
+            {totalTasks > 0 ? `${taskStats.pct}%` : '-'}
           </p>
-          {totalTasks > 0 && <p className="text-[10px] text-[var(--text-3)]">{doneTasks}/{totalTasks}</p>}
+          {totalTasks > 0 && <p className="text-[10px] text-[var(--text-3)]">완료 {doneTasks} · 부분 {partialTasks} / 전체 {totalTasks}</p>}
         </div>
       </div>
 
@@ -122,11 +122,12 @@ export function MobileReview({ days, goals, routines, logs, getWeeklyReview, upd
                     <td className="text-left pr-2 py-1 truncate max-w-[80px] text-[var(--text-2)]">{r.name}</td>
                     {weekDays.map((d, i) => {
                       const ds = formatDate(d)
+                      const scheduled = isRoutineScheduledOn(r, ds)
                       const done = !!logs.find(l => l.routine_id === r.id && l.date === ds && l.done)
                       return (
                         <td key={i} className="px-1 py-1">
                           <div className={clsx('w-5 h-5 rounded-full mx-auto',
-                            done ? 'bg-[var(--teal)]' : 'bg-[var(--surface-2)]')} />
+                            !scheduled ? 'border border-dashed border-[var(--border)] opacity-45' : done ? 'bg-[var(--teal)]' : 'bg-[var(--surface-2)]')} />
                         </td>
                       )
                     })}

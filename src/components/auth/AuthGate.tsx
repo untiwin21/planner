@@ -43,6 +43,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     )
   }
 
+  // Local/offline mode remains usable when Supabase environment variables are
+  // absent. Production still requires the authenticated server-backed session.
+  if (!supabase) {
+    return <UserContext.Provider value="">{children}</UserContext.Provider>
+  }
+
   if (!session) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg, #F8F9FA)' }}>

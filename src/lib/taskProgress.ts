@@ -1,4 +1,5 @@
 import type { Task } from '@/types'
+import { isActualOnlyTask } from '@/lib/taskVisibility'
 
 /**
  * Equal-weight progress: each top-level task has equal weight (1/N).
@@ -9,19 +10,29 @@ import type { Task } from '@/types'
  *   Task B (2 subs): each subtask = 25%, completing one → +25%
  */
 export function taskWeight(task: Task): number {
-  const subs = task.subtasks ?? []
+  if (task.discarded) return 0
+  if (task.done) return 1
+  if (task.progress_target && task.progress_target > 0 && task.progress_current !== undefined) {
+    return Math.max(0, Math.min(1, task.progress_current / task.progress_target))
+  }
+  const subs = (task.subtasks ?? []).filter(subtask => !subtask.discarded)
   if (subs.length === 0) {
-    return task.done ? 1 : 0
+    return 0
   }
   const doneSubs = subs.filter(s => s.done).length
   return doneSubs / subs.length
 }
 
+export function taskProgressPercent(task: Task): number {
+  return Math.round(taskWeight(task) * 100)
+}
+
 export function tasksProgress(tasks: Task[]): { done: number; total: number; pct: number } {
-  const total = tasks.length
+  const countableTasks = tasks.filter(task => !isActualOnlyTask(task) && !task.discarded)
+  const total = countableTasks.length
   if (total === 0) return { done: 0, total: 0, pct: 0 }
   let doneWeight = 0
-  for (const t of tasks) {
+  for (const t of countableTasks) {
     doneWeight += taskWeight(t)
   }
   return { done: doneWeight, total, pct: Math.round((doneWeight / total) * 100) }

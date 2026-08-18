@@ -2,23 +2,22 @@
 import { useState, useMemo, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Plus, X, LogOut, Timer } from 'lucide-react'
 import { addWeeks, subWeeks, parseISO, startOfWeek as dfStartOfWeek, format } from 'date-fns'
-import { getWeekDays, formatDate, formatMonth, isGoalActive } from '@/lib/dates'
+import { getWeekDays, formatDate, formatMonth } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
+import { isRoutineScheduledOn } from '@/lib/routineSchedule'
 import { usePlanrStore } from '@/hooks/usePlanrStore'
 import { DayCard } from '@/components/weekly/DayCard'
-import { DayDetail } from '@/components/weekly/DayDetail'
 import { GoalSpanRow } from '@/components/weekly/GoalSpanRow'
 import { GoalDetail } from '@/components/goals/GoalDetail'
 import { GoalHierarchyView } from '@/components/goals/GoalHierarchyView'
 import { RoutineSidebar } from '@/components/routine/RoutineSidebar'
 import { RightSidebar } from '@/components/layout/RightSidebar'
-import { CategoryPanel } from '@/components/layout/CategoryPanel'
 import { WeeklyReview } from '@/components/review/WeeklyReview'
 import { JournalView } from '@/components/journal/JournalView'
 import { WeeklyPrompt } from '@/components/system/WeeklyPrompt'
 import { FocusTimer } from '@/components/system/FocusTimer'
 import { Card } from '@/components/ui'
-import type { ShortGoal, Task } from '@/types'
+import type { JournalEntry, ShortGoal, Task } from '@/types'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import clsx from 'clsx'
 import { useUserId } from '@/context/UserContext'
@@ -26,6 +25,10 @@ import { supabase } from '@/lib/supabase'
 import { signOut } from '@/lib/auth'
 import { DataPanel } from '@/components/settings/DataPanel'
 import { MobileLayout } from '@/components/mobile/MobileLayout'
+import { TodayDashboard } from '@/components/today/TodayDashboard'
+import { WeeklyScheduleEditor } from '@/components/weekly/WeeklyScheduleEditor'
+import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
+import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
 
 function packGoalsIntoRows(goals: ShortGoal[], weekDays: Date[]) {
   const weekStart = formatDate(weekDays[0])
@@ -56,14 +59,16 @@ export default function Home() {
   const userId = useUserId()
   const [user, setUser] = useState<any>(null)
   const [weekBase, setWeekBase] = useState(new Date())
+  const [monthBase, setMonthBase] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()))
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null)
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
   const [showGoalForm, setShowGoalForm] = useState(false)
   const [newGoalFrom, setNewGoalFrom] = useState('')
   const [newGoalTo, setNewGoalTo] = useState('')
   const [newGoalTitle, setNewGoalTitle] = useState('')
   const [newGoalLongId, setNewGoalLongId] = useState('')
-  const [view, setView] = useState<'week' | 'review' | 'journal'>('week')
+  const [view, setView] = useState<'today' | 'week' | 'review' | 'journal'>('today')
   const [showCalendar, setShowCalendar] = useState(true)
   const [showFocusTimer, setShowFocusTimer] = useState(false)
 
@@ -76,18 +81,30 @@ export default function Home() {
 
   const weekKey = useMemo(() => getWeekKey(weekBase), [weekBase])
 
-  // ── Big 3 — mantra sentence + text-based entries ──
-  const big3StorageKey = `planr_week_big3_v2_${weekKey}`
-  const mantraStorageKey = `planr_week_mantra_${weekKey}`
-  const [weekBig3, setWeekBig3] = useState<string[]>([])
-  const [weekMantra, setWeekMantra] = useState('')
   const [showBig3Modal, setShowBig3Modal] = useState(false)
 
   const { syncReady, ...store } = usePlanrStore(userId)
   const weekDays = useMemo(() => getWeekDays(weekBase), [weekBase])
   const selectedEntry = store.getDay(selectedDate)
   const selectedGoal = selectedGoalId ? store.goals.find(g => g.id === selectedGoalId) : null
+  const editingGoal = editingGoalId ? store.goals.find(g => g.id === editingGoalId) ?? null : null
   const goalRows = useMemo(() => packGoalsIntoRows(store.goals, weekDays), [store.goals, weekDays])
+  const big3SyncKey = `__big3__:${weekKey}`
+  const mantraSyncKey = `__mantra__:${weekKey}`
+  const journalSyncKey = `__journal__:${weekKey}`
+  const weekBig3 = useMemo(() => {
+    try {
+      const value = JSON.parse(store.getWeeklyReview(big3SyncKey) || '[]')
+      return Array.isArray(value) ? value as string[] : []
+    } catch { return [] }
+  }, [store.weeklyReviews, big3SyncKey])
+  const weekMantra = store.getWeeklyReview(mantraSyncKey)
+  const weeklyJournalEntries = useMemo(() => {
+    try {
+      const value = JSON.parse(store.getWeeklyReview(journalSyncKey) || '[]')
+      return Array.isArray(value) ? value as JournalEntry[] : []
+    } catch { return [] }
+  }, [store.weeklyReviews, journalSyncKey])
 
   useEffect(() => {
     if (supabase) {
@@ -95,33 +112,32 @@ export default function Home() {
     }
   }, [])
 
-  useEffect(() => {
-    try {
-      const savedBig3 = localStorage.getItem(big3StorageKey)
-      setWeekBig3(savedBig3 ? JSON.parse(savedBig3) : [])
-      const savedMantra = localStorage.getItem(mantraStorageKey)
-      setWeekMantra(savedMantra || '')
-    } catch {
-      setWeekBig3([])
-      setWeekMantra('')
-    }
-  }, [big3StorageKey, mantraStorageKey])
-
   function saveBig3(texts: string[]) {
-    setWeekBig3(texts)
-    localStorage.setItem(big3StorageKey, JSON.stringify(texts))
+    store.updateWeeklyReview(big3SyncKey, JSON.stringify(texts))
   }
   function saveMantra(text: string) {
-    setWeekMantra(text)
-    localStorage.setItem(mantraStorageKey, text)
+    store.updateWeeklyReview(mantraSyncKey, text)
   }
 
-  const todayShortGoals = useMemo(
-    () => store.goals.filter(g => isGoalActive(g, new Date())),
-    [store.goals],
-  )
-  const todayGoalRoutines = todayShortGoals[0]?.routines ?? []
-  const todayGoalLabel = todayShortGoals[0]?.title
+  // Migrate meaningful browser-only data from earlier versions once, then use
+  // Supabase-backed weekly records on every device.
+  useEffect(() => {
+    if (!syncReady || typeof window === 'undefined') return
+    if (!store.getWeeklyReview(big3SyncKey)) {
+      const legacyBig3 = localStorage.getItem(`planr_week_big3_v2_${weekKey}`)
+      if (legacyBig3) store.updateWeeklyReview(big3SyncKey, legacyBig3)
+    }
+    if (!store.getWeeklyReview(mantraSyncKey)) {
+      const legacyMantra = localStorage.getItem(`planr_week_mantra_${weekKey}`)
+      if (legacyMantra) store.updateWeeklyReview(mantraSyncKey, legacyMantra)
+    }
+    if (!store.getWeeklyReview(journalSyncKey)) {
+      const legacyJournal = localStorage.getItem(`planr_weekly_review_${weekKey}_journal`)
+      if (legacyJournal) store.updateWeeklyReview(journalSyncKey, legacyJournal)
+    }
+  // The week keys and server snapshot are the only inputs; store methods are intentionally omitted.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncReady, weekKey, big3SyncKey, mantraSyncKey, journalSyncKey, store.weeklyReviews])
 
   // Top bar stats (subtask-aware) — excludes schedule/deadline, includes linked goal tasks/subtasks.
   const weekStats = useMemo(() => {
@@ -141,7 +157,7 @@ export default function Home() {
           for (const s of t.subtasks ?? []) {
             if (linkedSubIds.has(s.id)) {
               linkedTasks.push({
-                id: s.id, text: s.text, done: s.done,
+                id: s.id, text: s.text, done: s.done, discarded: s.discarded,
                 day_id: t.day_id, goal_id: t.goal_id,
                 category_id: t.category_id, category_name: t.category_name, category_color: t.category_color,
               })
@@ -154,15 +170,12 @@ export default function Home() {
       taskDone += p.done
     }
     const taskRate = taskTotal > 0 ? Math.round((taskDone / taskTotal) * 100) : null
-    const activeRoutines = store.routines.filter(r => r.status === 'active')
-    let routineDoneDays = 0
-    if (activeRoutines.length > 0) {
-      for (const d of weekDays) {
-        const ds = formatDate(d)
-        if (activeRoutines.every(r => store.logs.find(l => l.routine_id === r.id && l.date === ds && l.done))) routineDoneDays++
-      }
-    }
-    const routineRate = activeRoutines.length > 0 ? Math.round((routineDoneDays / 7) * 100) : null
+    const routineOccurrences = weekDays.flatMap(day => {
+      const date = formatDate(day)
+      return store.routines.filter(routine => isRoutineScheduledOn(routine, date)).map(routine => ({ routine, date }))
+    })
+    const routineDone = routineOccurrences.filter(({ routine, date }) => store.logs.some(log => log.routine_id === routine.id && log.date === date && log.done)).length
+    const routineRate = routineOccurrences.length > 0 ? Math.round((routineDone / routineOccurrences.length) * 100) : null
     const goalCount = store.goals.filter(g => {
       const ws = formatDate(weekDays[0]), we = formatDate(weekDays[6])
       return g.date_from <= we && g.date_to >= ws
@@ -232,9 +245,14 @@ export default function Home() {
         getDay={store.getDay}
         toggleTask={store.toggleTask}
         addTask={store.addTask}
+        updateTask={store.updateTask}
         deleteTask={store.deleteTask}
         updateMeta={store.updateMeta}
         toggleRoutineLog={store.toggleRoutineLog}
+        addRoutine={store.addRoutine}
+        updateRoutine={store.updateRoutine}
+        setRoutineStatus={store.setRoutineStatus}
+        deleteRoutine={store.deleteRoutine}
         toggleGoalTask={store.toggleGoalTask}
         addGoalTask={store.addGoalTask}
         deleteGoalTask={store.deleteGoalTask}
@@ -244,6 +262,9 @@ export default function Home() {
         unlinkGoalTask={store.unlinkGoalTask}
         getWeeklyReview={store.getWeeklyReview}
         updateWeeklyReview={store.updateWeeklyReview}
+        addCategory={store.addGlobalCategory}
+        deleteCategory={store.deleteGlobalCategory}
+        updateGoal={store.updateGoal}
       />
     </div>
 
@@ -255,12 +276,17 @@ export default function Home() {
           <div className="flex items-center gap-4">
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Planr</h1>
-              <p className="text-sm text-[var(--text-3)] mt-0.5">{formatMonth(weekBase)}</p>
+              <p className="text-sm text-[var(--text-3)] mt-0.5">{formatMonth(view === 'today' ? parseISO(selectedDate) : weekBase)}</p>
             </div>
             {!syncReady && <p className="text-sm text-[var(--text-3)]">동기화 중...</p>}
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 mr-2 bg-[var(--surface-2)] rounded-[10px] p-0.5">
+              <button onClick={() => { setView('today'); setSelectedDate(formatDate(new Date())); setSelectedGoalId(null) }}
+                className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
+                  view === 'today' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
+                오늘
+              </button>
               <button onClick={() => setView('week')}
                 className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
                   view === 'week' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
@@ -291,18 +317,29 @@ export default function Home() {
               )}
             </div>
 
-            <button onClick={() => setWeekBase(subWeeks(weekBase, 1))}
-              className="w-8 h-8 rounded-[8px] flex items-center justify-center hover:bg-white border border-transparent hover:border-[var(--border)] transition-all">
-              <ChevronLeft size={16} />
-            </button>
-            <button onClick={() => setWeekBase(new Date())}
-              className="px-3 h-8 rounded-[8px] text-sm font-medium hover:bg-white border border-transparent hover:border-[var(--border)] transition-all text-[var(--text-2)]">
-              오늘
-            </button>
-            <button onClick={() => setWeekBase(addWeeks(weekBase, 1))}
-              className="w-8 h-8 rounded-[8px] flex items-center justify-center hover:bg-white border border-transparent hover:border-[var(--border)] transition-all">
-              <ChevronRight size={16} />
-            </button>
+            {view === 'today' ? (
+              selectedDate !== formatDate(new Date()) && (
+                <button onClick={() => setSelectedDate(formatDate(new Date()))}
+                  className="px-3 h-8 rounded-[8px] text-sm font-medium hover:bg-white border border-transparent hover:border-[var(--border)] transition-all text-[var(--text-2)]">
+                  오늘로
+                </button>
+              )
+            ) : (
+              <>
+                <button onClick={() => setWeekBase(subWeeks(weekBase, 1))}
+                  className="w-8 h-8 rounded-[8px] flex items-center justify-center hover:bg-white border border-transparent hover:border-[var(--border)] transition-all">
+                  <ChevronLeft size={16} />
+                </button>
+                <button onClick={() => setWeekBase(new Date())}
+                  className="px-3 h-8 rounded-[8px] text-sm font-medium hover:bg-white border border-transparent hover:border-[var(--border)] transition-all text-[var(--text-2)]">
+                  이번 주
+                </button>
+                <button onClick={() => setWeekBase(addWeeks(weekBase, 1))}
+                  className="w-8 h-8 rounded-[8px] flex items-center justify-center hover:bg-white border border-transparent hover:border-[var(--border)] transition-all">
+                  <ChevronRight size={16} />
+                </button>
+              </>
+            )}
             {user && (
               <div className="flex items-center gap-2 ml-2">
                 <p className="text-sm text-[var(--text-3)]">{user.email}</p>
@@ -317,11 +354,13 @@ export default function Home() {
         </div>
 
         {/* Stats row */}
-        <div className="flex items-center gap-4 mb-5 text-xs text-[var(--text-3)]">
-          {weekStats.taskRate !== null && <span>할일 {weekStats.taskRate}%</span>}
-          {weekStats.routineRate !== null && <span>루틴 {weekStats.routineRate}%</span>}
-          {weekStats.goalCount > 0 && <span>목표 {weekStats.goalCount}개</span>}
-        </div>
+        {view !== 'today' && (
+          <div className="flex items-center gap-4 mb-5 text-xs text-[var(--text-3)]">
+            {weekStats.taskRate !== null && <span>할일 {weekStats.taskRate}%</span>}
+            {weekStats.routineRate !== null && <span>루틴 {weekStats.routineRate}%</span>}
+            {weekStats.goalCount > 0 && <span>목표 {weekStats.goalCount}개</span>}
+          </div>
+        )}
 
         {/* 2-column layout */}
         <div className="grid gap-5" style={{ gridTemplateColumns: '280px 1fr' }}>
@@ -358,32 +397,45 @@ export default function Home() {
               )}
             </div>
 
-            <CategoryPanel
-              categories={store.categories}
-              onAdd={store.addGlobalCategory}
-              onDelete={store.deleteGlobalCategory}
-              onReorder={store.reorderCategory}
-            />
-
-            <RoutineSidebar
+            {view !== 'today' && <RoutineSidebar
               routines={store.routines}
               logs={store.logs}
-              goalRoutines={todayGoalRoutines}
-              goalLabel={todayGoalLabel}
               selectedDate={selectedDate}
               onToggleLog={store.toggleRoutineLog}
               onAddRoutine={store.addRoutine}
               onSetStatus={store.setRoutineStatus}
-              onUpdateName={store.updateRoutineName}
               onUpdateRoutine={store.updateRoutine}
-              onReorderRoutine={store.reorderRoutine}
               onDeleteRoutine={store.deleteRoutine}
-            />
+            />}
           </div>
 
           {/* Main content */}
           <div className="flex flex-col gap-4 min-w-0">
-            {view === 'journal' ? (
+            {view === 'today' ? (
+              <TodayDashboard
+                date={selectedDate}
+                entry={selectedEntry}
+                categories={store.categories}
+                goals={store.goals}
+                longGoals={store.longGoals}
+                routines={store.routines}
+                routineLogs={store.logs}
+                onDateChange={date => { setSelectedDate(date); setSelectedGoalId(null) }}
+                onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
+                onAddTask={(categoryId, text, schedule) => store.addTask(selectedDate, categoryId, text, schedule)}
+                onCarryTask={(targetDate, categoryId, text, schedule) => store.addTask(targetDate, categoryId, text, schedule)}
+                onUpdateTask={(taskId, patch) => store.updateTask(selectedDate, taskId, patch)}
+                onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
+                onMetaChange={patch => store.updateMeta(selectedDate, patch)}
+                onAddCategory={store.addGlobalCategory}
+                onDeleteCategory={store.deleteGlobalCategory}
+                onToggleRoutine={store.toggleRoutineLog}
+                onAddRoutine={store.addRoutine}
+                onUpdateRoutine={store.updateRoutine}
+                onSetRoutineStatus={store.setRoutineStatus}
+                onDeleteRoutine={store.deleteRoutine}
+              />
+            ) : view === 'journal' ? (
               <Card className="p-5">
                 <JournalView
                   days={store.days}
@@ -392,6 +444,8 @@ export default function Home() {
                   onDeleteDayNote={(date, noteId) => store.deleteDayNote(date, noteId)}
                   onUpdateGoalNote={(goalId, noteId, text) => store.updateGoalNote(goalId, noteId, text)}
                   onDeleteGoalNote={(goalId, noteId) => store.deleteGoalNote(goalId, noteId)}
+                  weeklyReviews={store.weeklyReviews}
+                  onUpdateWeeklyReview={store.updateWeeklyReview}
                 />
               </Card>
             ) : view === 'review' ? (
@@ -399,9 +453,10 @@ export default function Home() {
                 <WeeklyReview
                   weekDays={weekDays}
                   days={store.days}
-                  goals={store.goals}
                   routines={store.routines}
                   logs={store.logs}
+                  journalEntries={weeklyJournalEntries}
+                  onJournalEntriesChange={entries => store.updateWeeklyReview(journalSyncKey, JSON.stringify(entries))}
                 />
               </Card>
             ) : (
@@ -409,6 +464,8 @@ export default function Home() {
                 {/* Weekly prompt */}
                 <WeeklyPrompt
                   weekKey={weekKey}
+                  hasBig3={weekBig3.some(item => item.trim().length > 0)}
+                  hasJournal={weeklyJournalEntries.length > 0}
                   onGoToBig3={() => setShowBig3Modal(true)}
                   onGoToReview={() => setView('review')}
                 />
@@ -508,7 +565,7 @@ export default function Home() {
                     ))}
                   </div>
                   <GoalSpanRow weekDays={weekDays} goalRows={goalRows} selectedGoalId={selectedGoalId}
-                    onSelectGoal={id => setSelectedGoalId(prev => prev === id ? null : id)} />
+                    onEditGoal={setEditingGoalId} />
                   <div className="mt-2 flex justify-end">
                     <button onClick={() => setShowGoalForm(v => !v)}
                       className="flex items-center gap-1 text-[13px] text-[var(--text-3)] hover:text-[var(--text-2)] px-2 py-1 rounded-[6px] hover:bg-white transition-all">
@@ -549,54 +606,56 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* Detail panel */}
+                {/* Weekly input is intentionally limited to schedules and deadlines. */}
                 <Card className="p-5">
                   {selectedGoal ? (
                     <GoalDetail
                       goal={selectedGoal}
                       categories={store.categories}
-                      allRoutines={store.routines}
                       onUpdate={patch => store.updateGoal(selectedGoal.id, patch)}
                       onDelete={() => { store.deleteGoal(selectedGoal.id); setSelectedGoalId(null) }}
                       onToggleTask={taskId => store.toggleGoalTask(selectedGoal.id, taskId)}
                       onAddTask={(catId, text) => store.addGoalTask(selectedGoal.id, catId, text)}
                       onDeleteTask={taskId => store.deleteGoalTask(selectedGoal.id, taskId)}
                       onUpdateTask={(taskId, patch) => store.updateGoalTask(selectedGoal.id, taskId, patch)}
-                      onAddRoutine={name => store.addRoutine(name)}
                       onAddNote={text => store.addGoalNote(selectedGoal.id, text)}
                       onUpdateNote={(noteId, text) => store.updateGoalNote(selectedGoal.id, noteId, text)}
                       onDeleteNote={noteId => store.deleteGoalNote(selectedGoal.id, noteId)}
                       onReorderTasks={(catId, dId, tId) => store.reorderGoalTasks(selectedGoal.id, catId, dId, tId)}
                     />
                   ) : (
-                    <DayDetail
-                      date={parseISO(selectedDate)}
+                    <WeeklyScheduleEditor
                       entry={selectedEntry}
-                      categories={store.categories}
-                      goals={store.goals}
                       onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
-                      onAddTask={(catId, text, time) => store.addTask(selectedDate, catId, text, time)}
+                      onAddTask={(catId, text, schedule) => store.addTask(selectedDate, catId, text, schedule)}
                       onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
                       onUpdateTask={(taskId, patch) => store.updateTask(selectedDate, taskId, patch)}
-                      onMetaChange={patch => store.updateMeta(selectedDate, patch)}
-                      onAddDayNote={(title, body) => store.addDayNote(selectedDate, title, body)}
-                      onUpdateDayNote={(noteId, title, body) => store.updateDayNote(selectedDate, noteId, title, body)}
-                      onDeleteDayNote={noteId => store.deleteDayNote(selectedDate, noteId)}
-                      onReorderTasks={(catId, dId, tId) => store.reorderDayTasks(selectedDate, catId, dId, tId)}
-                      onLinkGoalTask={taskId => store.linkGoalTask(selectedDate, taskId)}
-                      onUnlinkGoalTask={taskId => store.unlinkGoalTask(selectedDate, taskId)}
-                      onToggleLinkedTask={(goalId, taskId) => store.toggleGoalTask(goalId, taskId)}
-                      onLinkGoalSubtask={subtaskId => store.linkGoalSubtask(selectedDate, subtaskId)}
-                      onUnlinkGoalSubtask={subtaskId => store.unlinkGoalSubtask(selectedDate, subtaskId)}
-                      onToggleLinkedSubtask={(goalId, taskId, subtaskId) => store.toggleGoalSubtask(goalId, taskId, subtaskId)}
                     />
                   )}
                 </Card>
+
+                <MonthlyGoalCalendar
+                  monthBase={monthBase}
+                  goals={store.goals}
+                  selectedDate={selectedDate}
+                  onMonthChange={setMonthBase}
+                  onSelectDate={date => { setSelectedDate(date); setSelectedGoalId(null) }}
+                  onAddGoal={store.addGoal}
+                  onUpdateGoal={store.updateGoal}
+                  onEditGoal={setEditingGoalId}
+                />
               </>
             )}
           </div>
         </div>
       </div>
+
+      <ShortGoalEditModal
+        goal={editingGoal}
+        onClose={() => setEditingGoalId(null)}
+        onSave={store.updateGoal}
+        onOpenDetail={id => setSelectedGoalId(id)}
+      />
 
       {/* Quick Add FAB */}
       <div className="fixed bottom-6 right-6 z-20 flex flex-col items-end gap-2">
