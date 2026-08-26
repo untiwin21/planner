@@ -3,6 +3,8 @@ export type BadgeColor = 'purple' | 'teal' | 'amber' | 'coral' | 'blue' | 'gray'
 export const SCHEDULE_CAT_ID = 'schedule'
 export const DEADLINE_CAT_ID = 'deadline'
 
+export type ScheduleType = 'personal' | 'external' | 'deep-work'
+
 export interface SubTask {
   id: string
   text: string
@@ -29,6 +31,8 @@ export interface Task {
   category_id: string
   category_name: string
   category_color: BadgeColor
+  /** Schedule subtype used for calendar color mapping. Legacy schedule tasks default to personal. */
+  schedule_type?: ScheduleType
   /** Legacy single start-time field kept for existing data. */
   time?: string
   /** Start/end are local wall-clock values in HH:mm format. */
@@ -144,6 +148,7 @@ export interface RoutineConfig {
   cue_type?: RoutineCueType
   cue_label?: string
   minimum_version?: string
+  /** User-facing routine category, e.g. "기상 루틴". Kept as bundle for backward compatibility. */
   bundle?: string
   stage?: RoutineStage
   category_color?: BadgeColor
@@ -190,6 +195,7 @@ export interface TaskScheduleInput {
   end_time?: string
   duration_min?: number
   fixed?: boolean
+  schedule_type?: ScheduleType
   actual_start_time?: string
   actual_end_time?: string
   actual_status?: 'recorded' | 'skipped'
