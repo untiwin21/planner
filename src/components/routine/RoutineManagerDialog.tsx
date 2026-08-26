@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Archive, CheckCircle2, Clock3, Pause, Pencil, Play, Plus, Timer, Trash2, X } from 'lucide-react'
+import { Archive, CheckCircle2, Clock3, GripVertical, Pause, Pencil, Play, Plus, Timer, Trash2, X } from 'lucide-react'
 import clsx from 'clsx'
 import {
   ROUTINE_WEEKDAYS,
@@ -95,44 +95,54 @@ export function RoutineManagerDialog({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState('')
+  const [draggedRoutineId, setDraggedRoutineId] = useState<string | null>(null)
+  const [dragOverRoutineId, setDragOverRoutineId] = useState<string | null>(null)
 
   const formingCount = routines.filter(routine => routine.status === 'active' && routineStage(routine) === 'forming').length
   const categoryOptions = useMemo(
     () => Array.from(new Set(routines.map(routine => routineConfig(routine).bundle?.trim()).filter((value): value is string => !!value))).sort((a, b) => a.localeCompare(b, 'ko')),
     [routines],
   )
+  const orderedRoutines = useMemo(() => {
+    const originalIndex = new Map(routines.map((routine, index) => [routine.id, index]))
+    return [...routines].sort((a, b) => {
+      const orderDiff = (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER)
+      if (orderDiff !== 0) return orderDiff
+      return (originalIndex.get(a.id) ?? 0) - (originalIndex.get(b.id) ?? 0)
+    })
+  }, [routines])
   const sections = useMemo(() => [
     {
       key: 'forming',
       label: '형성 중',
       hint: '지금 의식적으로 익히는 루틴 · 최대 3개',
-      items: routines.filter(routine => routine.status === 'active' && routineStage(routine) === 'forming'),
+      items: orderedRoutines.filter(routine => routine.status === 'active' && routineStage(routine) === 'forming'),
     },
     {
       key: 'maintenance',
       label: '유지 중',
       hint: '이미 자리를 잡아 계속 유지하는 루틴',
-      items: routines.filter(routine => routine.status === 'active' && routineStage(routine) === 'maintenance'),
+      items: orderedRoutines.filter(routine => routine.status === 'active' && routineStage(routine) === 'maintenance'),
     },
     {
       key: 'backlog',
       label: '보관함',
       hint: '다음에 시작할 후보',
-      items: routines.filter(routine => routine.status === 'active' && routineStage(routine) === 'backlog'),
+      items: orderedRoutines.filter(routine => routine.status === 'active' && routineStage(routine) === 'backlog'),
     },
     {
       key: 'paused',
       label: '일시정지',
       hint: '당분간 오늘 계획에 표시하지 않음',
-      items: routines.filter(routine => routine.status === 'paused'),
+      items: orderedRoutines.filter(routine => routine.status === 'paused'),
     },
     {
       key: 'archived',
       label: '보관 기록',
       hint: '완전히 종료한 루틴',
-      items: routines.filter(routine => routine.status === 'archived'),
+      items: orderedRoutines.filter(routine => routine.status === 'archived'),
     },
-  ], [routines])
+  ], [orderedRoutines])
 
   function resetForm() {
     setDraft(EMPTY_DRAFT)
@@ -200,6 +210,28 @@ export function RoutineManagerDialog({
     }))
   }
 
+  function reorderWithinSection(items: Routine[], sourceId: string, targetId: string) {
+    if (sourceId === targetId) return
+    const sourceInSection = items.some(routine => routine.id === sourceId)
+    const targetInSection = items.some(routine => routine.id === targetId)
+    if (!sourceInSection || !targetInSection) return
+
+    const next = [...orderedRoutines]
+    const from = next.findIndex(routine => routine.id === sourceId)
+    const to = next.findIndex(routine => routine.id === targetId)
+    if (from < 0 || to < 0) return
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    next.forEach((routine, index) => {
+      if ((routine.order ?? Number.MAX_SAFE_INTEGER) !== index) onUpdateRoutine(routine.id, { order: index })
+    })
+  }
+
+  function finishDrag() {
+    setDraggedRoutineId(null)
+    setDragOverRoutineId(null)
+  }
+
   return (
     <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4" onClick={onClose}>
       <div
@@ -212,7 +244,7 @@ export function RoutineManagerDialog({
         <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--border)] bg-white/95 px-5 py-4 backdrop-blur-sm">
           <div>
             <h2 className="text-lg font-bold">루틴 설계실</h2>
-            <p className="mt-0.5 text-xs text-[var(--text-3)]">같은 카테고리의 행동은 오늘 화면에서 하나의 큰 루틴으로 묶입니다.</p>
+            <p className="mt-0.5 text-xs text-[var(--text-3)]">같은 카테고리의 행동은 하나로 묶이고, ≡ 손잡이를 드래그해 순서를 바꿀 수 있습니다.</p>
           </div>
           <button type="button" aria-label="닫기" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-[var(--surface-2)]"><X size={17} /></button>
         </div>
@@ -235,26 +267,63 @@ export function RoutineManagerDialog({
                   </div>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  {section.items.map(routine => (
-                    <div key={routine.id} className="group flex items-center gap-2 rounded-[11px] border border-[var(--border)] px-3 py-2.5">
-                      <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-full', `cat-${routineConfig(routine).category_color}`)} />
-                      <button type="button" onClick={() => startEdit(routine)} className="min-w-0 flex-1 text-left">
-                        <span className="block truncate text-sm font-semibold">{routine.name}</span>
-                        <span className="block truncate text-[10px] text-[var(--text-3)]">{routineSubtitle(routine)}</span>
-                      </button>
-                      <button type="button" aria-label={`${routine.name} 수정`} onClick={() => startEdit(routine)} className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--text-3)] hover:bg-[var(--surface-2)]"><Pencil size={12} /></button>
-                      {routine.status === 'active' ? (
-                        <button type="button" aria-label={`${routine.name} 일시정지`} onClick={() => onSetStatus(routine.id, 'paused')} className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--text-3)] hover:bg-[var(--surface-2)]"><Pause size={12} /></button>
-                      ) : (
-                        <button type="button" aria-label={`${routine.name} 재개`} onClick={() => onSetStatus(routine.id, 'active')} className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--teal)] hover:bg-[var(--teal-bg)]"><Play size={12} /></button>
-                      )}
-                      {routine.status !== 'archived' ? (
-                        <button type="button" aria-label={`${routine.name} 보관`} onClick={() => onSetStatus(routine.id, 'archived')} className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--text-3)] hover:bg-[var(--surface-2)]"><Archive size={12} /></button>
-                      ) : (
-                        <button type="button" aria-label={`${routine.name} 삭제`} onClick={() => onDeleteRoutine(routine.id)} className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--red)] hover:bg-[var(--red-bg)]"><Trash2 size={12} /></button>
-                      )}
-                    </div>
-                  ))}
+                  {section.items.map(routine => {
+                    const isDragging = draggedRoutineId === routine.id
+                    const isDragTarget = dragOverRoutineId === routine.id && draggedRoutineId !== routine.id
+                    return (
+                      <div
+                        key={routine.id}
+                        onDragOver={event => {
+                          if (!draggedRoutineId || !section.items.some(item => item.id === draggedRoutineId)) return
+                          event.preventDefault()
+                          event.dataTransfer.dropEffect = 'move'
+                          setDragOverRoutineId(routine.id)
+                        }}
+                        onDrop={event => {
+                          event.preventDefault()
+                          if (draggedRoutineId) reorderWithinSection(section.items, draggedRoutineId, routine.id)
+                          finishDrag()
+                        }}
+                        className={clsx(
+                          'group flex items-center gap-2 rounded-[11px] border px-2 py-2.5 transition-all',
+                          isDragging ? 'border-[var(--border)] opacity-40' : 'border-[var(--border)]',
+                          isDragTarget && 'border-[var(--purple)] bg-[var(--purple-bg)]/55',
+                        )}
+                      >
+                        <span
+                          draggable
+                          aria-label={`${routine.name} 순서 이동`}
+                          title="드래그해서 순서 변경"
+                          onDragStart={event => {
+                            setDraggedRoutineId(routine.id)
+                            setDragOverRoutineId(routine.id)
+                            event.dataTransfer.effectAllowed = 'move'
+                            event.dataTransfer.setData('text/plain', routine.id)
+                          }}
+                          onDragEnd={finishDrag}
+                          className="flex h-7 w-6 shrink-0 cursor-grab items-center justify-center rounded-[7px] text-[var(--text-3)] hover:bg-white active:cursor-grabbing"
+                        >
+                          <GripVertical size={14} />
+                        </span>
+                        <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-full', `cat-${routineConfig(routine).category_color}`)} />
+                        <button type="button" onClick={() => startEdit(routine)} className="min-w-0 flex-1 text-left">
+                          <span className="block truncate text-sm font-semibold">{routine.name}</span>
+                          <span className="block truncate text-[10px] text-[var(--text-3)]">{routineSubtitle(routine)}</span>
+                        </button>
+                        <button type="button" aria-label={`${routine.name} 수정`} onClick={() => startEdit(routine)} className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--text-3)] hover:bg-[var(--surface-2)]"><Pencil size={12} /></button>
+                        {routine.status === 'active' ? (
+                          <button type="button" aria-label={`${routine.name} 일시정지`} onClick={() => onSetStatus(routine.id, 'paused')} className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--text-3)] hover:bg-[var(--surface-2)]"><Pause size={12} /></button>
+                        ) : (
+                          <button type="button" aria-label={`${routine.name} 재개`} onClick={() => onSetStatus(routine.id, 'active')} className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--teal)] hover:bg-[var(--teal-bg)]"><Play size={12} /></button>
+                        )}
+                        {routine.status !== 'archived' ? (
+                          <button type="button" aria-label={`${routine.name} 보관`} onClick={() => onSetStatus(routine.id, 'archived')} className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--text-3)] hover:bg-[var(--surface-2)]"><Archive size={12} /></button>
+                        ) : (
+                          <button type="button" aria-label={`${routine.name} 삭제`} onClick={() => onDeleteRoutine(routine.id)} className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--red)] hover:bg-[var(--red-bg)]"><Trash2 size={12} /></button>
+                        )}
+                      </div>
+                    )
+                  })}
                   {section.items.length === 0 && <p className="rounded-[10px] border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--text-3)]">비어 있음</p>}
                 </div>
               </section>
