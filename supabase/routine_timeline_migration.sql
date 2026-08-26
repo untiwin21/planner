@@ -2,14 +2,14 @@
 -- Existing routines and logs remain compatible.
 
 alter table routines
-  add column if not exists config jsonb default '{}';
+  add column if not exists config jsonb default '{}',
+  add column if not exists updated_at bigint;
 
 alter table routine_logs
-  add column if not exists completion text;
-
-alter table routine_logs
+  add column if not exists completion text,
   add column if not exists actual_start_time text,
-  add column if not exists actual_end_time text;
+  add column if not exists actual_end_time text,
+  add column if not exists updated_at bigint;
 
 update routines
 set config = '{}'
