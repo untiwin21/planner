@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Layers3, Settings2, Sparkles } from 'lucide-react'
+import { GripVertical, Layers3, Settings2, Sparkles } from 'lucide-react'
 import { subDays, parseISO } from 'date-fns'
 import clsx from 'clsx'
 import { formatDate, getWeekDays } from '@/lib/dates'
@@ -52,6 +52,12 @@ function categoryName(routine: Routine) {
   return routineConfig(routine).bundle?.trim() || '기타 루틴'
 }
 
+function compareRoutineOrder(a: Routine, b: Routine) {
+  const orderDiff = (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER)
+  if (orderDiff !== 0) return orderDiff
+  return (a.time ?? '99:99').localeCompare(b.time ?? '99:99')
+}
+
 function groupByCategory(routines: Routine[]): RoutineCategory[] {
   const groups = new Map<string, Routine[]>()
   for (const routine of routines) {
@@ -59,11 +65,7 @@ function groupByCategory(routines: Routine[]): RoutineCategory[] {
     groups.set(label, [...(groups.get(label) ?? []), routine])
   }
   return [...groups.entries()].map(([label, items]) => {
-    const sorted = [...items].sort((a, b) => {
-      const timeDiff = (a.time ?? '99:99').localeCompare(b.time ?? '99:99')
-      if (timeDiff !== 0) return timeDiff
-      return (a.order ?? 0) - (b.order ?? 0)
-    })
+    const sorted = [...items].sort(compareRoutineOrder)
     return {
       key: label,
       label,
@@ -106,6 +108,8 @@ export function RoutineSidebar({
   const viewDate = selectedDate || today
   const isToday = viewDate === today
   const [showRoutineManager, setShowRoutineManager] = useState(false)
+  const [draggedRoutineId, setDraggedRoutineId] = useState<string | null>(null)
+  const [dragOverRoutineId, setDragOverRoutineId] = useState<string | null>(null)
 
   const activeRoutines = useMemo(
     () => routines.filter(routine => isRoutineScheduledOn(routine, viewDate)),
@@ -153,6 +157,25 @@ export function RoutineSidebar({
     }
   }
 
+  function reorderWithinCategory(category: RoutineCategory, sourceId: string, targetId: string) {
+    if (sourceId === targetId) return
+    const current = [...category.routines]
+    const from = current.findIndex(routine => routine.id === sourceId)
+    const to = current.findIndex(routine => routine.id === targetId)
+    if (from < 0 || to < 0) return
+
+    const [moved] = current.splice(from, 1)
+    current.splice(to, 0, moved)
+    current.forEach((routine, index) => {
+      if ((routine.order ?? Number.MAX_SAFE_INTEGER) !== index) onUpdateRoutine(routine.id, { order: index })
+    })
+  }
+
+  function finishDrag() {
+    setDraggedRoutineId(null)
+    setDragOverRoutineId(null)
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-[18px] border border-[var(--border)] bg-white p-4">
@@ -162,7 +185,7 @@ export function RoutineSidebar({
               <Sparkles size={15} className="text-[var(--teal)]" />
               <h3 className="text-sm font-bold">{isToday ? '오늘 루틴' : `${viewDate.slice(5)} 루틴`}</h3>
             </div>
-            <p className="mt-1 text-xs text-[var(--text-3)]">시간대 대신 루틴 카테고리로 묶어서 한 번에 실행하세요.</p>
+            <p className="mt-1 text-xs text-[var(--text-3)]">카테고리 안의 손잡이를 드래그해서 루틴 순서를 바꿀 수 있어요.</p>
           </div>
           <div className="text-right">
             <p className="text-lg font-bold text-[var(--teal-text)]">{doneCnt}/{activeRoutines.length}</p>
@@ -205,8 +228,46 @@ export function RoutineSidebar({
                     const config = routineConfig(routine)
                     const streak = calcStreak(routine.id, viewDate, logs)
                     const badge = streakBadge(streak)
+                    const isDragging = draggedRoutineId === routine.id
+                    const isDragTarget = dragOverRoutineId === routine.id && draggedRoutineId !== routine.id
                     return (
-                      <div key={routine.id} className={clsx('flex items-center gap-3 px-4 py-3 transition-colors', done && 'bg-[var(--surface-2)]/60')}>
+                      <div
+                        key={routine.id}
+                        onDragOver={event => {
+                          if (!draggedRoutineId || !category.routines.some(item => item.id === draggedRoutineId)) return
+                          event.preventDefault()
+                          event.dataTransfer.dropEffect = 'move'
+                          setDragOverRoutineId(routine.id)
+                        }}
+                        onDrop={event => {
+                          event.preventDefault()
+                          if (draggedRoutineId && category.routines.some(item => item.id === draggedRoutineId)) {
+                            reorderWithinCategory(category, draggedRoutineId, routine.id)
+                          }
+                          finishDrag()
+                        }}
+                        className={clsx(
+                          'flex items-center gap-2 px-3 py-3 transition-all',
+                          done && 'bg-[var(--surface-2)]/60',
+                          isDragging && 'opacity-40',
+                          isDragTarget && 'bg-[var(--purple-bg)]/65 ring-1 ring-inset ring-[var(--purple)]/30',
+                        )}
+                      >
+                        <span
+                          draggable
+                          aria-label={`${routine.name} 순서 이동`}
+                          title="드래그해서 순서 변경"
+                          onDragStart={event => {
+                            setDraggedRoutineId(routine.id)
+                            setDragOverRoutineId(routine.id)
+                            event.dataTransfer.effectAllowed = 'move'
+                            event.dataTransfer.setData('text/plain', routine.id)
+                          }}
+                          onDragEnd={finishDrag}
+                          className="flex h-8 w-6 shrink-0 cursor-grab items-center justify-center rounded-[7px] text-[var(--text-3)] hover:bg-[var(--surface-2)] active:cursor-grabbing"
+                        >
+                          <GripVertical size={15} />
+                        </span>
                         <CircleCheck checked={done} onChange={() => onToggleLog(routine.id, viewDate)} />
                         <div className="min-w-0 flex-1">
                           <p className={clsx('truncate text-sm font-semibold', done && 'line-through text-[var(--text-3)]')}>{routine.name}</p>
