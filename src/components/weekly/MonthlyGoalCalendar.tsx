@@ -19,7 +19,7 @@ import {
 import { ko } from 'date-fns/locale'
 import clsx from 'clsx'
 import { formatDate } from '@/lib/dates'
-import type { DayEntry, ShortGoal, Task } from '@/types'
+import type { DayEntry, ScheduleType, ShortGoal, Task } from '@/types'
 import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
 
 interface Props {
@@ -68,6 +68,28 @@ const GOAL_COLORS = [
   'bg-[var(--coral-bg)] text-[var(--coral-text)] border-orange-200',
   'bg-[var(--blue-bg)] text-[var(--blue-text)] border-blue-200',
 ]
+
+const SCHEDULE_STYLE: Record<ScheduleType, { label: string; event: string; dot: string }> = {
+  personal: {
+    label: '개인 일정',
+    event: 'border-[#AFCBED] bg-[#EEF5FF] text-[#315A9E]',
+    dot: 'bg-[#4F8EDC]',
+  },
+  external: {
+    label: '외부 일정',
+    event: 'border-[#A9D7BC] bg-[#ECF8F0] text-[#26734D]',
+    dot: 'bg-[#4FA773]',
+  },
+  'deep-work': {
+    label: 'Deep Work',
+    event: 'border-[#EDB5CF] bg-[#FDECF4] text-[#A43A6C]',
+    dot: 'bg-[#D96B9D]',
+  },
+}
+
+function scheduleMeta(task: Task) {
+  return SCHEDULE_STYLE[task.schedule_type ?? 'personal']
+}
 
 function orderedRange(a: string, b: string) {
   return a <= b ? { from: a, to: b } : { from: b, to: a }
@@ -219,7 +241,16 @@ export function MonthlyGoalCalendar({ monthBase, goals, days: dayEntries = [], s
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border)]">
         <div>
           <h3 className="text-sm font-bold">월간 단기 일정</h3>
-          <p className="text-xs text-[var(--text-3)] mt-0.5">단기목표와 날짜별 일정·데드라인을 함께 봅니다. 일정 바는 옮기거나 기간을 조정할 수 있습니다.</p>
+          <p className="text-xs text-[var(--text-3)] mt-0.5">단기목표와 날짜별 일정·데드라인을 함께 봅니다. 일정은 카테고리별 색상으로 구분됩니다.</p>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            {(Object.keys(SCHEDULE_STYLE) as ScheduleType[]).map(type => (
+              <span key={type} className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[var(--text-3)]">
+                <span className={clsx('h-2 w-2 rounded-full', SCHEDULE_STYLE[type].dot)} />
+                {SCHEDULE_STYLE[type].label}
+              </span>
+            ))}
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[var(--text-3)]"><span className="h-2 w-2 rounded-full bg-[var(--red)]" />데드라인</span>
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <button type="button" aria-label="이전 달" onClick={() => onMonthChange(subMonths(monthBase, 1))} className="w-8 h-8 rounded-[8px] hover:bg-[var(--surface-2)] flex items-center justify-center"><ChevronLeft size={15} /></button>
@@ -326,6 +357,7 @@ export function MonthlyGoalCalendar({ monthBase, goals, days: dayEntries = [], s
                 {visibleWeekEvents.map(event => {
                   const isDeadline = event.task.category_id === DEADLINE_CAT_ID
                   const time = event.task.start_time ?? event.task.time
+                  const typeMeta = isDeadline ? null : scheduleMeta(event.task)
                   return (
                     <button
                       type="button"
@@ -338,12 +370,12 @@ export function MonthlyGoalCalendar({ monthBase, goals, days: dayEntries = [], s
                         'pointer-events-auto mx-0.5 flex min-w-0 items-center gap-1 truncate rounded-[6px] border px-1.5 text-left text-[10px] font-semibold',
                         isDeadline
                           ? 'border-red-200 bg-[var(--red-bg)] text-[var(--red-text)]'
-                          : 'border-blue-200 bg-[var(--blue-bg)] text-[var(--blue-text)]',
+                          : typeMeta?.event,
                       )}
                       style={{ gridColumn: event.dayIndex + 1, gridRow: laneCount + event.eventIndex + 1 }}
-                      title={`${isDeadline ? '데드라인' : '일정'} · ${time ? `${time} ` : ''}${event.task.text}`}
+                      title={`${isDeadline ? '데드라인' : typeMeta?.label ?? '개인 일정'} · ${time ? `${time} ` : ''}${event.task.text}`}
                     >
-                      <span className="shrink-0">{isDeadline ? '●' : time ?? '일정'}</span>
+                      <span className="shrink-0">{isDeadline ? '●' : time ?? typeMeta?.label ?? '일정'}</span>
                       <span className="min-w-0 flex-1 truncate">{event.task.text}</span>
                     </button>
                   )
