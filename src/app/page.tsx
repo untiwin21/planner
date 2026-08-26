@@ -1,6 +1,6 @@
 'use client'
 import { useState, useMemo, useEffect } from 'react'
-import { ChevronLeft, ChevronRight, Plus, X, LogOut, Timer } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, X, LogOut, Timer, RefreshCw } from 'lucide-react'
 import { addWeeks, subWeeks, parseISO, startOfWeek as dfStartOfWeek, format } from 'date-fns'
 import { getWeekDays, formatDate, formatMonth } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
@@ -71,6 +71,7 @@ export default function Home() {
   const [view, setView] = useState<'today' | 'week' | 'review' | 'journal'>('today')
   const [showCalendar, setShowCalendar] = useState(true)
   const [showFocusTimer, setShowFocusTimer] = useState(false)
+  const [todayFace, setTodayFace] = useState<'tasks' | 'routines'>('tasks')
 
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   const [qaTaskText, setQaTaskText] = useState('')
@@ -413,30 +414,49 @@ export default function Home() {
           {/* Main content */}
           <div className="flex flex-col gap-4 min-w-0">
             {view === 'today' ? (
-              <TodayDashboard
-                date={selectedDate}
-                entry={selectedEntry}
-                categories={store.categories}
-                goals={store.goals}
-                longGoals={store.longGoals}
-                routines={store.routines}
-                routineLogs={store.logs}
-                onDateChange={date => { setSelectedDate(date); setSelectedGoalId(null) }}
-                onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
-                onAddTask={(categoryId, text, schedule) => store.addTask(selectedDate, categoryId, text, schedule)}
-                onCarryTask={(targetDate, categoryId, text, schedule) => store.addTask(targetDate, categoryId, text, schedule)}
-                onUpdateTask={(taskId, patch) => store.updateTask(selectedDate, taskId, patch)}
-                onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
-                onMetaChange={patch => store.updateMeta(selectedDate, patch)}
-                onAddCategory={store.addGlobalCategory}
-                onDeleteCategory={store.deleteGlobalCategory}
-                onToggleRoutine={store.toggleRoutineLog}
-                onUpdateRoutineLog={store.updateRoutineLog}
-                onAddRoutine={store.addRoutine}
-                onUpdateRoutine={store.updateRoutine}
-                onSetRoutineStatus={store.setRoutineStatus}
-                onDeleteRoutine={store.deleteRoutine}
-              />
+              <>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setTodayFace(face => face === 'tasks' ? 'routines' : 'tasks')}
+                    className="h-8 px-3 rounded-[9px] bg-white border border-[var(--border)] text-sm font-medium text-[var(--text-2)] hover:border-[var(--purple)] hover:text-[var(--purple)] transition-all flex items-center gap-1.5 shadow-sm"
+                    title={todayFace === 'tasks' ? '루틴으로 뒤집기' : '오늘 할 일로 뒤집기'}
+                  >
+                    <RefreshCw size={13} />
+                    {todayFace === 'tasks' ? '루틴 보기' : '오늘 할 일 보기'}
+                  </button>
+                </div>
+
+                {todayFace === 'tasks' ? (
+                  <TodayDashboard
+                    date={selectedDate}
+                    entry={selectedEntry}
+                    categories={store.categories}
+                    goals={store.goals}
+                    longGoals={store.longGoals}
+                    onDateChange={date => { setSelectedDate(date); setSelectedGoalId(null) }}
+                    onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
+                    onAddTask={(categoryId, text, schedule) => store.addTask(selectedDate, categoryId, text, schedule)}
+                    onCarryTask={(targetDate, categoryId, text, schedule) => store.addTask(targetDate, categoryId, text, schedule)}
+                    onUpdateTask={(taskId, patch) => store.updateTask(selectedDate, taskId, patch)}
+                    onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
+                    onMetaChange={patch => store.updateMeta(selectedDate, patch)}
+                    onAddCategory={store.addGlobalCategory}
+                    onDeleteCategory={store.deleteGlobalCategory}
+                  />
+                ) : (
+                  <RoutineSidebar
+                    routines={store.routines}
+                    logs={store.logs}
+                    selectedDate={selectedDate}
+                    onToggleLog={store.toggleRoutineLog}
+                    onAddRoutine={store.addRoutine}
+                    onSetStatus={store.setRoutineStatus}
+                    onUpdateRoutine={store.updateRoutine}
+                    onDeleteRoutine={store.deleteRoutine}
+                  />
+                )}
+              </>
             ) : view === 'journal' ? (
               <Card className="p-5">
                 <JournalView
