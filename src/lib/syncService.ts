@@ -152,30 +152,43 @@ export async function upsertRoutine(userId: string, routine: Routine): Promise<v
   if (!supabase) return
   const db = supabase as any
   const { id, name, status, created_at, time, order, period, config, updated_at } = routine
-  const { error } = await db.from('routines').upsert({
+  const baseRecord = {
     id, user_id: userId, name, status, created_at,
     time: time ?? null, order: order ?? 0, period: period ?? 'anytime', config: config ?? {},
+  }
+  const { error } = await db.from('routines').upsert({
+    ...baseRecord,
     updated_at: updated_at ?? null,
   })
-  if (error) {
-    if (error.code === '42703' || (error.message && error.message.includes('column'))) {
-      // Existing deployments may have the extended routine fields but not the
-      // newest timestamp column. Preserve those fields whenever possible.
-      const { error: extendedError } = await db.from('routines').upsert({
-        id, user_id: userId, name, status, created_at,
-        time: time ?? null, order: order ?? 0, period: period ?? 'anytime',
-      })
-      if (!extendedError) return
-      const { error: e2 } = await db.from('routines').upsert({ id, user_id: userId, name, status, created_at })
-      if (e2) {
-        console.error('Error upserting routine (fallback):', e2.message, e2)
-        throw new Error(`upsertRoutine fallback failed: ${e2.message}`)
-      }
-    } else {
-      console.error('Error upserting routine:', error.message, error)
-      throw new Error(`upsertRoutine failed: ${error.message}`)
+  if (!error) return
+
+  if (error.code === '42703' || (error.message && error.message.includes('column'))) {
+    // The routine timeline migration added `config` before `updated_at` existed.
+    // On those databases, retry WITHOUT the timestamp but keep config. The old
+    // fallback dropped config too, so kind/category/days edits appeared to save
+    // and then rolled back on the next sync.
+    const { error: withoutTimestampError } = await db.from('routines').upsert(baseRecord)
+    if (!withoutTimestampError) return
+
+    // Truly old schemas may also lack config/time/order/period. Keep the legacy
+    // fallback only as a last resort instead of silently discarding modern
+    // routine settings whenever updated_at alone is missing.
+    const { error: extendedError } = await db.from('routines').upsert({
+      id, user_id: userId, name, status, created_at,
+      time: time ?? null, order: order ?? 0, period: period ?? 'anytime',
+    })
+    if (!extendedError) return
+
+    const { error: e2 } = await db.from('routines').upsert({ id, user_id: userId, name, status, created_at })
+    if (e2) {
+      console.error('Error upserting routine (fallback):', e2.message, e2)
+      throw new Error(`upsertRoutine fallback failed: ${e2.message}`)
     }
+    return
   }
+
+  console.error('Error upserting routine:', error.message, error)
+  throw new Error(`upsertRoutine failed: ${error.message}`)
 }
 
 export async function deleteRoutine(userId: string, routineId: string): Promise<void> {
