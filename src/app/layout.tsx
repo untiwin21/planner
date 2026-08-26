@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { AuthGate } from '@/components/auth/AuthGate'
+import { TimelineOverlapLayout } from '@/components/today/TimelineOverlapLayout'
 
 export const metadata: Metadata = {
   title: 'Planr',
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <AuthGate>{children}</AuthGate>
+        <TimelineOverlapLayout />
       </body>
     </html>
   )
