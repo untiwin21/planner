@@ -79,7 +79,8 @@ function routineSubtitle(routine: Routine): string {
     ? '매일'
     : config.days_of_week.map(day => ROUTINE_WEEKDAYS[day]).join('·')
   const kind = routineKind(routine) === 'timed' ? `시간형 · ${config.duration_min}분` : '체크형'
-  return `${kind} · ${schedule} · ${days}`
+  const category = config.bundle?.trim()
+  return `${category ? `${category} · ` : ''}${kind} · ${schedule} · ${days}`
 }
 
 export function RoutineManagerDialog({
@@ -96,6 +97,10 @@ export function RoutineManagerDialog({
   const [error, setError] = useState('')
 
   const formingCount = routines.filter(routine => routine.status === 'active' && routineStage(routine) === 'forming').length
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(routines.map(routine => routineConfig(routine).bundle?.trim()).filter((value): value is string => !!value))).sort((a, b) => a.localeCompare(b, 'ko')),
+    [routines],
+  )
   const sections = useMemo(() => [
     {
       key: 'forming',
@@ -177,7 +182,7 @@ export function RoutineManagerDialog({
       cue_type: draft.cueType,
       cue_label: draft.cueLabel.trim() || undefined,
       minimum_version: draft.kind === 'timed' ? draft.minimumVersion.trim() || undefined : undefined,
-      bundle: draft.kind === 'timed' ? draft.bundle.trim() || undefined : undefined,
+      bundle: draft.bundle.trim() || undefined,
       stage: draft.stage,
       category_color: draft.color,
     }
@@ -207,7 +212,7 @@ export function RoutineManagerDialog({
         <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--border)] bg-white/95 px-5 py-4 backdrop-blur-sm">
           <div>
             <h2 className="text-lg font-bold">루틴 설계실</h2>
-            <p className="mt-0.5 text-xs text-[var(--text-3)]">형성 중인 루틴은 적게, 익숙해진 루틴은 묶어서 유지하세요.</p>
+            <p className="mt-0.5 text-xs text-[var(--text-3)]">같은 카테고리의 행동은 오늘 화면에서 하나의 큰 루틴으로 묶입니다.</p>
           </div>
           <button type="button" aria-label="닫기" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-[var(--surface-2)]"><X size={17} /></button>
         </div>
@@ -272,7 +277,7 @@ export function RoutineManagerDialog({
                     <div className="mt-1.5 grid grid-cols-2 gap-2">
                       <button type="button" onClick={() => setDraft(value => ({ ...value, kind: 'timed' }))} className={clsx('rounded-[11px] border px-3 py-3 text-left transition-colors', draft.kind === 'timed' ? 'border-[var(--purple)] bg-[var(--purple-bg)] text-[var(--purple-text)]' : 'border-[var(--border)] bg-white text-[var(--text-3)]')}>
                         <span className="flex items-center gap-1.5 text-xs font-bold"><Timer size={14} /> 시간형</span>
-                        <span className="mt-1 block text-[10px] leading-relaxed">러닝·공부처럼 시간을 쓰고 타임라인에 표시</span>
+                        <span className="mt-1 block text-[10px] leading-relaxed">러닝·공부처럼 소요 시간을 함께 관리</span>
                       </button>
                       <button type="button" onClick={() => setDraft(value => ({ ...value, kind: 'check' }))} className={clsx('rounded-[11px] border px-3 py-3 text-left transition-colors', draft.kind === 'check' ? 'border-[var(--teal)] bg-[var(--teal-bg)] text-[var(--teal-text)]' : 'border-[var(--border)] bg-white text-[var(--text-3)]')}>
                         <span className="flex items-center gap-1.5 text-xs font-bold"><CheckCircle2 size={14} /> 체크형</span>
@@ -283,6 +288,20 @@ export function RoutineManagerDialog({
 
                   <label className="text-xs font-semibold text-[var(--text-2)]">행동
                     <input autoFocus value={draft.name} onChange={event => setDraft(value => ({ ...value, name: event.target.value }))} placeholder="예: 스트레칭" className="mt-1.5 w-full rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
+                  </label>
+
+                  <label className="text-xs font-semibold text-[var(--text-2)]">루틴 카테고리
+                    <input
+                      list="routine-category-options"
+                      value={draft.bundle}
+                      onChange={event => setDraft(value => ({ ...value, bundle: event.target.value }))}
+                      placeholder="예: 기상 루틴"
+                      className="mt-1.5 w-full rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]"
+                    />
+                    <datalist id="routine-category-options">
+                      {categoryOptions.map(category => <option key={category} value={category} />)}
+                    </datalist>
+                    <span className="mt-1 block text-[10px] font-normal text-[var(--text-3)]">같은 이름을 입력한 루틴끼리 하나의 큰 카드로 묶입니다.</span>
                   </label>
 
                   <div className={clsx('grid gap-2', draft.kind === 'timed' && 'grid-cols-2')}>
@@ -311,9 +330,6 @@ export function RoutineManagerDialog({
 
                   {draft.kind === 'timed' && <label className="text-xs font-semibold text-[var(--text-2)]">최소 버전
                     <input value={draft.minimumVersion} onChange={event => setDraft(value => ({ ...value, minimumVersion: event.target.value }))} placeholder="예: 1분만 하기" className="mt-1.5 w-full rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
-                  </label>}
-                  {draft.kind === 'timed' && <label className="text-xs font-semibold text-[var(--text-2)]">타임라인 묶음
-                    <input value={draft.bundle} onChange={event => setDraft(value => ({ ...value, bundle: event.target.value }))} placeholder="예: 기상 루틴" className="mt-1.5 w-full rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
                   </label>}
 
                   <div>
