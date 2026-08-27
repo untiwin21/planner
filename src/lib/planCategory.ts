@@ -10,13 +10,13 @@ export const PLAN_CATEGORY_STYLE: Record<ScheduleType, {
   accent: string
 }> = {
   personal: {
-    label: '개인',
+    label: '개인 일정',
     event: 'border-[#AFCBED] bg-[#EEF5FF] text-[#315A9E]',
     dot: 'bg-[#4F8EDC]',
     accent: '#4F8EDC',
   },
   external: {
-    label: '외부',
+    label: '외부 일정',
     event: 'border-[#A9D7BC] bg-[#ECF8F0] text-[#26734D]',
     dot: 'bg-[#4FA773]',
     accent: '#4FA773',
