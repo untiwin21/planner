@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { ArrowRight, CalendarDays, Save, X } from 'lucide-react'
-import type { ShortGoal } from '@/types'
+import clsx from 'clsx'
+import type { ScheduleType, ShortGoal } from '@/types'
+import { PLAN_CATEGORY_STYLE, PLAN_CATEGORY_TYPES, shortGoalCategory, withShortGoalCategory } from '@/lib/planCategory'
 
 interface Props {
   goal: ShortGoal | null
@@ -16,6 +18,7 @@ export function ShortGoalEditModal({ goal, onClose, onSave, onOpenDetail }: Prop
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [note, setNote] = useState('')
+  const [categoryType, setCategoryType] = useState<ScheduleType>('personal')
 
   useEffect(() => {
     if (!goal) return
@@ -23,6 +26,7 @@ export function ShortGoalEditModal({ goal, onClose, onSave, onOpenDetail }: Prop
     setDateFrom(goal.date_from)
     setDateTo(goal.date_to)
     setNote(goal.note ?? '')
+    setCategoryType(shortGoalCategory(goal))
   }, [goal])
 
   if (!goal) return null
@@ -37,6 +41,7 @@ export function ShortGoalEditModal({ goal, onClose, onSave, onOpenDetail }: Prop
       date_from: dateFrom,
       date_to: dateTo,
       note,
+      categories: withShortGoalCategory(goal!.categories, categoryType),
     })
     onClose()
   }
@@ -56,7 +61,7 @@ export function ShortGoalEditModal({ goal, onClose, onSave, onOpenDetail }: Prop
               <CalendarDays size={16} />
               <h2 className="text-base font-bold">단기 목표 수정</h2>
             </div>
-            <p className="mt-1 text-xs text-[var(--text-3)]">제목과 기간을 고치면 주간 카드와 월간 캘린더에 함께 반영됩니다.</p>
+            <p className="mt-1 text-xs text-[var(--text-3)]">기간과 카테고리를 고치면 주간 카드와 월간 캘린더에 함께 반영됩니다.</p>
           </div>
           <button type="button" aria-label="닫기" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-[var(--surface-2)]">
             <X size={17} />
@@ -73,6 +78,30 @@ export function ShortGoalEditModal({ goal, onClose, onSave, onOpenDetail }: Prop
               onKeyDown={event => { if (event.key === 'Enter') save() }}
               className="w-full rounded-[10px] border border-transparent bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:border-[var(--teal)] focus:bg-white"
             />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--text-2)]">카테고리</label>
+            <div className="grid grid-cols-3 gap-2">
+              {PLAN_CATEGORY_TYPES.map(type => {
+                const meta = PLAN_CATEGORY_STYLE[type]
+                return (
+                  <button
+                    type="button"
+                    key={type}
+                    onClick={() => setCategoryType(type)}
+                    className={clsx(
+                      'flex items-center justify-center gap-1.5 rounded-[9px] border px-2 py-2 text-xs font-semibold transition-all',
+                      meta.event,
+                      categoryType === type ? 'ring-2 ring-offset-1 ring-[var(--purple)]' : 'opacity-70 hover:opacity-100',
+                    )}
+                  >
+                    <span className={clsx('h-2 w-2 rounded-full', meta.dot)} />
+                    {meta.label}
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
