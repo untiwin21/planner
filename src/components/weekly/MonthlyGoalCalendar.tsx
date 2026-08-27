@@ -19,6 +19,7 @@ import {
 import { ko } from 'date-fns/locale'
 import clsx from 'clsx'
 import { formatDate } from '@/lib/dates'
+import { PLAN_CATEGORY_STYLE, PLAN_CATEGORY_TYPES, shortGoalCategory, withShortGoalCategory } from '@/lib/planCategory'
 import type { DayEntry, ScheduleType, ShortGoal, Task } from '@/types'
 import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
 
@@ -61,34 +62,8 @@ interface GoalDragState {
   moved: boolean
 }
 
-const GOAL_COLORS = [
-  'bg-[var(--purple-bg)] text-[var(--purple-text)] border-purple-200',
-  'bg-[var(--teal-bg)] text-[var(--teal-text)] border-teal-200',
-  'bg-[var(--amber-bg)] text-[var(--amber-text)] border-amber-200',
-  'bg-[var(--coral-bg)] text-[var(--coral-text)] border-orange-200',
-  'bg-[var(--blue-bg)] text-[var(--blue-text)] border-blue-200',
-]
-
-const SCHEDULE_STYLE: Record<ScheduleType, { label: string; event: string; dot: string }> = {
-  personal: {
-    label: '개인 일정',
-    event: 'border-[#AFCBED] bg-[#EEF5FF] text-[#315A9E]',
-    dot: 'bg-[#4F8EDC]',
-  },
-  external: {
-    label: '외부 일정',
-    event: 'border-[#A9D7BC] bg-[#ECF8F0] text-[#26734D]',
-    dot: 'bg-[#4FA773]',
-  },
-  'deep-work': {
-    label: 'Deep Work',
-    event: 'border-[#EDB5CF] bg-[#FDECF4] text-[#A43A6C]',
-    dot: 'bg-[#D96B9D]',
-  },
-}
-
 function scheduleMeta(task: Task) {
-  return SCHEDULE_STYLE[task.schedule_type ?? 'personal']
+  return PLAN_CATEGORY_STYLE[task.schedule_type ?? 'personal']
 }
 
 function orderedRange(a: string, b: string) {
@@ -123,6 +98,7 @@ export function MonthlyGoalCalendar({ monthBase, goals, days: dayEntries = [], s
   const [goalDragTarget, setGoalDragTarget] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [title, setTitle] = useState('')
+  const [categoryType, setCategoryType] = useState<ScheduleType>('personal')
 
   const days = useMemo(() => {
     const start = startOfWeek(startOfMonth(monthBase), { weekStartsOn: 1 })
@@ -130,7 +106,6 @@ export function MonthlyGoalCalendar({ monthBase, goals, days: dayEntries = [], s
     return eachDayOfInterval({ start, end })
   }, [monthBase])
   const weeks = useMemo(() => Array.from({ length: Math.ceil(days.length / 7) }, (_, index) => days.slice(index * 7, index * 7 + 7)), [days])
-  const goalColor = useMemo(() => new Map(goals.map((goal, index) => [goal.id, GOAL_COLORS[index % GOAL_COLORS.length]])), [goals])
   const eventsByDate = useMemo(() => {
     const result = new Map<string, CalendarTaskEvent[]>()
     for (const entry of dayEntries) {
@@ -157,6 +132,7 @@ export function MonthlyGoalCalendar({ monthBase, goals, days: dayEntries = [], s
   function cancelCreate() {
     setShowCreate(false)
     setTitle('')
+    setCategoryType('personal')
     setDragStart(null)
     setDragEnd(null)
   }
@@ -164,7 +140,15 @@ export function MonthlyGoalCalendar({ monthBase, goals, days: dayEntries = [], s
   function createGoal() {
     if (!title.trim() || !dragStart || !dragEnd) return
     const range = orderedRange(dragStart, dragEnd)
-    onAddGoal({ title: title.trim(), date_from: range.from, date_to: range.to, note: '', tasks: [], categories: [], routines: [] })
+    onAddGoal({
+      title: title.trim(),
+      date_from: range.from,
+      date_to: range.to,
+      note: '',
+      tasks: [],
+      categories: withShortGoalCategory([], categoryType),
+      routines: [],
+    })
     cancelCreate()
   }
 
@@ -241,12 +225,12 @@ export function MonthlyGoalCalendar({ monthBase, goals, days: dayEntries = [], s
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border)]">
         <div>
           <h3 className="text-sm font-bold">월간 단기 일정</h3>
-          <p className="text-xs text-[var(--text-3)] mt-0.5">단기목표와 날짜별 일정·데드라인을 함께 봅니다. 일정은 카테고리별 색상으로 구분됩니다.</p>
+          <p className="text-xs text-[var(--text-3)] mt-0.5">단기 목표와 일정이 같은 카테고리 색상을 공유합니다. 기존 단기 목표는 개인 일정으로 표시됩니다.</p>
           <div className="mt-2 flex flex-wrap items-center gap-3">
-            {(Object.keys(SCHEDULE_STYLE) as ScheduleType[]).map(type => (
+            {PLAN_CATEGORY_TYPES.map(type => (
               <span key={type} className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[var(--text-3)]">
-                <span className={clsx('h-2 w-2 rounded-full', SCHEDULE_STYLE[type].dot)} />
-                {SCHEDULE_STYLE[type].label}
+                <span className={clsx('h-2 w-2 rounded-full', PLAN_CATEGORY_STYLE[type].dot)} />
+                {PLAN_CATEGORY_STYLE[type].label}
               </span>
             ))}
             <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[var(--text-3)]"><span className="h-2 w-2 rounded-full bg-[var(--red)]" />데드라인</span>
@@ -313,47 +297,50 @@ export function MonthlyGoalCalendar({ monthBase, goals, days: dayEntries = [], s
               </div>
 
               <div className="pointer-events-none absolute inset-x-0 top-10 grid grid-cols-7 gap-y-1 px-1" style={{ gridAutoRows: '21px' }}>
-                {segments.map(segment => (
-                  <div
-                    key={segment.goal.id}
-                    role="group"
-                    aria-label={`${segment.goal.title} 일정 이동 또는 수정`}
-                    onPointerDown={event => startGoalDrag(event, segment.goal, 'move')}
-                    onPointerMove={continueGoalDrag}
-                    onPointerUp={finishGoalDrag}
-                    onPointerCancel={cancelGoalDrag}
-                    className={clsx('pointer-events-auto relative mx-0.5 px-2 rounded-[6px] border text-[10px] font-semibold truncate cursor-grab active:cursor-grabbing touch-none flex items-center gap-1 shadow-[0_1px_2px_rgba(0,0,0,0.04)]', goalColor.get(segment.goal.id))}
-                    style={{ gridColumn: `${segment.startColumn + 1} / ${segment.endColumn + 2}`, gridRow: segment.lane + 1 }}
-                    title={`${segment.goal.title} (${segment.goal.date_from} ~ ${segment.goal.date_to})`}
-                  >
-                    {segment.goal.date_from >= formatDate(week[0]) && segment.goal.date_from <= formatDate(week[6]) && (
-                      <button
-                        type="button"
-                        aria-label={`${segment.goal.title} 시작일 조정`}
-                        onPointerDown={event => startGoalDrag(event, segment.goal, 'resize-start')}
-                        onPointerMove={continueGoalDrag}
-                        onPointerUp={finishGoalDrag}
-                        onPointerCancel={cancelGoalDrag}
-                        className="absolute inset-y-0 left-0 w-2 cursor-ew-resize rounded-l-[5px] bg-current opacity-20 hover:opacity-40"
-                      />
-                    )}
-                    <GripHorizontal size={10} className="shrink-0" />
-                    <button type="button" onClick={() => onEditGoal?.(segment.goal.id)} className="min-w-0 flex-1 truncate text-left">
-                      {segment.goal.title}
-                    </button>
-                    {segment.goal.date_to >= formatDate(week[0]) && segment.goal.date_to <= formatDate(week[6]) && (
-                      <button
-                        type="button"
-                        aria-label={`${segment.goal.title} 종료일 조정`}
-                        onPointerDown={event => startGoalDrag(event, segment.goal, 'resize-end')}
-                        onPointerMove={continueGoalDrag}
-                        onPointerUp={finishGoalDrag}
-                        onPointerCancel={cancelGoalDrag}
-                        className="absolute inset-y-0 right-0 w-2 cursor-ew-resize rounded-r-[5px] bg-current opacity-20 hover:opacity-40"
-                      />
-                    )}
-                  </div>
-                ))}
+                {segments.map(segment => {
+                  const goalMeta = PLAN_CATEGORY_STYLE[shortGoalCategory(segment.goal)]
+                  return (
+                    <div
+                      key={segment.goal.id}
+                      role="group"
+                      aria-label={`${segment.goal.title} 일정 이동 또는 수정`}
+                      onPointerDown={event => startGoalDrag(event, segment.goal, 'move')}
+                      onPointerMove={continueGoalDrag}
+                      onPointerUp={finishGoalDrag}
+                      onPointerCancel={cancelGoalDrag}
+                      className={clsx('pointer-events-auto relative mx-0.5 px-2 rounded-[6px] border text-[10px] font-semibold truncate cursor-grab active:cursor-grabbing touch-none flex items-center gap-1 shadow-[0_1px_2px_rgba(0,0,0,0.04)]', goalMeta.event)}
+                      style={{ gridColumn: `${segment.startColumn + 1} / ${segment.endColumn + 2}`, gridRow: segment.lane + 1 }}
+                      title={`${goalMeta.label} · ${segment.goal.title} (${segment.goal.date_from} ~ ${segment.goal.date_to})`}
+                    >
+                      {segment.goal.date_from >= formatDate(week[0]) && segment.goal.date_from <= formatDate(week[6]) && (
+                        <button
+                          type="button"
+                          aria-label={`${segment.goal.title} 시작일 조정`}
+                          onPointerDown={event => startGoalDrag(event, segment.goal, 'resize-start')}
+                          onPointerMove={continueGoalDrag}
+                          onPointerUp={finishGoalDrag}
+                          onPointerCancel={cancelGoalDrag}
+                          className="absolute inset-y-0 left-0 w-2 cursor-ew-resize rounded-l-[5px] bg-current opacity-20 hover:opacity-40"
+                        />
+                      )}
+                      <GripHorizontal size={10} className="shrink-0" />
+                      <button type="button" onClick={() => onEditGoal?.(segment.goal.id)} className="min-w-0 flex-1 truncate text-left">
+                        {segment.goal.title}
+                      </button>
+                      {segment.goal.date_to >= formatDate(week[0]) && segment.goal.date_to <= formatDate(week[6]) && (
+                        <button
+                          type="button"
+                          aria-label={`${segment.goal.title} 종료일 조정`}
+                          onPointerDown={event => startGoalDrag(event, segment.goal, 'resize-end')}
+                          onPointerMove={continueGoalDrag}
+                          onPointerUp={finishGoalDrag}
+                          onPointerCancel={cancelGoalDrag}
+                          className="absolute inset-y-0 right-0 w-2 cursor-ew-resize rounded-r-[5px] bg-current opacity-20 hover:opacity-40"
+                        />
+                      )}
+                    </div>
+                  )
+                })}
                 {visibleWeekEvents.map(event => {
                   const isDeadline = event.task.category_id === DEADLINE_CAT_ID
                   const time = event.task.start_time ?? event.task.time
@@ -390,6 +377,22 @@ export function MonthlyGoalCalendar({ monthBase, goals, days: dayEntries = [], s
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={cancelCreate}>
           <div className="w-full max-w-sm bg-white rounded-[18px] shadow-xl p-5" onClick={event => event.stopPropagation()}>
             <div className="flex items-center justify-between mb-4"><div><h3 className="text-base font-bold">단기 일정 추가</h3><p className="text-xs text-[var(--text-3)] mt-1">{selectedRange.from} ~ {selectedRange.to}</p></div><button type="button" onClick={cancelCreate} className="w-8 h-8 rounded-full hover:bg-[var(--surface-2)] flex items-center justify-center"><X size={16} /></button></div>
+            <div className="mb-3 grid grid-cols-3 gap-1.5">
+              {PLAN_CATEGORY_TYPES.map(type => {
+                const meta = PLAN_CATEGORY_STYLE[type]
+                return (
+                  <button
+                    type="button"
+                    key={type}
+                    onClick={() => setCategoryType(type)}
+                    className={clsx('flex items-center justify-center gap-1 rounded-[8px] border px-1.5 py-2 text-[10px] font-semibold', meta.event, categoryType === type ? 'ring-2 ring-offset-1 ring-[var(--purple)]' : 'opacity-65 hover:opacity-100')}
+                  >
+                    <span className={clsx('h-2 w-2 rounded-full', meta.dot)} />
+                    {meta.label}
+                  </button>
+                )
+              })}
+            </div>
             <div className="flex gap-2">
               <input autoFocus value={title} onChange={event => setTitle(event.target.value)} onKeyDown={event => event.key === 'Enter' && createGoal()} placeholder="단기 일정 제목" className="flex-1 min-w-0 px-3 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
               <button type="button" onClick={createGoal} className="px-3 rounded-[10px] bg-[var(--purple)] text-white text-sm font-semibold flex items-center gap-1"><Plus size={14} /> 추가</button>
