@@ -4,8 +4,9 @@ import { Plus, ChevronDown, ChevronUp, Check, X } from 'lucide-react'
 import clsx from 'clsx'
 import { parseISO } from 'date-fns'
 import { isGoalActive, dayRangeLabel } from '@/lib/dates'
+import { PLAN_CATEGORY_STYLE, PLAN_CATEGORY_TYPES, shortGoalCategory, withShortGoalCategory } from '@/lib/planCategory'
 import { tasksProgress } from '@/lib/taskProgress'
-import type { ShortGoal, Category, Task } from '@/types'
+import type { ShortGoal, Category, Task, ScheduleType } from '@/types'
 
 interface Props {
   goals: ShortGoal[]
@@ -26,6 +27,7 @@ export function MobileGoals({
   const [newGoalTitle, setNewGoalTitle] = useState('')
   const [newGoalFrom, setNewGoalFrom] = useState('')
   const [newGoalTo, setNewGoalTo] = useState('')
+  const [newGoalCategory, setNewGoalCategory] = useState<ScheduleType>('personal')
   const [addingCatId, setAddingCatId] = useState<string | null>(null)
   const [addingGoalId, setAddingGoalId] = useState<string | null>(null)
   const [addText, setAddText] = useState('')
@@ -37,8 +39,20 @@ export function MobileGoals({
 
   function handleCreateGoal() {
     if (!newGoalTitle.trim() || !newGoalFrom || !newGoalTo) return
-    onAddGoal({ title: newGoalTitle, date_from: newGoalFrom, date_to: newGoalTo, note: '', tasks: [], categories: [], routines: [] })
-    setNewGoalTitle(''); setNewGoalFrom(''); setNewGoalTo(''); setShowNewGoalForm(false)
+    onAddGoal({
+      title: newGoalTitle,
+      date_from: newGoalFrom,
+      date_to: newGoalTo,
+      note: '',
+      tasks: [],
+      categories: withShortGoalCategory([], newGoalCategory),
+      routines: [],
+    })
+    setNewGoalTitle('')
+    setNewGoalFrom('')
+    setNewGoalTo('')
+    setNewGoalCategory('personal')
+    setShowNewGoalForm(false)
   }
 
   function submitAddTask(goalId: string, catId: string) {
@@ -58,41 +72,43 @@ export function MobileGoals({
     const progress = tasksProgress(goal.tasks)
     const total = progress.total
     const pct = progress.pct
+    const goalMeta = PLAN_CATEGORY_STYLE[shortGoalCategory(goal)]
 
-    // Get unique categories used in this goal's tasks
     const usedCatIds = [...new Set(goal.tasks.map(t => t.category_id))]
     const availableCats = categories.filter(c => usedCatIds.includes(c.id) || categories.length <= 3)
+    void availableCats
 
     return (
-      <div key={goal.id} className="bg-white border border-[var(--border)] rounded-[14px] overflow-hidden">
-        {/* Goal header */}
+      <div key={goal.id} className={clsx('overflow-hidden rounded-[14px] border bg-white', goalMeta.event)}>
         <button
           onClick={() => setExpandedId(prev => prev === goal.id ? null : goal.id)}
           className="w-full flex items-start gap-3 px-4 py-3 text-left"
         >
+          <span className="mt-0.5 h-10 w-1 shrink-0 rounded-full" style={{ background: goalMeta.accent }} />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold truncate">{goal.title}</p>
-            <p className="text-[11px] text-[var(--text-3)] mt-0.5">{dayRangeLabel(goal.date_from, goal.date_to)}</p>
+            <div className="flex items-center gap-2">
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold">{goal.title}</p>
+              <span className="shrink-0 text-[9px] font-bold opacity-70">{goalMeta.label}</span>
+            </div>
+            <p className="text-[11px] opacity-65 mt-0.5">{dayRangeLabel(goal.date_from, goal.date_to)}</p>
             {total > 0 && (
               <div className="flex items-center gap-2 mt-1.5">
-                <div className="flex-1 h-1 rounded-full bg-[var(--border)]">
-                  <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: 'var(--teal)' }} />
+                <div className="flex-1 h-1 rounded-full bg-white/75">
+                  <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: goalMeta.accent }} />
                 </div>
-                <span className="text-[10px] text-[var(--text-3)] tabular-nums">{pct}%</span>
+                <span className="text-[10px] opacity-65 tabular-nums">{pct}%</span>
               </div>
             )}
           </div>
-          {isExpanded ? <ChevronUp size={16} className="text-[var(--text-3)] mt-0.5 flex-shrink-0" /> : <ChevronDown size={16} className="text-[var(--text-3)] mt-0.5 flex-shrink-0" />}
+          {isExpanded ? <ChevronUp size={16} className="mt-0.5 flex-shrink-0 opacity-60" /> : <ChevronDown size={16} className="mt-0.5 flex-shrink-0 opacity-60" />}
         </button>
 
-        {/* Expanded tasks */}
         {isExpanded && (
-          <div className="border-t border-[var(--border)]">
+          <div className="border-t border-black/5 bg-white/75">
             {goal.tasks.length === 0 ? (
               <p className="px-4 py-3 text-xs text-[var(--text-3)]">아직 할 일이 없습니다</p>
             ) : (
               (() => {
-                // Group by category
                 const catMap = new Map<string, { cat: { id: string; name: string; color: string }; tasks: Task[] }>()
                 for (const task of goal.tasks) {
                   if (!catMap.has(task.category_id)) {
@@ -132,7 +148,6 @@ export function MobileGoals({
               })()
             )}
 
-            {/* Add task row */}
             {categories.length > 0 && (
               <div className="px-4 py-2 border-t border-[var(--border)]">
                 {addingGoalId === goal.id && addingCatId ? (
@@ -167,7 +182,6 @@ export function MobileGoals({
 
   return (
     <div className="flex flex-col gap-4 px-4 pt-4 pb-28">
-      {/* Add goal button */}
       <div>
         <button onClick={() => setShowNewGoalForm(v => !v)}
           className="flex items-center gap-1.5 text-sm font-medium text-white bg-[var(--teal)] px-4 py-2 rounded-[10px]">
@@ -178,6 +192,22 @@ export function MobileGoals({
             <input value={newGoalTitle} onChange={e => setNewGoalTitle(e.target.value)}
               placeholder="목표 제목" autoFocus
               className="w-full px-2.5 py-1.5 rounded-[8px] text-sm bg-[var(--surface-2)] outline-none" />
+            <div className="grid grid-cols-3 gap-1.5">
+              {PLAN_CATEGORY_TYPES.map(type => {
+                const meta = PLAN_CATEGORY_STYLE[type]
+                return (
+                  <button
+                    type="button"
+                    key={type}
+                    onClick={() => setNewGoalCategory(type)}
+                    className={clsx('flex items-center justify-center gap-1 rounded-[8px] border px-1 py-2 text-[10px] font-semibold', meta.event, newGoalCategory === type ? 'ring-2 ring-offset-1 ring-[var(--purple)]' : 'opacity-65')}
+                  >
+                    <span className={clsx('h-2 w-2 rounded-full', meta.dot)} />
+                    {meta.label}
+                  </button>
+                )
+              })}
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <input type="date" value={newGoalFrom} onChange={e => setNewGoalFrom(e.target.value)}
                 className="px-2 py-1.5 rounded-[8px] text-xs bg-[var(--surface-2)] outline-none" />
@@ -189,7 +219,7 @@ export function MobileGoals({
                 className="flex-1 py-1.5 rounded-[8px] text-sm font-medium text-white bg-[var(--teal)]">
                 만들기
               </button>
-              <button onClick={() => setShowNewGoalForm(false)}
+              <button onClick={() => { setShowNewGoalForm(false); setNewGoalCategory('personal') }}
                 className="px-3 py-1.5 rounded-[8px] text-sm text-[var(--text-2)] bg-[var(--surface-2)]">
                 취소
               </button>
@@ -198,7 +228,6 @@ export function MobileGoals({
         )}
       </div>
 
-      {/* Active goals */}
       {activeGoals.length > 0 && (
         <div>
           <p className="text-xs font-semibold text-[var(--teal-text)] mb-2">진행 중</p>
@@ -208,7 +237,6 @@ export function MobileGoals({
         </div>
       )}
 
-      {/* Upcoming goals */}
       {upcomingGoals.length > 0 && (
         <div>
           <p className="text-xs font-semibold text-[var(--text-3)] mb-2">예정</p>
@@ -218,7 +246,6 @@ export function MobileGoals({
         </div>
       )}
 
-      {/* Past goals */}
       {pastGoals.length > 0 && (
         <div>
           <p className="text-xs font-semibold text-[var(--text-3)] mb-2">완료</p>
