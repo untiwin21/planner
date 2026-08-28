@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { AuthGate } from '@/components/auth/AuthGate'
+import { TaskTimeInsights } from '@/components/today/TaskTimeInsights'
 import { TimelineOverlapLayout } from '@/components/today/TimelineOverlapLayout'
 import { RoutinePersistenceGuard } from '@/components/system/RoutinePersistenceGuard'
 
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <AuthGate>{children}</AuthGate>
         <TimelineOverlapLayout />
+        <TaskTimeInsights />
         <RoutinePersistenceGuard />
       </body>
     </html>
