@@ -18,16 +18,7 @@ jobs:
           p = Path('src/app/page.tsx')
           s = p.read_text()
           s = s.replace('                나의 방향\n', '                About Me\n', 1)
-          needle = '''      onUpdateWeeklyReview={store.updateWeeklyReview}
-      onAddRoutine={store.addRoutine}
-      onAddLongGoal={store.addLongGoal}'''
-          replacement = '''      onUpdateWeeklyReview={store.updateWeeklyReview}
-      onAddRoutine={store.addRoutine}
-      onUpdateRoutine={store.updateRoutine}
-      onAddLongGoal={store.addLongGoal}'''
-          if needle not in s:
-              raise SystemExit('DirectionDashboard prop insertion point not found')
-          s = s.replace(needle, replacement, 1)
+          s = s.replace('      onAddRoutine={store.addRoutine}\n', '      onAddRoutine={store.addRoutine}\n      onUpdateRoutine={store.updateRoutine}\n', 1)
           p.write_text(s)
           PY
       - name: Remove workflow and commit
