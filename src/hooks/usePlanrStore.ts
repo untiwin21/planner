@@ -525,7 +525,7 @@ export function usePlanrStore(userId: string) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
-  // ── Periodic sync (every 30s) + focus/visibility triggers ──────────────────
+  // ── Periodic sync (every 15s) + focus/visibility triggers ──────────────────
   // Cross-device done-state updates flow because per-task updated_at picks the newer
   // copy. In-flight local writes are protected via the pendingWrites guard, so the
   // window where remote could be stale-vs-local is closed.
@@ -770,37 +770,54 @@ export function usePlanrStore(userId: string) {
 
   // ── Setters with auto-persist ──────────────────────────────────────────────
   const setDays = useCallback((v: DayEntry[] | ((p: DayEntry[]) => DayEntry[])) => {
-    setDaysRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.days, next); return next })
+    const next = typeof v === 'function' ? v(daysRef.current) : v
+    daysRef.current = next
+    save(STORAGE_KEYS.days, next)
+    setDaysRaw(next)
   }, [])
   const setGoals = useCallback((v: ShortGoal[] | ((p: ShortGoal[]) => ShortGoal[])) => {
-    setGoalsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; goalsRef.current = next; save(STORAGE_KEYS.goals, next); return next })
+    const next = typeof v === 'function' ? v(goalsRef.current) : v
+    goalsRef.current = next
+    save(STORAGE_KEYS.goals, next)
+    setGoalsRaw(next)
   }, [])
   const setRoutines = useCallback((v: Routine[] | ((p: Routine[]) => Routine[])) => {
-    setRoutinesRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.routines, next); return next })
+    const next = typeof v === 'function' ? v(routinesRef.current) : v
+    routinesRef.current = next
+    save(STORAGE_KEYS.routines, next)
+    setRoutinesRaw(next)
   }, [])
   const setLogs = useCallback((v: RoutineLog[] | ((p: RoutineLog[]) => RoutineLog[])) => {
-    setLogsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; logsRef.current = next; save(STORAGE_KEYS.logs, next); return next })
+    const next = typeof v === 'function' ? v(logsRef.current) : v
+    logsRef.current = next
+    save(STORAGE_KEYS.logs, next)
+    setLogsRaw(next)
   }, [])
   const setLongGoals = useCallback((v: LongGoal[] | ((p: LongGoal[]) => LongGoal[])) => {
-    setLongGoalsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.longGoals, next); return next })
+    const next = typeof v === 'function' ? v(longGoalsRef.current) : v
+    longGoalsRef.current = next
+    save(STORAGE_KEYS.longGoals, next)
+    setLongGoalsRaw(next)
   }, [])
   const setWeeklyReviews = useCallback((v: Record<string, string> | ((p: Record<string, string>) => Record<string, string>)) => {
-    setWeeklyReviewsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.weeklyReviews, next); return next })
+    const next = typeof v === 'function' ? v(weeklyReviewsRef.current) : v
+    weeklyReviewsRef.current = next
+    save(STORAGE_KEYS.weeklyReviews, next)
+    setWeeklyReviewsRaw(next)
   }, [])
   const setCategories = useCallback((v: Category[] | ((p: Category[]) => Category[])) => {
-    setCategoriesRaw(prev => {
-      const next = typeof v === 'function' ? v(prev) : v
-      const updatedAt = now()
-      persistCategorySnapshot(next, updatedAt)
-      pushCategories(next, updatedAt)
-      return next
-    })
+    const next = typeof v === 'function' ? v(categoriesRef.current) : v
+    categoriesRef.current = next
+    const updatedAt = now()
+    persistCategorySnapshot(next, updatedAt)
+    pushCategories(next, updatedAt)
+    setCategoriesRaw(next)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
   // ── DAY ENTRY ──────────────────────────────────────────────────────────────
   function getDay(date: string): DayEntry {
-    const stored = days.find(d => d.date === date)
+    const stored = daysRef.current.find(d => d.date === date)
     if (stored) {
       let cats = stored.categories
       if (!cats.find(c => c.id === DEADLINE_CAT_ID)) cats = [DEADLINE_CATEGORY, ...cats]
@@ -1303,7 +1320,7 @@ export function usePlanrStore(userId: string) {
     }
   }
   function isRoutineDone(routineId: string, date: string): boolean {
-    return logs.find(l => l.routine_id === routineId && l.date === date)?.done ?? false
+    return logsRef.current.find(l => l.routine_id === routineId && l.date === date)?.done ?? false
   }
 
   // ── TASK REORDER ───────────────────────────────────────────────────────────

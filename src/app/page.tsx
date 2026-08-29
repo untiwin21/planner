@@ -1,10 +1,9 @@
 'use client'
 import { useState, useMemo, useEffect } from 'react'
-import { ChevronLeft, ChevronRight, Plus, X, LogOut, Timer, RefreshCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, X, LogOut, RefreshCw } from 'lucide-react'
 import { addWeeks, subWeeks, parseISO, startOfWeek as dfStartOfWeek, format } from 'date-fns'
 import { getWeekDays, formatDate, formatMonth } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
-import { isRoutineScheduledOn } from '@/lib/routineSchedule'
 import { usePlanrStore } from '@/hooks/usePlanrStore'
 import { DayCard } from '@/components/weekly/DayCard'
 import { GoalSpanRow } from '@/components/weekly/GoalSpanRow'
@@ -15,7 +14,6 @@ import { RightSidebar } from '@/components/layout/RightSidebar'
 import { WeeklyReview } from '@/components/review/WeeklyReview'
 import { JournalView } from '@/components/journal/JournalView'
 import { WeeklyPrompt } from '@/components/system/WeeklyPrompt'
-import { FocusTimer } from '@/components/system/FocusTimer'
 import { Card } from '@/components/ui'
 import type { JournalEntry, ShortGoal, Task } from '@/types'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
@@ -70,7 +68,6 @@ export default function Home() {
   const [newGoalLongId, setNewGoalLongId] = useState('')
   const [view, setView] = useState<'today' | 'week' | 'review' | 'journal'>('today')
   const [showCalendar, setShowCalendar] = useState(true)
-  const [showFocusTimer, setShowFocusTimer] = useState(false)
   const [todayFace, setTodayFace] = useState<'tasks' | 'routines'>('tasks')
 
   const [showQuickAdd, setShowQuickAdd] = useState(false)
@@ -171,18 +168,12 @@ export default function Home() {
       taskDone += p.done
     }
     const taskRate = taskTotal > 0 ? Math.round((taskDone / taskTotal) * 100) : null
-    const routineOccurrences = weekDays.flatMap(day => {
-      const date = formatDate(day)
-      return store.routines.filter(routine => isRoutineScheduledOn(routine, date)).map(routine => ({ routine, date }))
-    })
-    const routineDone = routineOccurrences.filter(({ routine, date }) => store.logs.some(log => log.routine_id === routine.id && log.date === date && log.done)).length
-    const routineRate = routineOccurrences.length > 0 ? Math.round((routineDone / routineOccurrences.length) * 100) : null
     const goalCount = store.goals.filter(g => {
       const ws = formatDate(weekDays[0]), we = formatDate(weekDays[6])
       return g.date_from <= we && g.date_to >= ws
     }).length
-    return { taskRate, routineRate, goalCount }
-  }, [weekDays, store.days, store.routines, store.logs, store.goals])
+    return { taskRate, goalCount }
+  }, [weekDays, store.days, store.goals])
 
   function handleCreateGoal() {
     if (!newGoalTitle.trim() || !newGoalFrom || !newGoalTo) return
@@ -306,19 +297,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Focus timer button */}
-            <div className="relative">
-              <button onClick={() => setShowFocusTimer(v => !v)}
-                className="px-2.5 h-8 rounded-[8px] text-sm font-medium hover:bg-white border border-transparent hover:border-[var(--border)] transition-all text-[var(--text-2)] flex items-center gap-1">
-                <Timer size={14} /> 집중
-              </button>
-              {showFocusTimer && (
-                <div className="absolute top-full right-0 mt-1 z-30">
-                  <FocusTimer onClose={() => setShowFocusTimer(false)} />
-                </div>
-              )}
-            </div>
-
             {view === 'today' ? (
               selectedDate !== formatDate(new Date()) && (
                 <button onClick={() => setSelectedDate(formatDate(new Date()))}
@@ -359,7 +337,6 @@ export default function Home() {
         {view !== 'today' && (
           <div className="flex items-center gap-4 mb-5 text-xs text-[var(--text-3)]">
             {weekStats.taskRate !== null && <span>할일 {weekStats.taskRate}%</span>}
-            {weekStats.routineRate !== null && <span>루틴 {weekStats.routineRate}%</span>}
             {weekStats.goalCount > 0 && <span>목표 {weekStats.goalCount}개</span>}
           </div>
         )}
@@ -399,7 +376,7 @@ export default function Home() {
               )}
             </div>
 
-            {view !== 'today' && <RoutineSidebar
+            {view !== 'today' && view !== 'week' && <RoutineSidebar
               routines={store.routines}
               logs={store.logs}
               selectedDate={selectedDate}
