@@ -388,7 +388,6 @@ export default function Home() {
               selectedDate={selectedDate}
               onToggleLog={store.toggleRoutineLog}
               onAddRoutine={store.addRoutine}
-      onUpdateRoutine={store.updateRoutine}
               onSetStatus={store.setRoutineStatus}
               onUpdateRoutine={store.updateRoutine}
               onDeleteRoutine={store.deleteRoutine}
@@ -450,6 +449,7 @@ export default function Home() {
       getWeeklyReview={store.getWeeklyReview}
       onUpdateWeeklyReview={store.updateWeeklyReview}
       onAddRoutine={store.addRoutine}
+      onUpdateRoutine={store.updateRoutine}
       onAddLongGoal={store.addLongGoal}
       onUpdateLongGoal={store.updateLongGoal}
       onDeleteLongGoal={store.deleteLongGoal}
