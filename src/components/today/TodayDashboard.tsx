@@ -179,6 +179,40 @@ function normalizeTimelineMinute(minute: number) {
   return minute < TIMELINE_START ? minute + 24 * 60 : minute
 }
 
+function focusSessionTimelineRange(session: FocusSessionRecord, plannerDate: string) {
+  const startedAt = new Date(session.started_at)
+  if (Number.isNaN(startedAt.getTime()) || !Number.isFinite(session.duration_min) || session.duration_min <= 0) return null
+
+  const base = parseISO(plannerDate)
+  base.setHours(0, 0, 0, 0)
+  const rawStart = (startedAt.getTime() - base.getTime()) / 60_000
+
+  const endedAt = new Date(session.ended_at)
+  const recordedEnd = Number.isNaN(endedAt.getTime())
+    ? null
+    : (endedAt.getTime() - base.getTime()) / 60_000
+  const wallDuration = recordedEnd === null ? null : recordedEnd - rawStart
+  // Current stopwatch sessions store each active segment separately, so ended_at
+  // normally gives the exact wall-clock end. Older records could include paused
+  // gaps; in that case duration_min remains the authoritative focused duration.
+  const rawEnd = recordedEnd !== null && wallDuration !== null && Math.abs(wallDuration - session.duration_min) <= 1
+    ? recordedEnd
+    : rawStart + session.duration_min
+
+  const start = Math.max(TIMELINE_START, rawStart)
+  const end = Math.min(TIMELINE_END, rawEnd)
+  if (end <= start) return null
+  return { start, end }
+}
+
+function timelineRangeLabel(start: number, end: number) {
+  const startClock = minutesToTime(start)
+  const endClock = minutesToTime(end)
+  if (start < 24 * 60 && end >= 24 * 60) return `${startClock}–다음날 ${endClock}`
+  if (start >= 24 * 60) return `다음날 ${startClock}–${endClock}`
+  return `${startClock}–${endClock}`
+}
+
 function nowAsMinutes() {
   const date = new Date()
   return date.getHours() * 60 + date.getMinutes()
@@ -378,10 +412,9 @@ export function TodayDashboard({
       pushRange({ task, subtask, rawStart, rawEnd })
     }
     const appendSession = (task: Task, session: FocusSessionRecord) => {
-      const startedAt = new Date(session.started_at)
-      if (Number.isNaN(startedAt.getTime()) || !Number.isFinite(session.duration_min) || session.duration_min <= 0) return
-      const rawStart = startedAt.getHours() * 60 + startedAt.getMinutes() + startedAt.getSeconds() / 60
-      pushRange({ task, session, rawStart, rawEnd: rawStart + session.duration_min })
+      const range = focusSessionTimelineRange(session, date)
+      if (!range) return
+      pushRange({ task, session, rawStart: range.start, rawEnd: range.end })
     }
     for (const task of entry.tasks) {
       if ((task.actual_sessions ?? []).length > 0) {
@@ -1178,7 +1211,8 @@ export function TodayDashboard({
                 const top = timelinePosition(minute)
                 return (
                   <div key={minute} className="absolute left-0 right-0 border-t border-[var(--border)]" style={{ top }}>
-                    <span className="absolute right-full -translate-y-1/2 pr-2 text-[10px] font-medium text-[var(--text-3)] tabular-nums">{minutesToTime(minute)}</span>
+                    <span className="absolute right-full -translate-y-1/2 whitespace-nowrap pr-2 text-[10px] font-medium text-[var(--text-3)] tabular-nums">{minute >= 24 * 60 ? `다음날 ${minutesToTime(minute)}` : minutesToTime(minute)}</span>
+                    {minute === 24 * 60 && <span className="absolute left-1/2 top-0 z-[6] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[var(--border)] bg-white px-2 py-0.5 text-[9px] font-bold text-[var(--text-3)] shadow-sm">다음날 · {format(addDays(dateObject, 1), 'M월 d일')}</span>}
                   </div>
                 )
               })}
@@ -1283,13 +1317,13 @@ export function TodayDashboard({
                     onClick={() => { if (!session) openActualEditor(task, start, end, subtask) }}
                     className={clsx('absolute right-0.5 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-sm', !session && 'hover:ring-2 hover:ring-black/10 active:cursor-grabbing', TIMELINE_CATEGORY_STYLE[categoryColor])}
                     style={{ top, height, left: 'calc(50% + 2px)', right: overlapsRoutine ? '25%' : 2 }}
-                    title={session ? `스톱워치 집중 세션 · ${minutesToTime(start)}–${minutesToTime(end)}` : '실제 시간 수정'}
+                    title={session ? `스톱워치 집중 세션 · ${timelineRangeLabel(start, end)}` : '실제 시간 수정'}
                   >
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-semibold flex-1 min-w-0 truncate">{text}</span>
-                      <span className="text-[9px] opacity-65 shrink-0">{session ? '집중' : subtask ? '하위' : categoryName}</span>
+                      <span className="text-[9px] opacity-65 shrink-0">{session ? (start >= 24 * 60 ? '전날에서 이어짐' : end >= 24 * 60 ? '다음날까지' : '집중') : subtask ? '하위' : categoryName}</span>
                     </div>
-                    {end - start >= 20 && <p className="text-[10px] opacity-70 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>}
+                    {end - start >= 20 && <p className="text-[10px] opacity-70 mt-0.5">{timelineRangeLabel(start, end)} · {formatDuration(end - start)}</p>}
                   </button>
                 )
               })}
