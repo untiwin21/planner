@@ -1,0 +1,83 @@
+name: one-time planner cleanup
+
+on:
+  push:
+    paths:
+      - '.github/workflows/refactor-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refactor planner source
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'expected block not found in {path}: {old[:100]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          page = 'src/app/page.tsx'
+          replace_once(page,
+              "import { ChevronLeft, ChevronRight, Plus, X, LogOut, Timer, RefreshCw } from 'lucide-react'",
+              "import { ChevronLeft, ChevronRight, Plus, X, LogOut, RefreshCw } from 'lucide-react'")
+          replace_once(page, "import { isRoutineScheduledOn } from '@/lib/routineSchedule'\n", '')
+          replace_once(page, "import { FocusTimer } from '@/components/system/FocusTimer'\n", '')
+          replace_once(page, "  const [showFocusTimer, setShowFocusTimer] = useState(false)\n", '')
+          replace_once(page,
+              "    const routineOccurrences = weekDays.flatMap(day => {\n      const date = formatDate(day)\n      return store.routines.filter(routine => isRoutineScheduledOn(routine, date)).map(routine => ({ routine, date }))\n    })\n    const routineDone = routineOccurrences.filter(({ routine, date }) => store.logs.some(log => log.routine_id === routine.id && log.date === date && log.done)).length\n    const routineRate = routineOccurrences.length > 0 ? Math.round((routineDone / routineOccurrences.length) * 100) : null\n",
+              '')
+          replace_once(page,
+              "    return { taskRate, routineRate, goalCount }\n  }, [weekDays, store.days, store.routines, store.logs, store.goals])",
+              "    return { taskRate, goalCount }\n  }, [weekDays, store.days, store.goals])")
+          replace_once(page,
+              "            {/* Focus timer button */}\n            <div className=\"relative\">\n              <button onClick={() => setShowFocusTimer(v => !v)}\n                className=\"px-2.5 h-8 rounded-[8px] text-sm font-medium hover:bg-white border border-transparent hover:border-[var(--border)] transition-all text-[var(--text-2)] flex items-center gap-1\">\n                <Timer size={14} /> 집중\n              </button>\n              {showFocusTimer && (\n                <div className=\"absolute top-full right-0 mt-1 z-30\">\n                  <FocusTimer onClose={() => setShowFocusTimer(false)} />\n                </div>\n              )}\n            </div>\n\n",
+              '')
+          replace_once(page,
+              "            {weekStats.routineRate !== null && <span>루틴 {weekStats.routineRate}%</span>}\n",
+              '')
+          replace_once(page,
+              "            {view !== 'today' && <RoutineSidebar",
+              "            {view !== 'today' && view !== 'week' && <RoutineSidebar")
+
+          store = 'src/hooks/usePlanrStore.ts'
+          replace_once(store,
+              "  // ── Periodic sync (every 30s) + focus/visibility triggers ──────────────────",
+              "  // ── Periodic sync (every 15s) + focus/visibility triggers ──────────────────")
+          replace_once(store,
+              "  const setDays = useCallback((v: DayEntry[] | ((p: DayEntry[]) => DayEntry[])) => {\n    setDaysRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.days, next); return next })\n  }, [])\n  const setGoals = useCallback((v: ShortGoal[] | ((p: ShortGoal[]) => ShortGoal[])) => {\n    setGoalsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; goalsRef.current = next; save(STORAGE_KEYS.goals, next); return next })\n  }, [])\n  const setRoutines = useCallback((v: Routine[] | ((p: Routine[]) => Routine[])) => {\n    setRoutinesRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.routines, next); return next })\n  }, [])\n  const setLogs = useCallback((v: RoutineLog[] | ((p: RoutineLog[]) => RoutineLog[])) => {\n    setLogsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; logsRef.current = next; save(STORAGE_KEYS.logs, next); return next })\n  }, [])\n  const setLongGoals = useCallback((v: LongGoal[] | ((p: LongGoal[]) => LongGoal[])) => {\n    setLongGoalsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.longGoals, next); return next })\n  }, [])\n  const setWeeklyReviews = useCallback((v: Record<string, string> | ((p: Record<string, string>) => Record<string, string>)) => {\n    setWeeklyReviewsRaw(prev => { const next = typeof v === 'function' ? v(prev) : v; save(STORAGE_KEYS.weeklyReviews, next); return next })\n  }, [])\n  const setCategories = useCallback((v: Category[] | ((p: Category[]) => Category[])) => {\n    setCategoriesRaw(prev => {\n      const next = typeof v === 'function' ? v(prev) : v\n      const updatedAt = now()\n      persistCategorySnapshot(next, updatedAt)\n      pushCategories(next, updatedAt)\n      return next\n    })\n  // eslint-disable-next-line react-hooks/exhaustive-deps\n  }, [userId])",
+              "  const setDays = useCallback((v: DayEntry[] | ((p: DayEntry[]) => DayEntry[])) => {\n    const next = typeof v === 'function' ? v(daysRef.current) : v\n    daysRef.current = next\n    save(STORAGE_KEYS.days, next)\n    setDaysRaw(next)\n  }, [])\n  const setGoals = useCallback((v: ShortGoal[] | ((p: ShortGoal[]) => ShortGoal[])) => {\n    const next = typeof v === 'function' ? v(goalsRef.current) : v\n    goalsRef.current = next\n    save(STORAGE_KEYS.goals, next)\n    setGoalsRaw(next)\n  }, [])\n  const setRoutines = useCallback((v: Routine[] | ((p: Routine[]) => Routine[])) => {\n    const next = typeof v === 'function' ? v(routinesRef.current) : v\n    routinesRef.current = next\n    save(STORAGE_KEYS.routines, next)\n    setRoutinesRaw(next)\n  }, [])\n  const setLogs = useCallback((v: RoutineLog[] | ((p: RoutineLog[]) => RoutineLog[])) => {\n    const next = typeof v === 'function' ? v(logsRef.current) : v\n    logsRef.current = next\n    save(STORAGE_KEYS.logs, next)\n    setLogsRaw(next)\n  }, [])\n  const setLongGoals = useCallback((v: LongGoal[] | ((p: LongGoal[]) => LongGoal[])) => {\n    const next = typeof v === 'function' ? v(longGoalsRef.current) : v\n    longGoalsRef.current = next\n    save(STORAGE_KEYS.longGoals, next)\n    setLongGoalsRaw(next)\n  }, [])\n  const setWeeklyReviews = useCallback((v: Record<string, string> | ((p: Record<string, string>) => Record<string, string>)) => {\n    const next = typeof v === 'function' ? v(weeklyReviewsRef.current) : v\n    weeklyReviewsRef.current = next\n    save(STORAGE_KEYS.weeklyReviews, next)\n    setWeeklyReviewsRaw(next)\n  }, [])\n  const setCategories = useCallback((v: Category[] | ((p: Category[]) => Category[])) => {\n    const next = typeof v === 'function' ? v(categoriesRef.current) : v\n    categoriesRef.current = next\n    const updatedAt = now()\n    persistCategorySnapshot(next, updatedAt)\n    pushCategories(next, updatedAt)\n    setCategoriesRaw(next)\n  // eslint-disable-next-line react-hooks/exhaustive-deps\n  }, [userId])")
+          replace_once(store, "    const stored = days.find(d => d.date === date)", "    const stored = daysRef.current.find(d => d.date === date)")
+          replace_once(store,
+              "    return logs.find(l => l.routine_id === routineId && l.date === date)?.done ?? false",
+              "    return logsRef.current.find(l => l.routine_id === routineId && l.date === date)?.done ?? false")
+
+          layout = 'src/app/layout.tsx'
+          replace_once(layout, "import { RoutinePersistenceGuard } from '@/components/system/RoutinePersistenceGuard'\n", '')
+          replace_once(layout, "        <RoutinePersistenceGuard />\n", '')
+
+          Path('src/components/system/FocusTimer.tsx').unlink(missing_ok=True)
+          Path('src/components/system/RoutinePersistenceGuard.tsx').unlink(missing_ok=True)
+          PY
+
+      - name: Remove one-time workflow and commit
+        shell: bash
+        run: |
+          rm -f .github/workflows/refactor-once.yml
+          git config user.name "Planr Cleanup Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: simplify weekly and persistence flows"
+          git push origin HEAD:main
