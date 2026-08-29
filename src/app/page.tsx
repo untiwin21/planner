@@ -27,6 +27,7 @@ import { TodayDashboard } from '@/components/today/TodayDashboard'
 import { WeeklyScheduleEditor } from '@/components/weekly/WeeklyScheduleEditor'
 import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
 import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
+import { DirectionDashboard } from '@/components/direction/DirectionDashboard'
 
 function packGoalsIntoRows(goals: ShortGoal[], weekDays: Date[]) {
   const weekStart = formatDate(weekDays[0])
@@ -66,7 +67,7 @@ export default function Home() {
   const [newGoalTo, setNewGoalTo] = useState('')
   const [newGoalTitle, setNewGoalTitle] = useState('')
   const [newGoalLongId, setNewGoalLongId] = useState('')
-  const [view, setView] = useState<'today' | 'week' | 'review' | 'journal'>('today')
+  const [view, setView] = useState<'today' | 'week' | 'review' | 'journal' | 'direction'>('today')
   const [showCalendar, setShowCalendar] = useState(true)
   const [todayFace, setTodayFace] = useState<'tasks' | 'routines'>('tasks')
 
@@ -334,7 +335,7 @@ export default function Home() {
         </div>
 
         {/* Stats row */}
-        {view !== 'today' && (
+        {view !== 'today' && view !== 'direction' && (
           <div className="flex items-center gap-4 mb-5 text-xs text-[var(--text-3)]">
             {weekStats.taskRate !== null && <span>할일 {weekStats.taskRate}%</span>}
             {weekStats.goalCount > 0 && <span>목표 {weekStats.goalCount}개</span>}
@@ -342,7 +343,7 @@ export default function Home() {
         )}
 
         {/* 2-column layout */}
-        <div className="grid gap-5" style={{ gridTemplateColumns: '280px 1fr' }}>
+        <div className="grid gap-5" style={{ gridTemplateColumns: view === 'direction' ? '1fr' : '280px 1fr' }}>
 
           {/* Left sidebar */}
           <div className="flex flex-col gap-4 min-w-0">
@@ -376,7 +377,7 @@ export default function Home() {
               )}
             </div>
 
-            {view !== 'today' && view !== 'week' && <RoutineSidebar
+            {view !== 'today' && view !== 'week' && view !== 'direction' && <RoutineSidebar
               routines={store.routines}
               logs={store.logs}
               selectedDate={selectedDate}
@@ -434,7 +435,20 @@ export default function Home() {
                   />
                 )}
               </>
-            ) : view === 'journal' ? (
+            ) : view === 'direction' ? (
+    <DirectionDashboard
+      routines={store.routines}
+      logs={store.logs}
+      longGoals={store.longGoals}
+      getLongGoalProgress={store.getLongGoalProgress}
+      getWeeklyReview={store.getWeeklyReview}
+      onUpdateWeeklyReview={store.updateWeeklyReview}
+      onAddRoutine={store.addRoutine}
+      onAddLongGoal={store.addLongGoal}
+      onUpdateLongGoal={store.updateLongGoal}
+      onDeleteLongGoal={store.deleteLongGoal}
+    />
+  ) : view === 'journal' ? (
               <Card className="p-5">
                 <JournalView
                   days={store.days}
