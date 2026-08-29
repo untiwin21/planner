@@ -1,0 +1,40 @@
+name: Wire About Me behavior controls
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-about-me.yml'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch About Me navigation and props
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/app/page.tsx')
+          s = p.read_text()
+          s = s.replace('                나의 방향\n', '                About Me\n', 1)
+          needle = '''      onUpdateWeeklyReview={store.updateWeeklyReview}
+      onAddRoutine={store.addRoutine}
+      onAddLongGoal={store.addLongGoal}'''
+          replacement = '''      onUpdateWeeklyReview={store.updateWeeklyReview}
+      onAddRoutine={store.addRoutine}
+      onUpdateRoutine={store.updateRoutine}
+      onAddLongGoal={store.addLongGoal}'''
+          if needle not in s:
+              raise SystemExit('DirectionDashboard prop insertion point not found')
+          s = s.replace(needle, replacement, 1)
+          p.write_text(s)
+          PY
+      - name: Remove workflow and commit
+        run: |
+          rm .github/workflows/patch-about-me.yml
+          git config user.name 'Planr About Me Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: expose behavior-designed About Me page'
+          git push
