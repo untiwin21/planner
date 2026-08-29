@@ -1,0 +1,68 @@
+name: Finalize direction navigation
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-direction-navigation.yml'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch navigation and layout
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/app/page.tsx')
+          s = p.read_text()
+
+          needle = '''              <button onClick={() => setView('journal')}
+                className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
+                  view === 'journal' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
+                기록
+              </button>
+            </div>'''
+          replacement = '''              <button onClick={() => setView('journal')}
+                className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
+                  view === 'journal' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
+                기록
+              </button>
+              <button onClick={() => setView('direction')}
+                className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
+                  view === 'direction' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
+                나의 방향
+              </button>
+            </div>'''
+          if needle in s:
+              s = s.replace(needle, replacement, 1)
+
+          s = s.replace(
+            '''            ) : (
+              <>
+                <button onClick={() => setWeekBase(subWeeks(weekBase, 1))}''',
+            '''            ) : view === 'direction' ? null : (
+              <>
+                <button onClick={() => setWeekBase(subWeeks(weekBase, 1))}''',
+            1,
+          )
+
+          s = s.replace(
+            '''          {/* Left sidebar */}
+          <div className="flex flex-col gap-4 min-w-0">''',
+            '''          {/* Left sidebar */}
+          <div className={clsx('flex flex-col gap-4 min-w-0', view === 'direction' && 'hidden')}>''',
+            1,
+          )
+
+          p.write_text(s)
+          PY
+      - name: Remove workflow and commit
+        run: |
+          rm .github/workflows/fix-direction-navigation.yml
+          git config user.name 'Planr Direction Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: finalize direction page navigation and layout'
+          git push
