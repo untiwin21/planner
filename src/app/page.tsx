@@ -296,6 +296,11 @@ export default function Home() {
                   view === 'journal' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
                 기록
               </button>
+              <button onClick={() => setView('direction')}
+                className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
+                  view === 'direction' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
+                나의 방향
+              </button>
             </div>
 
             {view === 'today' ? (
@@ -305,7 +310,7 @@ export default function Home() {
                   오늘로
                 </button>
               )
-            ) : (
+            ) : view === 'direction' ? null : (
               <>
                 <button onClick={() => setWeekBase(subWeeks(weekBase, 1))}
                   className="w-8 h-8 rounded-[8px] flex items-center justify-center hover:bg-white border border-transparent hover:border-[var(--border)] transition-all">
@@ -346,7 +351,7 @@ export default function Home() {
         <div className="grid gap-5" style={{ gridTemplateColumns: view === 'direction' ? '1fr' : '280px 1fr' }}>
 
           {/* Left sidebar */}
-          <div className="flex flex-col gap-4 min-w-0">
+          <div className={clsx('flex flex-col gap-4 min-w-0', view === 'direction' && 'hidden')}>
             <GoalHierarchyView
               longGoals={store.longGoals}
               getLongGoalProgress={store.getLongGoalProgress}
