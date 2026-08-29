@@ -148,27 +148,53 @@ function layoutTimeline(canvas: HTMLElement) {
 export function TimelineOverlapLayout() {
   useEffect(() => {
     let frame = 0
+    const canvasObservers = new Map<HTMLElement, MutationObserver>()
+
     const layoutAll = () => {
       frame = 0
-      findTimelineCanvases().forEach(layoutTimeline)
+      for (const canvas of canvasObservers.keys()) {
+        if (canvas.isConnected) layoutTimeline(canvas)
+      }
     }
     const scheduleLayout = () => {
       if (frame) return
       frame = window.requestAnimationFrame(layoutAll)
     }
 
-    scheduleLayout()
+    const syncCanvases = () => {
+      const live = new Set(findTimelineCanvases())
+      for (const [canvas, observer] of canvasObservers) {
+        if (!live.has(canvas) || !canvas.isConnected) {
+          observer.disconnect()
+          canvasObservers.delete(canvas)
+        }
+      }
+      for (const canvas of live) {
+        if (canvasObservers.has(canvas)) continue
+        const observer = new MutationObserver(scheduleLayout)
+        observer.observe(canvas, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ['style', 'class'],
+        })
+        canvasObservers.set(canvas, observer)
+      }
+      scheduleLayout()
+    }
+
+    syncCanvases()
     window.addEventListener('resize', scheduleLayout)
-    const observer = new MutationObserver(scheduleLayout)
-    observer.observe(document.body, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: ['style', 'class'],
-    })
+
+    // Body observation is discovery-only. Expensive style/class observation is
+    // limited to actual timeline canvases instead of the entire application.
+    const discoveryObserver = new MutationObserver(syncCanvases)
+    discoveryObserver.observe(document.body, { subtree: true, childList: true })
 
     return () => {
-      observer.disconnect()
+      discoveryObserver.disconnect()
+      for (const observer of canvasObservers.values()) observer.disconnect()
+      canvasObservers.clear()
       window.removeEventListener('resize', scheduleLayout)
       if (frame) window.cancelAnimationFrame(frame)
     }
