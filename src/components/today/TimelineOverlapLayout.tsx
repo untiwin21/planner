@@ -8,6 +8,7 @@ type TimelineBlock = {
   element: HTMLElement
   start: number
   end: number
+  durationPercent: number
   side: TimelineSide
   column: number
 }
@@ -15,6 +16,12 @@ type TimelineBlock = {
 const BLOCK_CLASS = 'rounded-[9px]'
 const SIDE_WIDTH = 50
 const GUTTER_PX = 2
+const TIMELINE_MINUTES = 24 * 60
+const MIN_READABLE_INTERVAL_MIN = 15
+const PIXELS_PER_READABLE_INTERVAL = 24
+const MIN_CANVAS_HEIGHT = (TIMELINE_MINUTES / MIN_READABLE_INTERVAL_MIN) * PIXELS_PER_READABLE_INTERVAL
+const COMPACT_BLOCK_THRESHOLD_MIN = 30
+const COMPACT_BLOCK_MIN_HEIGHT_PX = 20
 
 function percentage(value: string): number | null {
   const parsed = Number.parseFloat(value)
@@ -61,6 +68,11 @@ function detectSide(element: HTMLElement, canvas: HTMLElement): TimelineSide {
   return side
 }
 
+function ensureReadableCanvasScale(canvas: HTMLElement) {
+  const minHeight = `${MIN_CANVAS_HEIGHT}px`
+  if (canvas.style.minHeight !== minHeight) canvas.style.minHeight = minHeight
+}
+
 function collectBlocks(canvas: HTMLElement): TimelineBlock[] {
   const canvasRect = canvas.getBoundingClientRect()
   return Array.from(canvas.children).flatMap(child => {
@@ -84,10 +96,43 @@ function collectBlocks(canvas: HTMLElement): TimelineBlock[] {
       element: child,
       start: normalizedStart,
       end: normalizedStart + Math.max(normalizedDuration, 0.0001),
+      durationPercent: Math.max(normalizedDuration, 0.0001),
       side: detectSide(child, canvas),
       column: 0,
     }]
   })
+}
+
+function blockDurationMinutes(block: TimelineBlock) {
+  return block.durationPercent / 100 * TIMELINE_MINUTES
+}
+
+function styleReadableBlock(block: TimelineBlock) {
+  const durationMinutes = blockDurationMinutes(block)
+  const readableHeight = `max(${COMPACT_BLOCK_MIN_HEIGHT_PX}px, ${block.durationPercent}%)`
+  if (block.element.style.height !== readableHeight) block.element.style.height = readableHeight
+
+  const compact = durationMinutes < COMPACT_BLOCK_THRESHOLD_MIN
+  const wasCompact = block.element.dataset.timelineCompact === 'true'
+  if (compact) {
+    block.element.dataset.timelineCompact = 'true'
+    block.element.style.padding = '2px 5px'
+    block.element.style.borderRadius = '6px'
+
+    for (const node of block.element.querySelectorAll<HTMLElement>('span, p')) {
+      node.style.lineHeight = '1.05'
+      if (node.classList.contains('text-xs')) node.style.fontSize = '9px'
+      else if (node.className.includes('text-[9px]') || node.className.includes('text-[10px]')) node.style.fontSize = '8px'
+    }
+  } else if (wasCompact) {
+    delete block.element.dataset.timelineCompact
+    block.element.style.padding = ''
+    block.element.style.borderRadius = ''
+    for (const node of block.element.querySelectorAll<HTMLElement>('span, p')) {
+      node.style.lineHeight = ''
+      node.style.fontSize = ''
+    }
+  }
 }
 
 function splitIntoOverlapClusters(blocks: TimelineBlock[]): TimelineBlock[][] {
@@ -138,7 +183,9 @@ function layoutCluster(cluster: TimelineBlock[]) {
 }
 
 function layoutTimeline(canvas: HTMLElement) {
+  ensureReadableCanvasScale(canvas)
   const blocks = collectBlocks(canvas)
+  for (const block of blocks) styleReadableBlock(block)
   for (const side of ['plan', 'actual'] as const) {
     const sideBlocks = blocks.filter(block => block.side === side)
     for (const cluster of splitIntoOverlapClusters(sideBlocks)) layoutCluster(cluster)
