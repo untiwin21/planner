@@ -28,7 +28,7 @@ import {
 import { addDays, format, parseISO, subDays } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import clsx from 'clsx'
-import type { BadgeColor, Category, DayEntry, DayMeta, LongGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, RoutinePeriod, RoutineStatus, ShortGoal, SubTask, Task, TaskScheduleInput } from '@/types'
+import type { BadgeColor, Category, DayEntry, DayMeta, FocusSessionRecord, LongGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, RoutinePeriod, RoutineStatus, ShortGoal, SubTask, Task, TaskScheduleInput } from '@/types'
 import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
 import { formatDate, formatSleepMin } from '@/lib/dates'
 import {
@@ -130,6 +130,7 @@ interface ActualTimelineItem {
   token: string
   task: Task
   subtask?: SubTask
+  session?: FocusSessionRecord
   text: string
   categoryName: string
   categoryColor: BadgeColor
@@ -340,14 +341,13 @@ export function TodayDashboard({
 
   const actualBlocks = useMemo<ActualTimelineItem[]>(() => {
     const items: ActualTimelineItem[] = []
-    const append = ({ task, subtask }: { task: Task; subtask?: SubTask }) => {
-      const actualStatus = subtask?.actual_status ?? task.actual_status
-      const actualStart = subtask?.actual_start_time ?? (!subtask ? task.actual_start_time : undefined)
-      const actualEnd = subtask?.actual_end_time ?? (!subtask ? task.actual_end_time : undefined)
-      if (actualStatus !== 'recorded' || !actualStart || !actualEnd) return
-      const rawStart = timeToMinutes(actualStart)
-      const rawEnd = timeToMinutes(actualEnd)
-      if (rawStart === null || rawEnd === null) return null
+    const pushRange = ({ task, subtask, session, rawStart, rawEnd }: {
+      task: Task
+      subtask?: SubTask
+      session?: FocusSessionRecord
+      rawStart: number
+      rawEnd: number
+    }) => {
       const start = rawStart < TIMELINE_START ? rawStart + 24 * 60 : rawStart
       let end = rawEnd < TIMELINE_START ? rawEnd + 24 * 60 : rawEnd
       if (end <= start) end += 24 * 60
@@ -355,20 +355,41 @@ export function TodayDashboard({
       const normalizedEnd = Math.min(TIMELINE_END, end)
       if (normalizedEnd <= normalizedStart) return
       items.push({
-        key: subtask ? `actual-subtask:${task.id}:${subtask.id}` : `actual-task:${task.id}`,
-        token: subtask ? actualSubtaskDragToken(task.id, subtask.id) : actualTaskDragToken(task.id),
+        key: session ? `actual-session:${task.id}:${session.id}` : subtask ? `actual-subtask:${task.id}:${subtask.id}` : `actual-task:${task.id}`,
+        token: session ? `actual-session:${task.id}:${session.id}` : subtask ? actualSubtaskDragToken(task.id, subtask.id) : actualTaskDragToken(task.id),
         task,
         subtask,
+        session,
         text: subtask?.text ?? task.text,
-        categoryName: subtask ? `${task.text} · 하위` : task.category_name,
+        categoryName: session ? '집중 세션' : subtask ? `${task.text} · 하위` : task.category_name,
         categoryColor: task.category_color,
         start: normalizedStart,
         end: normalizedEnd,
       })
     }
+    const appendLegacy = ({ task, subtask }: { task: Task; subtask?: SubTask }) => {
+      const actualStatus = subtask?.actual_status ?? task.actual_status
+      const actualStart = subtask?.actual_start_time ?? (!subtask ? task.actual_start_time : undefined)
+      const actualEnd = subtask?.actual_end_time ?? (!subtask ? task.actual_end_time : undefined)
+      if (actualStatus !== 'recorded' || !actualStart || !actualEnd) return
+      const rawStart = timeToMinutes(actualStart)
+      const rawEnd = timeToMinutes(actualEnd)
+      if (rawStart === null || rawEnd === null) return
+      pushRange({ task, subtask, rawStart, rawEnd })
+    }
+    const appendSession = (task: Task, session: FocusSessionRecord) => {
+      const startedAt = new Date(session.started_at)
+      if (Number.isNaN(startedAt.getTime()) || !Number.isFinite(session.duration_min) || session.duration_min <= 0) return
+      const rawStart = startedAt.getHours() * 60 + startedAt.getMinutes() + startedAt.getSeconds() / 60
+      pushRange({ task, session, rawStart, rawEnd: rawStart + session.duration_min })
+    }
     for (const task of entry.tasks) {
-      append({ task })
-      for (const subtask of task.subtasks ?? []) append({ task, subtask })
+      if ((task.actual_sessions ?? []).length > 0) {
+        for (const session of task.actual_sessions ?? []) appendSession(task, session)
+      } else {
+        appendLegacy({ task })
+      }
+      for (const subtask of task.subtasks ?? []) appendLegacy({ task, subtask })
     }
     return items.sort((a, b) => a.start - b.start)
   }, [entry.tasks])
@@ -624,6 +645,8 @@ export function TodayDashboard({
         actual_start_time: minutesToTime(range.start),
         actual_end_time: minutesToTime(range.end),
         actual_status: 'recorded',
+        actual_duration_min: undefined,
+        actual_sessions: undefined,
         done: true,
       })
     }
@@ -717,6 +740,8 @@ export function TodayDashboard({
           actual_start_time: actualEditor.start,
           actual_end_time: actualEditor.end,
           actual_status: 'recorded',
+          actual_duration_min: undefined,
+          actual_sessions: undefined,
           done: true,
         })
       }
@@ -762,6 +787,8 @@ export function TodayDashboard({
       actual_start_time: undefined,
       actual_end_time: undefined,
       actual_status: 'skipped',
+      actual_duration_min: undefined,
+      actual_sessions: undefined,
       done: false,
     })
     setActualEditor(null)
@@ -792,6 +819,8 @@ export function TodayDashboard({
       actual_start_time: undefined,
       actual_end_time: undefined,
       actual_status: undefined,
+      actual_duration_min: undefined,
+      actual_sessions: undefined,
     })
     setActualEditor(null)
   }
@@ -842,7 +871,7 @@ export function TodayDashboard({
 
   function toggleTaskWithActualEditor(task: Task) {
     onToggleTask(task.id)
-    if (task.done || task.discarded || !canEditActual) return
+    if (task.done || task.discarded || !canEditActual || (task.actual_sessions?.length ?? 0) > 0) return
     const start = getTaskStart(task)
     const normalizedStart = start === null ? undefined : start < TIMELINE_START ? start + 24 * 60 : start
     const plannedEnd = normalizedStart === undefined ? undefined : getTaskEnd(task) ?? normalizedStart + getTaskDuration(task)
@@ -970,6 +999,8 @@ export function TodayDashboard({
       actual_start_time: undefined,
       actual_end_time: undefined,
       actual_status: undefined,
+      actual_duration_min: undefined,
+      actual_sessions: undefined,
     } : { discarded: false })
   }
 
@@ -1233,7 +1264,7 @@ export function TodayDashboard({
               })}
 
               {actualBlocks.map(item => {
-                const { task, subtask, token, text, categoryName, categoryColor, start, end } = item
+                const { task, subtask, session, token, text, categoryName, categoryColor, start, end } = item
                 const top = timelinePosition(start)
                 const height = timelineBlockHeight(start, end)
                 const overlapsRoutine = routineActualGroups.some(group => group.start < end && group.end > start)
@@ -1241,23 +1272,24 @@ export function TodayDashboard({
                   <button
                     type="button"
                     key={item.key}
-                    draggable
+                    draggable={!session}
                     onDragStart={event => {
+                      if (session) return
                       setDraggedTaskId(token)
                       event.dataTransfer.setData('text/plain', token)
                       event.dataTransfer.effectAllowed = 'move'
                     }}
                     onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
-                    onClick={() => openActualEditor(task, start, end, subtask)}
-                    className={clsx('absolute right-0.5 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-sm hover:ring-2 hover:ring-black/10 active:cursor-grabbing', TIMELINE_CATEGORY_STYLE[categoryColor])}
+                    onClick={() => { if (!session) openActualEditor(task, start, end, subtask) }}
+                    className={clsx('absolute right-0.5 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-sm', !session && 'hover:ring-2 hover:ring-black/10 active:cursor-grabbing', TIMELINE_CATEGORY_STYLE[categoryColor])}
                     style={{ top, height, left: 'calc(50% + 2px)', right: overlapsRoutine ? '25%' : 2 }}
-                    title="실제 시간 수정"
+                    title={session ? `스톱워치 집중 세션 · ${minutesToTime(start)}–${minutesToTime(end)}` : '실제 시간 수정'}
                   >
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-semibold flex-1 min-w-0 truncate">{text}</span>
-                      <span className="text-[9px] opacity-65 shrink-0">{subtask ? '하위' : categoryName}</span>
+                      <span className="text-[9px] opacity-65 shrink-0">{session ? '집중' : subtask ? '하위' : categoryName}</span>
                     </div>
-                    {end - start >= 45 && <p className="text-[10px] opacity-70 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>}
+                    {end - start >= 20 && <p className="text-[10px] opacity-70 mt-0.5">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>}
                   </button>
                 )
               })}

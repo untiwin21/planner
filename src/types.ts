@@ -20,6 +20,14 @@ export interface SubTask {
   updated_at?: number
 }
 
+export interface FocusSessionRecord {
+  id: string
+  started_at: string
+  ended_at: string
+  duration_min: number
+  source: 'stopwatch' | 'manual'
+}
+
 export interface Task {
   id: string
   day_id: string
@@ -46,6 +54,10 @@ export interface Task {
   actual_start_time?: string
   actual_end_time?: string
   actual_status?: 'recorded' | 'skipped'
+  /** Total focused/recorded work time. This may be the sum of multiple sessions. */
+  actual_duration_min?: number
+  /** Individual execution windows. Timeline rendering must prefer these over aggregate start/end. */
+  actual_sessions?: FocusSessionRecord[]
   /** Retrospective-only item: shown on the actual timeline, never as a planned task. */
   actual_only?: boolean
   /** Optional measurable completion, e.g. 6 / 7 km. `done` still means 100%. */

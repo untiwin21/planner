@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Clock3, Gauge, Pause, Play, Sparkles, Square, Target, TimerReset, X } from 'lucide-react'
-import type { DayEntry, SubTask, Task } from '@/types'
+import type { DayEntry, FocusSessionRecord, SubTask, Task } from '@/types'
 import { formatDate } from '@/lib/dates'
 import { getTaskDuration, isFixedTask, timeToMinutes } from '@/lib/plannerTime'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
@@ -13,14 +13,6 @@ import { upsertDayEntry } from '@/lib/syncService'
 const DAY_STORAGE_KEY = 'planr_days'
 const SESSION_STORAGE_KEY = 'planr_task_focus_stopwatch_v1'
 const REFRESH_MS = 1200
-
-interface FocusSessionRecord {
-  id: string
-  started_at: string
-  ended_at: string
-  duration_min: number
-  source: 'stopwatch'
-}
 
 type FocusTask = Task & {
   actual_duration_min?: number
@@ -36,6 +28,7 @@ interface ActiveFocusSession {
   firstStartedAt: number
   segmentStartedAt: number | null
   accumulatedMs: number
+  segments: Array<{ startedAt: number; endedAt: number }>
   running: boolean
 }
 
@@ -73,7 +66,7 @@ function readSession(): ActiveFocusSession | null {
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (!parsed || typeof parsed.taskId !== 'string' || typeof parsed.date !== 'string') return null
-    return parsed as ActiveFocusSession
+    return { ...parsed, segments: Array.isArray(parsed.segments) ? parsed.segments : [] } as ActiveFocusSession
   } catch {
     return null
   }
@@ -385,13 +378,6 @@ function wallClock(ms: number) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
-function addMinutesToClock(clock: string, minutes: number) {
-  const start = timeToMinutes(clock)
-  if (start === null) return clock
-  const total = ((start + Math.max(1, Math.round(minutes))) % (24 * 60) + 24 * 60) % (24 * 60)
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
-}
-
 export function TaskExecutionLayer() {
   const [snapshot, setSnapshot] = useState<ExecutionSnapshot | null>(null)
   const [session, setSession] = useState<ActiveFocusSession | null>(null)
@@ -484,6 +470,10 @@ export function TaskExecutionLayer() {
       const next = {
         ...current,
         accumulatedMs: current.accumulatedMs + Math.max(0, pausedAt - current.segmentStartedAt),
+        segments: [
+          ...(current.segments ?? []),
+          ...(pausedAt > current.segmentStartedAt ? [{ startedAt: current.segmentStartedAt, endedAt: pausedAt }] : []),
+        ],
         segmentStartedAt: null,
         running: false,
       }
@@ -530,6 +520,7 @@ export function TaskExecutionLayer() {
       firstStartedAt: startedAt,
       segmentStartedAt: startedAt,
       accumulatedMs: 0,
+      segments: [],
       running: true,
     }
     setCurrentTime(startedAt)
@@ -548,7 +539,13 @@ export function TaskExecutionLayer() {
     setSaving(true)
     try {
       const finishedAt = Date.now()
-      const activeMinutes = elapsedMs(session, finishedAt) / 60_000
+      const finishedSegments = [
+        ...(session.segments ?? []),
+        ...(session.running && session.segmentStartedAt && finishedAt > session.segmentStartedAt
+          ? [{ startedAt: session.segmentStartedAt, endedAt: finishedAt }]
+          : []),
+      ]
+      const activeMinutes = finishedSegments.reduce((sum, segment) => sum + Math.max(0, segment.endedAt - segment.startedAt), 0) / 60_000
       const days = readDays()
       const dayIndex = days.findIndex(entry => entry.date === session.date)
       if (dayIndex < 0) throw new Error('선택한 날짜의 기록을 찾을 수 없습니다.')
@@ -560,23 +557,20 @@ export function TaskExecutionLayer() {
       const task = entry.tasks[taskIndex] as FocusTask
       const previousMinutes = taskActualMinutes(task) ?? 0
       const totalMinutes = previousMinutes + activeMinutes
-      const firstClock = task.actual_status === 'recorded' && task.actual_start_time
-        ? task.actual_start_time
-        : wallClock(session.firstStartedAt)
-      const sessions: FocusSessionRecord[] = [
-        ...(task.actual_sessions ?? []),
-        {
-          id: uid(),
-          started_at: new Date(session.firstStartedAt).toISOString(),
-          ended_at: new Date(finishedAt).toISOString(),
-          duration_min: activeMinutes,
-          source: 'stopwatch',
-        },
-      ]
+      const newSessions: FocusSessionRecord[] = finishedSegments.map(segment => ({
+        id: uid(),
+        started_at: new Date(segment.startedAt).toISOString(),
+        ended_at: new Date(segment.endedAt).toISOString(),
+        duration_min: Math.max(0, segment.endedAt - segment.startedAt) / 60_000,
+        source: 'stopwatch',
+      }))
+      const sessions: FocusSessionRecord[] = [...(task.actual_sessions ?? []), ...newSessions]
+      const firstSession = sessions[0]
+      const lastSession = sessions[sessions.length - 1]
       const updatedTask: FocusTask = {
         ...task,
-        actual_start_time: firstClock,
-        actual_end_time: addMinutesToClock(firstClock, totalMinutes),
+        actual_start_time: firstSession ? wallClock(new Date(firstSession.started_at).getTime()) : wallClock(session.firstStartedAt),
+        actual_end_time: lastSession ? wallClock(new Date(lastSession.ended_at).getTime()) : wallClock(finishedAt),
         actual_status: 'recorded',
         actual_duration_min: totalMinutes,
         actual_sessions: sessions,
