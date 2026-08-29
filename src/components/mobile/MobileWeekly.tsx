@@ -6,7 +6,7 @@ import clsx from 'clsx'
 import { getWeekDays, formatDate, isToday, DAY_NAMES } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
-import type { DayEntry, Category, ShortGoal, Routine, RoutineLog, DayMeta, Task, TaskScheduleInput } from '@/types'
+import type { DayEntry, ShortGoal, Task, TaskScheduleInput } from '@/types'
 import { WeeklyScheduleEditor } from '@/components/weekly/WeeklyScheduleEditor'
 import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
 import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
@@ -14,21 +14,13 @@ import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
 interface Props {
   selectedDate: string
   days: DayEntry[]
-  categories: Category[]
   goals: ShortGoal[]
-  routines: Routine[]
-  logs: RoutineLog[]
   onSelectDate: (date: string) => void
   getDay: (date: string) => DayEntry
   onToggleTask: (date: string, taskId: string) => void
   onAddTask: (date: string, catId: string, text: string, schedule?: string | TaskScheduleInput) => void
   onUpdateTask: (date: string, taskId: string, patch: Partial<Task>) => void
   onDeleteTask: (date: string, taskId: string) => void
-  onMetaChange: (date: string, patch: Partial<DayMeta>) => void
-  onToggleRoutine: (routineId: string, date: string) => void
-  onToggleLinkedTask: (goalId: string, taskId: string) => void
-  onLinkGoalTask: (date: string, taskId: string) => void
-  onUnlinkGoalTask: (date: string, taskId: string) => void
   onAddGoal: (g: Omit<ShortGoal, 'id'>) => void
   onUpdateGoal: (goalId: string, patch: Partial<ShortGoal>) => void
 }
@@ -62,9 +54,8 @@ const GOAL_COLORS = [
 ]
 
 export function MobileWeekly({
-  selectedDate, days, categories, goals, routines, logs,
+  selectedDate, days, goals,
   onSelectDate, getDay, onToggleTask, onAddTask, onUpdateTask, onDeleteTask,
-  onMetaChange, onToggleRoutine, onToggleLinkedTask, onLinkGoalTask, onUnlinkGoalTask,
   onAddGoal,
   onUpdateGoal,
 }: Props) {

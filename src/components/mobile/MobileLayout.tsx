@@ -92,21 +92,13 @@ export function MobileLayout({
           <MobileWeekly
             selectedDate={selectedDate}
             days={days}
-            categories={categories}
             goals={goals}
-            routines={routines}
-            logs={logs}
             onSelectDate={d => { setSelectedDate(d) }}
             getDay={getDay}
             onToggleTask={toggleTask}
             onAddTask={addTask}
             onUpdateTask={updateTask}
             onDeleteTask={deleteTask}
-            onMetaChange={updateMeta}
-            onToggleRoutine={toggleRoutineLog}
-            onToggleLinkedTask={toggleGoalTask}
-            onLinkGoalTask={linkGoalTask}
-            onUnlinkGoalTask={unlinkGoalTask}
             onAddGoal={addGoal}
             onUpdateGoal={updateGoal}
           />
