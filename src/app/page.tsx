@@ -299,7 +299,7 @@ export default function Home() {
               <button onClick={() => setView('direction')}
                 className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
                   view === 'direction' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
-                나의 방향
+                About Me
               </button>
             </div>
 
@@ -388,6 +388,7 @@ export default function Home() {
               selectedDate={selectedDate}
               onToggleLog={store.toggleRoutineLog}
               onAddRoutine={store.addRoutine}
+      onUpdateRoutine={store.updateRoutine}
               onSetStatus={store.setRoutineStatus}
               onUpdateRoutine={store.updateRoutine}
               onDeleteRoutine={store.deleteRoutine}
