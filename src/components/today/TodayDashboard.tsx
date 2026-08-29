@@ -425,7 +425,7 @@ export function TodayDashboard({
       for (const subtask of task.subtasks ?? []) appendLegacy({ task, subtask })
     }
     return items.sort((a, b) => a.start - b.start)
-  }, [entry.tasks])
+  }, [date, entry.tasks])
 
   const flexible = useMemo(() => entry.tasks
     .filter(task => !isActualOnlyTask(task) && !isFixedTask(task))
