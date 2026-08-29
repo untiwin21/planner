@@ -382,16 +382,6 @@ export default function Home() {
               )}
             </div>
 
-            {view !== 'today' && view !== 'week' && view !== 'direction' && <RoutineSidebar
-              routines={store.routines}
-              logs={store.logs}
-              selectedDate={selectedDate}
-              onToggleLog={store.toggleRoutineLog}
-              onAddRoutine={store.addRoutine}
-              onSetStatus={store.setRoutineStatus}
-              onUpdateRoutine={store.updateRoutine}
-              onDeleteRoutine={store.deleteRoutine}
-            />}
           </div>
 
           {/* Main content */}
