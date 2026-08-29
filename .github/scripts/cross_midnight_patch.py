@@ -1,0 +1,100 @@
+from pathlib import Path
+
+p = Path('src/components/today/TodayDashboard.tsx')
+s = p.read_text()
+
+marker = """function normalizeTimelineMinute(minute: number) {
+  return minute < TIMELINE_START ? minute + 24 * 60 : minute
+}
+
+"""
+helper = """function normalizeTimelineMinute(minute: number) {
+  return minute < TIMELINE_START ? minute + 24 * 60 : minute
+}
+
+function focusSessionTimelineRange(session: FocusSessionRecord, plannerDate: string) {
+  const startedAt = new Date(session.started_at)
+  if (Number.isNaN(startedAt.getTime()) || !Number.isFinite(session.duration_min) || session.duration_min <= 0) return null
+
+  const base = parseISO(plannerDate)
+  base.setHours(0, 0, 0, 0)
+  const rawStart = (startedAt.getTime() - base.getTime()) / 60_000
+
+  const endedAt = new Date(session.ended_at)
+  const recordedEnd = Number.isNaN(endedAt.getTime())
+    ? null
+    : (endedAt.getTime() - base.getTime()) / 60_000
+  const wallDuration = recordedEnd === null ? null : recordedEnd - rawStart
+  // Current stopwatch sessions store each active segment separately, so ended_at
+  // normally gives the exact wall-clock end. Older records could include paused
+  // gaps; in that case duration_min remains the authoritative focused duration.
+  const rawEnd = recordedEnd !== null && wallDuration !== null && Math.abs(wallDuration - session.duration_min) <= 1
+    ? recordedEnd
+    : rawStart + session.duration_min
+
+  const start = Math.max(TIMELINE_START, rawStart)
+  const end = Math.min(TIMELINE_END, rawEnd)
+  if (end <= start) return null
+  return { start, end }
+}
+
+function timelineRangeLabel(start: number, end: number) {
+  const startClock = minutesToTime(start)
+  const endClock = minutesToTime(end)
+  if (start < 24 * 60 && end >= 24 * 60) return `${startClock}–다음날 ${endClock}`
+  if (start >= 24 * 60) return `다음날 ${startClock}–${endClock}`
+  return `${startClock}–${endClock}`
+}
+
+"""
+if marker not in s:
+    raise SystemExit('normalizeTimelineMinute marker not found')
+s = s.replace(marker, helper, 1)
+
+old = """    const appendSession = (task: Task, session: FocusSessionRecord) => {
+      const startedAt = new Date(session.started_at)
+      if (Number.isNaN(startedAt.getTime()) || !Number.isFinite(session.duration_min) || session.duration_min <= 0) return
+      const rawStart = startedAt.getHours() * 60 + startedAt.getMinutes() + startedAt.getSeconds() / 60
+      pushRange({ task, session, rawStart, rawEnd: rawStart + session.duration_min })
+    }
+"""
+new = """    const appendSession = (task: Task, session: FocusSessionRecord) => {
+      const range = focusSessionTimelineRange(session, date)
+      if (!range) return
+      pushRange({ task, session, rawStart: range.start, rawEnd: range.end })
+    }
+"""
+if old not in s:
+    raise SystemExit('appendSession block not found')
+s = s.replace(old, new, 1)
+
+old = """                    <span className=\"absolute right-full -translate-y-1/2 pr-2 text-[10px] font-medium text-[var(--text-3)] tabular-nums\">{minutesToTime(minute)}</span>
+"""
+new = """                    <span className=\"absolute right-full -translate-y-1/2 whitespace-nowrap pr-2 text-[10px] font-medium text-[var(--text-3)] tabular-nums\">{minute >= 24 * 60 ? `다음날 ${minutesToTime(minute)}` : minutesToTime(minute)}</span>
+                    {minute === 24 * 60 && <span className=\"absolute left-1/2 top-0 z-[6] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[var(--border)] bg-white px-2 py-0.5 text-[9px] font-bold text-[var(--text-3)] shadow-sm\">다음날 · {format(addDays(dateObject, 1), 'M월 d일')}</span>}
+"""
+if old not in s:
+    raise SystemExit('hour label block not found')
+s = s.replace(old, new, 1)
+
+old = """                    title={session ? `스톱워치 집중 세션 · ${minutesToTime(start)}–${minutesToTime(end)}` : '실제 시간 수정'}
+                  >
+                    <div className=\"flex items-center gap-1.5\">
+                      <span className=\"text-xs font-semibold flex-1 min-w-0 truncate\">{text}</span>
+                      <span className=\"text-[9px] opacity-65 shrink-0\">{session ? '집중' : subtask ? '하위' : categoryName}</span>
+                    </div>
+                    {end - start >= 20 && <p className=\"text-[10px] opacity-70 mt-0.5\">{minutesToTime(start)}–{minutesToTime(end)} · {formatDuration(end - start)}</p>}
+"""
+new = """                    title={session ? `스톱워치 집중 세션 · ${timelineRangeLabel(start, end)}` : '실제 시간 수정'}
+                  >
+                    <div className=\"flex items-center gap-1.5\">
+                      <span className=\"text-xs font-semibold flex-1 min-w-0 truncate\">{text}</span>
+                      <span className=\"text-[9px] opacity-65 shrink-0\">{session ? (start >= 24 * 60 ? '전날에서 이어짐' : end >= 24 * 60 ? '다음날까지' : '집중') : subtask ? '하위' : categoryName}</span>
+                    </div>
+                    {end - start >= 20 && <p className=\"text-[10px] opacity-70 mt-0.5\">{timelineRangeLabel(start, end)} · {formatDuration(end - start)}</p>}
+"""
+if old not in s:
+    raise SystemExit('actual session render block not found')
+s = s.replace(old, new, 1)
+
+p.write_text(s)
