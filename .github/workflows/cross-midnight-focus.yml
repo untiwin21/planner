@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/cross-midnight-focus.yml'
+      - '.github/scripts/cross_midnight_patch.py'
 permissions:
   contents: write
 jobs:
@@ -18,5 +19,5 @@ jobs:
           git config user.name "Planr Timeline Bot"
           git config user.email "actions@users.noreply.github.com"
           git add src/components/today/TodayDashboard.tsx
-          git commit -m "fix: show focus sessions across midnight"
+          git commit -m "fix: refresh focus timeline by planner date"
           git push
