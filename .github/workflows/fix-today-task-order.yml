@@ -1,0 +1,41 @@
+name: Fix persistent Today task ordering
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-today-task-order.yml'
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preserve stored task order
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/components/today/TodayDashboard.tsx')
+          s = p.read_text()
+          old = """  const flexible = useMemo(() => entry.tasks
+    .filter(task => !isActualOnlyTask(task) && !isFixedTask(task))
+    .sort((a, b) => Number(a.discarded) - Number(b.discarded) || Number(a.done) - Number(b.done) || (a.updated_at ?? 0) - (b.updated_at ?? 0)), [entry.tasks])
+"""
+          new = """  // Preserve the explicit order stored in DayEntry. User drag ordering must not
+  // be overridden by completion state or updated_at timestamps.
+  const flexible = useMemo(() => entry.tasks
+    .filter(task => !isActualOnlyTask(task) && !isFixedTask(task)), [entry.tasks])
+"""
+          if old not in s:
+              raise SystemExit('flexible task sorting marker not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - run: npm ci
+      - run: npm run build
+      - name: Commit verified ordering fix
+        run: |
+          git config user.name "Planr Ordering Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/components/today/TodayDashboard.tsx
+          git commit -m "fix: preserve user task order within categories"
+          git push
