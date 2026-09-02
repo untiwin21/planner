@@ -438,9 +438,10 @@ export function TodayDashboard({
     return items.sort((a, b) => a.start - b.start)
   }, [date, entry.tasks])
 
+  // Preserve the explicit order stored in DayEntry. User drag ordering must not
+  // be overridden by completion state or updated_at timestamps.
   const flexible = useMemo(() => entry.tasks
-    .filter(task => !isActualOnlyTask(task) && !isFixedTask(task))
-    .sort((a, b) => Number(a.discarded) - Number(b.discarded) || Number(a.done) - Number(b.done) || (a.updated_at ?? 0) - (b.updated_at ?? 0)), [entry.tasks])
+    .filter(task => !isActualOnlyTask(task) && !isFixedTask(task)), [entry.tasks])
 
   const taskGroups = useMemo(() => {
     const byCategory = new Map<string, Task[]>()
