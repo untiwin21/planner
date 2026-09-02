@@ -18,6 +18,6 @@ jobs:
         run: |
           git config user.name "Planr Build Fix Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add src/lib/aiExport.ts
-          git commit -m "fix: verify GPT feedback export build"
+          git add src/lib/aiExport.ts src/hooks/usePlanrStore.ts
+          git commit -m "fix: finalize planner feedback export consistency"
           git push
