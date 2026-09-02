@@ -1592,16 +1592,22 @@ export function TodayDashboard({
                     <div
                       key={task.id}
                       onDragOver={event => {
-                        if (!onReorderTask || !draggedTaskId?.startsWith('task:') || draggedTaskId === token) return
+                        // A native HTML drag target must call preventDefault synchronously.
+                        // Do not depend on React state here: draggedTaskId may still be stale
+                        // during the first dragover, which makes the browser show a forbidden cursor.
+                        if (!onReorderTask) return
                         event.preventDefault()
                         event.dataTransfer.dropEffect = 'move'
                       }}
                       onDrop={event => {
+                        event.preventDefault()
                         const source = draggedTaskId ?? event.dataTransfer.getData('text/plain')
                         if (!onReorderTask || !source.startsWith('task:') || source === token) return
-                        event.preventDefault()
-                        onReorderTask(category.id, source.slice(5), task.id)
+                        const sourceTask = entry.tasks.find(item => item.id === source.slice(5))
+                        if (!sourceTask || sourceTask.category_id !== category.id) return
+                        onReorderTask(category.id, sourceTask.id, task.id)
                         setDraggedTaskId(null)
+                        setDragPreviewMinute(null)
                       }}
                       className={clsx('rounded-[12px] border px-3 py-2.5 group', task.discarded ? 'border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] opacity-65' : task.done ? 'bg-[var(--surface-2)] border-transparent opacity-60' : isPartial ? 'bg-[var(--amber-bg)]/45 border-amber-200' : 'bg-white border-[var(--border)]', draggedTaskId === token && 'opacity-50 ring-2 ring-[var(--purple)]')}
                     >
@@ -1619,20 +1625,26 @@ export function TodayDashboard({
                           onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
                           className={clsx('mt-0.5 -ml-1 h-6 w-6 touch-none rounded-[6px] text-[var(--text-3)] hover:bg-[var(--surface-2)] flex items-center justify-center shrink-0', !task.done && !task.discarded ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed opacity-30')}
                           onPointerDown={event => {
-                            if (task.done || task.discarded || !event.isPrimary) return
+                            // Mouse uses native HTML5 drag/drop so cards can reorder reliably.
+                            // Pointer capture is reserved for touch/pen timeline placement.
+                            if (event.pointerType === 'mouse' || task.done || task.discarded || !event.isPrimary) return
                             pointerTaskIdRef.current = token
                             setDraggedTaskId(token)
                             event.currentTarget.setPointerCapture(event.pointerId)
                           }}
                           onPointerMove={event => {
-                            if (pointerTaskIdRef.current !== token) return
+                            if (event.pointerType === 'mouse' || pointerTaskIdRef.current !== token) return
                             event.preventDefault()
                             const drop = timelineDropAtPoint(event.clientX, event.clientY)
                             setDragPreviewMinute(drop?.minute ?? null)
                             if (drop) setDragTargetSide(drop.side)
                           }}
-                          onPointerUp={event => finishPointerDrag(event.clientX, event.clientY)}
-                          onPointerCancel={() => finishPointerDrag(-1, -1)}
+                          onPointerUp={event => {
+                            if (event.pointerType !== 'mouse') finishPointerDrag(event.clientX, event.clientY)
+                          }}
+                          onPointerCancel={event => {
+                            if (event.pointerType !== 'mouse') finishPointerDrag(-1, -1)
+                          }}
                         >
                           <GripVertical size={15} aria-hidden="true" />
                         </button>
