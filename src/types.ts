@@ -28,6 +28,29 @@ export interface FocusSessionRecord {
   source: 'stopwatch' | 'manual'
 }
 
+export type TaskHistoryKind =
+  | 'created'
+  | 'edited'
+  | 'planned'
+  | 'rescheduled'
+  | 'unplanned'
+  | 'completed'
+  | 'reopened'
+  | 'discarded'
+  | 'restored'
+  | 'deleted'
+  | 'actual_recorded'
+  | 'focus_session'
+
+export interface TaskHistoryEvent {
+  id: string
+  at: string
+  kind: TaskHistoryKind
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  note?: string
+}
+
 export interface Task {
   id: string
   day_id: string
@@ -67,6 +90,8 @@ export interface Task {
   /** Embedded tombstone used to propagate deletions between devices. */
   deleted_at?: number
   subtasks?: SubTask[]
+  /** Persistent audit trail used by AI feedback to reconstruct plan changes. */
+  history?: TaskHistoryEvent[]
   // Last-write-wins timestamp (ms epoch). Set on every mutation; merge takes newer.
   updated_at?: number
 }

@@ -74,7 +74,7 @@ function downloadText(filename: string, content: string, mime: string) {
 
 export function DataPanel() {
   const [isOpen, setIsOpen] = useState(false)
-  const [range, setRange] = useState<AiExportRange>(7)
+  const [range, setRange] = useState<AiExportRange>(1)
   const [copied, setCopied] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const lastSync = typeof window !== 'undefined' ? localStorage.getItem('planr_last_sync') : null
@@ -85,7 +85,7 @@ export function DataPanel() {
 
   function handleAiMarkdownExport() {
     const markdown = aiSnapshotToMarkdown(currentSnapshot())
-    downloadText(`planr-ai-context-${rangeLabel(range)}-${todayStamp()}.md`, markdown, 'text/markdown;charset=utf-8')
+    downloadText(`planr-gpt-feedback-${rangeLabel(range)}-${todayStamp()}.md`, markdown, 'text/markdown;charset=utf-8')
   }
 
   async function handleCopyAiReport() {
@@ -190,11 +190,11 @@ export function DataPanel() {
             <div className="rounded-[13px] border border-[var(--purple)]/20 bg-[var(--purple-bg)]/35 p-3">
               <p className="text-xs font-black text-[var(--purple-text)]">GPT에게 바로 보여주기</p>
               <p className="mt-1 text-[10px] leading-relaxed text-[var(--text-3)]">
-                목표·정체성·루틴·컨디션·할 일·예상/실제 시간을 사람이 읽기 좋은 보고서로 정리합니다.
+                현재 계획뿐 아니라 계획 변경·취소·재배치 이력, 포커스 세션, 계획/실제 타임라인까지 포함합니다. 파일을 GPT에 올리는 방식이라 별도 API 비용이 없습니다.
               </p>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button onClick={handleAiMarkdownExport} className="rounded-[9px] bg-[var(--purple)] px-3 py-2 text-[11px] font-bold text-white hover:opacity-90">
-                  GPT 보고서 .md
+                  GPT 피드백 팩 .md
                 </button>
                 <button onClick={handleCopyAiReport} className="rounded-[9px] border border-[var(--purple)]/25 bg-white px-3 py-2 text-[11px] font-bold text-[var(--purple-text)] hover:border-[var(--purple)]">
                   {copied ? '복사됨 ✓' : '보고서 복사'}

@@ -22,6 +22,7 @@ const PIXELS_PER_READABLE_INTERVAL = 24
 const MIN_CANVAS_HEIGHT = (TIMELINE_MINUTES / MIN_READABLE_INTERVAL_MIN) * PIXELS_PER_READABLE_INTERVAL
 const COMPACT_BLOCK_THRESHOLD_MIN = 30
 const COMPACT_BLOCK_MIN_HEIGHT_PX = 20
+const OVERLAP_EPSILON_PERCENT = (0.5 / TIMELINE_MINUTES) * 100
 
 function percentage(value: string): number | null {
   const parsed = Number.parseFloat(value)
@@ -142,7 +143,7 @@ function splitIntoOverlapClusters(blocks: TimelineBlock[]): TimelineBlock[][] {
   let clusterEnd = Number.NEGATIVE_INFINITY
 
   for (const block of sorted) {
-    if (cluster.length > 0 && block.start >= clusterEnd) {
+    if (cluster.length > 0 && block.start + OVERLAP_EPSILON_PERCENT >= clusterEnd) {
       clusters.push(cluster)
       cluster = []
       clusterEnd = Number.NEGATIVE_INFINITY
@@ -159,7 +160,7 @@ function layoutCluster(cluster: TimelineBlock[]) {
   const ordered = [...cluster].sort((a, b) => a.start - b.start || a.end - b.end)
 
   for (const block of ordered) {
-    let column = columnEnds.findIndex(end => end <= block.start)
+    let column = columnEnds.findIndex(end => end <= block.start + OVERLAP_EPSILON_PERCENT)
     if (column === -1) {
       column = columnEnds.length
       columnEnds.push(block.end)

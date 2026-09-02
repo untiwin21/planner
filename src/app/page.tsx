@@ -416,6 +416,9 @@ export default function Home() {
                     onMetaChange={patch => store.updateMeta(selectedDate, patch)}
                     onAddCategory={store.addGlobalCategory}
                     onDeleteCategory={store.deleteGlobalCategory}
+                    onUpdateCategory={store.updateGlobalCategory}
+                    onReorderCategory={store.reorderCategory}
+                    onReorderTask={(categoryId, draggedId, targetId) => store.reorderDayTasks(selectedDate, categoryId, draggedId, targetId)}
                   />
                 ) : (
                   <RoutineSidebar

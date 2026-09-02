@@ -71,6 +71,9 @@ interface Props {
   onMetaChange: (patch: Partial<DayMeta>) => void
   onAddCategory?: (category: Omit<Category, 'id'>) => void
   onDeleteCategory?: (categoryId: string) => void
+  onUpdateCategory?: (categoryId: string, patch: Partial<Omit<Category, 'id'>>) => void
+  onReorderCategory?: (draggedId: string, targetId: string) => void
+  onReorderTask?: (categoryId: string, draggedId: string, targetId: string) => void
   onToggleRoutine?: (routineId: string, date: string, completion?: 'full' | 'minimum', actual?: Pick<RoutineLogPatch, 'actual_start_time' | 'actual_end_time'>) => void
   onUpdateRoutineLog?: (routineId: string, date: string, patch: RoutineLogPatch) => void
   onAddRoutine?: (name: string, time?: string, period?: RoutinePeriod, config?: RoutineConfig) => void
@@ -274,6 +277,9 @@ export function TodayDashboard({
   onMetaChange,
   onAddCategory,
   onDeleteCategory,
+  onUpdateCategory,
+  onReorderCategory,
+  onReorderTask,
   onToggleRoutine,
   onUpdateRoutineLog,
   onAddRoutine,
@@ -288,6 +294,10 @@ export function TodayDashboard({
   const [showCategoryForm, setShowCategoryForm] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [newCategoryColor, setNewCategoryColor] = useState<BadgeColor>('purple')
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
+  const [editingCategoryName, setEditingCategoryName] = useState('')
+  const [editingCategoryColor, setEditingCategoryColor] = useState<BadgeColor>('purple')
+  const [draggedCategoryId, setDraggedCategoryId] = useState<string | null>(null)
   const [taskText, setTaskText] = useState('')
   const [durationText, setDurationText] = useState('60')
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
@@ -307,6 +317,7 @@ export function TodayDashboard({
   const panelsRef = useRef<HTMLDivElement>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const pointerTaskIdRef = useRef<string | null>(null)
+  const timelineDropHandledRef = useRef(false)
   const [panelsHeight, setPanelsHeight] = useState(680)
   const selectableCategories = useMemo(() => categories.filter(category => category.id !== SCHEDULE_CAT_ID && category.id !== DEADLINE_CAT_ID), [categories])
   const taskEditorCategories = useMemo(() => categories.filter(category => category.id !== SCHEDULE_CAT_ID), [categories])
@@ -598,6 +609,18 @@ export function TodayDashboard({
     setShowCategoryForm(false)
   }
 
+  function beginCategoryEdit(category: Category) {
+    setEditingCategoryId(category.id)
+    setEditingCategoryName(category.name)
+    setEditingCategoryColor(category.color)
+  }
+
+  function saveCategoryEdit() {
+    if (!editingCategoryId || !editingCategoryName.trim() || !onUpdateCategory) return
+    onUpdateCategory(editingCategoryId, { name: editingCategoryName.trim(), color: editingCategoryColor })
+    setEditingCategoryId(null)
+  }
+
   function timelineMinuteFromPointer(clientY: number, element: HTMLDivElement) {
     const rect = element.getBoundingClientRect()
     const position = Math.max(0, Math.min(rect.height, clientY - rect.top))
@@ -701,6 +724,25 @@ export function TodayDashboard({
   function placeTimelineItem(token: string, minute: number, side: TimelineSide) {
     if (side === 'actual') placeActualItem(token, minute)
     else placePlanItem(token, minute)
+  }
+
+  function removePlanPlacement(token: string) {
+    if (token.startsWith('subtask:')) {
+      const [, taskId, subtaskId] = token.split(':')
+      const task = entry.tasks.find(item => item.id === taskId)
+      if (!task) return
+      onUpdateTask(taskId, {
+        subtasks: (task.subtasks ?? []).map(subtask => subtask.id === subtaskId
+          ? { ...subtask, start_time: undefined, end_time: undefined, updated_at: Date.now() }
+          : subtask),
+      })
+      return
+    }
+    if (!token.startsWith('task:')) return
+    const taskId = token.slice(5)
+    const task = entry.tasks.find(item => item.id === taskId)
+    if (!task || isFixedTask(task)) return
+    onUpdateTask(taskId, { start_time: undefined, end_time: undefined, time: undefined })
   }
 
   function finishPointerDrag(clientX: number, clientY: number) {
@@ -1203,6 +1245,7 @@ export function TodayDashboard({
                 const taskId = draggedTaskId ?? event.dataTransfer.getData('text/plain')
                 const rect = event.currentTarget.getBoundingClientRect()
                 const side: TimelineSide = event.clientX >= rect.left + rect.width / 2 ? 'actual' : 'plan'
+                timelineDropHandledRef.current = true
                 if (taskId) placeTimelineItem(taskId, timelineMinuteFromPointer(event.clientY, event.currentTarget), side)
               }}
             >
@@ -1275,11 +1318,17 @@ export function TodayDashboard({
                     draggable={!done}
                     onDragStart={event => {
                       if (done) return
+                      timelineDropHandledRef.current = false
                       setDraggedTaskId(token)
                       event.dataTransfer.setData('text/plain', token)
                       event.dataTransfer.effectAllowed = 'move'
                     }}
-                    onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
+                    onDragEnd={() => {
+                      if (!timelineDropHandledRef.current && !fixed) removePlanPlacement(token)
+                      timelineDropHandledRef.current = false
+                      setDraggedTaskId(null)
+                      setDragPreviewMinute(null)
+                    }}
                     onClick={() => { if (!subtask && start < editableUntil) openActualEditor(task, start, end) }}
                     onKeyDown={event => { if (!subtask && start < editableUntil && (event.key === 'Enter' || event.key === ' ')) openActualEditor(task, start, end) }}
                     role={!subtask && start < editableUntil ? 'button' : undefined}
@@ -1375,7 +1424,7 @@ export function TodayDashboard({
           <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
             <div>
               <h3 className="text-sm font-bold">오늘 할 일</h3>
-              <p className="mt-0.5 text-xs text-[var(--text-3)]">카테고리별로 모아보고, 드래그해 왼쪽 타임라인에 배치하세요.</p>
+              <p className="mt-0.5 text-xs text-[var(--text-3)]">카테고리 안에서는 드래그로 순서를 바꾸고, 왼쪽 타임라인에 놓으면 시간을 배치할 수 있습니다.</p>
             </div>
             {onAddRoutine && onUpdateRoutine && onSetRoutineStatus && onDeleteRoutine && (
               <button type="button" onClick={() => setShowRoutineManager(true)} className="flex shrink-0 items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-xs font-semibold text-[var(--text-2)] hover:bg-[var(--surface-2)]"><Settings2 size={13} /> 루틴 관리</button>
@@ -1392,12 +1441,39 @@ export function TodayDashboard({
                   <div className="absolute z-30 top-full left-0 mt-1 w-56 bg-white border border-[var(--border)] rounded-[12px] shadow-lg p-2">
                     <div className="max-h-48 overflow-y-auto">
                       {selectableCategories.map(category => (
-                        <div key={category.id} className="flex items-center gap-1 group">
-                          <button type="button" onClick={() => { setCategoryId(category.id); setShowCategories(false) }} className="flex-1 px-2 py-2 rounded-[8px] hover:bg-[var(--surface-2)] text-sm text-left flex items-center gap-2">
-                            <CategoryDot color={category.color} /> {category.name}
-                          </button>
-                          {onDeleteCategory && selectableCategories.length > 1 && (
-                            <button type="button" aria-label={`${category.name} 삭제`} onClick={() => onDeleteCategory(category.id)} className="w-7 h-7 rounded-[7px] text-[var(--text-3)] opacity-0 group-hover:opacity-100 hover:text-[var(--red)] hover:bg-[var(--red-bg)] flex items-center justify-center"><Trash2 size={12} /></button>
+                        <div
+                          key={category.id}
+                          draggable={Boolean(onReorderCategory) && editingCategoryId !== category.id}
+                          onDragStart={() => setDraggedCategoryId(category.id)}
+                          onDragOver={event => { if (draggedCategoryId && draggedCategoryId !== category.id) event.preventDefault() }}
+                          onDrop={event => {
+                            event.preventDefault()
+                            if (draggedCategoryId && draggedCategoryId !== category.id) onReorderCategory?.(draggedCategoryId, category.id)
+                            setDraggedCategoryId(null)
+                          }}
+                          onDragEnd={() => setDraggedCategoryId(null)}
+                          className={clsx('group rounded-[8px]', draggedCategoryId === category.id && 'opacity-45')}
+                        >
+                          {editingCategoryId === category.id ? (
+                            <div className="rounded-[9px] bg-[var(--surface-2)] p-2">
+                              <input autoFocus value={editingCategoryName} onChange={event => setEditingCategoryName(event.target.value)} onKeyDown={event => event.key === 'Enter' && saveCategoryEdit()} className="w-full rounded-[7px] bg-white px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-[var(--purple)]" />
+                              <div className="mt-2 flex items-center gap-1">
+                                {CATEGORY_COLORS.map(color => <button type="button" key={color} aria-label={color} onClick={() => setEditingCategoryColor(color)} className={clsx(`h-4 w-4 rounded-full cat-${color}`, editingCategoryColor === color && 'ring-2 ring-[var(--purple)] ring-offset-1')} />)}
+                                <button type="button" onClick={saveCategoryEdit} className="ml-auto flex h-6 w-6 items-center justify-center rounded-[6px] bg-[var(--purple)] text-white"><Check size={11} /></button>
+                                <button type="button" onClick={() => setEditingCategoryId(null)} className="flex h-6 w-6 items-center justify-center rounded-[6px] text-[var(--text-3)] hover:bg-white"><X size={11} /></button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              {onReorderCategory && <span className="flex h-7 w-5 cursor-grab items-center justify-center text-[var(--text-3)] opacity-50"><GripVertical size={12} /></span>}
+                              <button type="button" onClick={() => { setCategoryId(category.id); setShowCategories(false) }} className="flex-1 px-1.5 py-2 rounded-[8px] hover:bg-[var(--surface-2)] text-sm text-left flex items-center gap-2">
+                                <CategoryDot color={category.color} /> <span className="truncate">{category.name}</span>
+                              </button>
+                              {onUpdateCategory && <button type="button" aria-label={`${category.name} 수정`} onClick={() => beginCategoryEdit(category)} className="w-7 h-7 rounded-[7px] text-[var(--text-3)] opacity-0 group-hover:opacity-100 hover:text-[var(--purple)] hover:bg-[var(--purple-bg)] flex items-center justify-center"><Pencil size={12} /></button>}
+                              {onDeleteCategory && selectableCategories.length > 1 && (
+                                <button type="button" aria-label={`${category.name} 삭제`} onClick={() => onDeleteCategory(category.id)} className="w-7 h-7 rounded-[7px] text-[var(--text-3)] opacity-0 group-hover:opacity-100 hover:text-[var(--red)] hover:bg-[var(--red-bg)] flex items-center justify-center"><Trash2 size={12} /></button>
+                              )}
+                            </div>
                           )}
                         </div>
                       ))}
@@ -1514,6 +1590,18 @@ export function TodayDashboard({
                     return (
                     <div
                       key={task.id}
+                      onDragOver={event => {
+                        if (!onReorderTask || !draggedTaskId?.startsWith('task:') || draggedTaskId === token) return
+                        event.preventDefault()
+                        event.dataTransfer.dropEffect = 'move'
+                      }}
+                      onDrop={event => {
+                        const source = draggedTaskId ?? event.dataTransfer.getData('text/plain')
+                        if (!onReorderTask || !source.startsWith('task:') || source === token) return
+                        event.preventDefault()
+                        onReorderTask(category.id, source.slice(5), task.id)
+                        setDraggedTaskId(null)
+                      }}
                       className={clsx('rounded-[12px] border px-3 py-2.5 group', task.discarded ? 'border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] opacity-65' : task.done ? 'bg-[var(--surface-2)] border-transparent opacity-60' : isPartial ? 'bg-[var(--amber-bg)]/45 border-amber-200' : 'bg-white border-[var(--border)]', draggedTaskId === token && 'opacity-50 ring-2 ring-[var(--purple)]')}
                     >
                       <div className="flex items-start gap-2.5">

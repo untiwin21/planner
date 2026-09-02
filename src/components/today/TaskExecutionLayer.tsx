@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Clock3, Gauge, Pause, Play, Sparkles, Square, Target, TimerReset, X } from 'lucide-react'
-import type { DayEntry, FocusSessionRecord, SubTask, Task } from '@/types'
+import type { DayEntry, FocusSessionRecord, SubTask, Task, TaskHistoryEvent } from '@/types'
 import { formatDate } from '@/lib/dates'
 import { getTaskDuration, isFixedTask, timeToMinutes } from '@/lib/plannerTime'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
@@ -567,6 +567,21 @@ export function TaskExecutionLayer() {
       const sessions: FocusSessionRecord[] = [...(task.actual_sessions ?? []), ...newSessions]
       const firstSession = sessions[0]
       const lastSession = sessions[sessions.length - 1]
+      const historyEvent: TaskHistoryEvent = {
+        id: uid(),
+        at: new Date(finishedAt).toISOString(),
+        kind: 'focus_session',
+        before: {
+          actual_min: previousMinutes,
+          sessions: task.actual_sessions?.length ?? 0,
+        },
+        after: {
+          actual_min: totalMinutes,
+          sessions: sessions.length,
+          added_sessions: newSessions.map(item => ({ started_at: item.started_at, ended_at: item.ended_at, duration_min: item.duration_min })),
+        },
+        note: `Focus Mode에서 ${Math.round(activeMinutes)}분 기록`,
+      }
       const updatedTask: FocusTask = {
         ...task,
         actual_start_time: firstSession ? wallClock(new Date(firstSession.started_at).getTime()) : wallClock(session.firstStartedAt),
@@ -574,6 +589,7 @@ export function TaskExecutionLayer() {
         actual_status: 'recorded',
         actual_duration_min: totalMinutes,
         actual_sessions: sessions,
+        history: [...(task.history ?? []), historyEvent].slice(-160),
         updated_at: Date.now(),
       }
       const updatedEntry: DayEntry = {

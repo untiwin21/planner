@@ -1,4 +1,4 @@
-import type { DayEntry, LongGoal, Routine, RoutineLog, ShortGoal, Task } from '@/types'
+import type { DayEntry, FocusSessionRecord, LongGoal, Routine, RoutineLog, ShortGoal, Task, TaskHistoryEvent } from '@/types'
 import { isRoutineScheduledOn, routineConfig } from '@/lib/routineSchedule'
 
 export type AiExportRange = 1 | 7 | 30 | 'all'
@@ -30,6 +30,30 @@ interface AiTaskRecord {
   actual_end?: string
   actual_min: number | null
   progress?: string
+  deleted: boolean
+  actual_sessions: Array<{ started_at: string; ended_at: string; duration_min: number; source: string }>
+}
+
+interface AiTaskHistoryRecord extends TaskHistoryEvent {
+  date: string
+  task_id: string
+  task_text: string
+}
+
+interface AiTimelineBlock {
+  task_id: string
+  text: string
+  category: string
+  start: string
+  end: string
+  duration_min: number | null
+  source: 'plan' | 'actual' | 'focus'
+}
+
+interface AiTimelineDay {
+  date: string
+  planned: AiTimelineBlock[]
+  actual: AiTimelineBlock[]
 }
 
 interface AiRoutineRecord {
@@ -125,6 +149,8 @@ export interface AiContextSnapshot {
   }>
   identities: IdentityProfile[]
   behavior_system: BehaviorSystem | null
+  task_history: AiTaskHistoryRecord[]
+  timeline: AiTimelineDay[]
   recent_reviews: Array<{ key: string; content: string }>
 }
 
@@ -188,6 +214,45 @@ function taskProgressLabel(task: Task): string | undefined {
   return `${task.progress_current ?? 0}/${task.progress_target}${task.progress_unit ? ` ${task.progress_unit}` : ''}`
 }
 
+function clockLabelFromMinute(minute: number): string {
+  const normalized = ((minute % (24 * 60)) + 24 * 60) % (24 * 60)
+  const hh = String(Math.floor(normalized / 60)).padStart(2, '0')
+  const mm = String(Math.round(normalized % 60)).padStart(2, '0')
+  return `${minute >= 24 * 60 ? '다음날 ' : ''}${hh}:${mm}`
+}
+
+function plannedRange(task: Task) {
+  const startText = task.start_time ?? task.time
+  if (!startText) return null
+  const [h, m] = startText.split(':').map(Number)
+  if (![h, m].every(Number.isFinite)) return null
+  let start = h * 60 + m
+  if (start < 5 * 60) start += 24 * 60
+  let duration = taskEstimatedMinutes(task) ?? 0
+  let end = start + duration
+  if (task.end_time) {
+    const [eh, em] = task.end_time.split(':').map(Number)
+    if ([eh, em].every(Number.isFinite)) {
+      end = eh * 60 + em
+      if (end < 5 * 60) end += 24 * 60
+      if (end <= start) end += 24 * 60
+      duration = end - start
+    }
+  }
+  return { start, end, duration }
+}
+
+function localSessionLabel(iso: string, plannerDate: string) {
+  const value = new Date(iso)
+  if (Number.isNaN(value.getTime())) return iso
+  const time = `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`
+  const date = localDateString(value)
+  if (date === plannerDate) return time
+  const next = localDateString(addLocalDays(new Date(`${plannerDate}T12:00:00`), 1))
+  if (date === next) return `다음날 ${time}`
+  return `${date} ${time}`
+}
+
 function average(values: Array<number | null>): number | null {
   const valid = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
   if (!valid.length) return null
@@ -216,7 +281,7 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
   const shortGoalMap = new Map(source.goals.map(goal => [goal.id, goal]))
 
   const taskRecords: AiTaskRecord[] = selectedDays.flatMap(day =>
-    (day.tasks ?? []).filter(task => !task.deleted_at).map(task => {
+    [...(day.tasks ?? []), ...(day.task_tombstones ?? [])].map(task => {
       const estimated = taskEstimatedMinutes(task)
       const actual = taskActualMinutes(task)
       const goal = task.goal_id ? shortGoalMap.get(task.goal_id) : undefined
@@ -238,6 +303,13 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
         actual_end: task.actual_end_time,
         actual_min: actual,
         progress: taskProgressLabel(task),
+        deleted: !!task.deleted_at,
+        actual_sessions: (task.actual_sessions ?? []).map(session => ({
+          started_at: session.started_at,
+          ended_at: session.ended_at,
+          duration_min: session.duration_min,
+          source: session.source,
+        })),
       }
     }),
   )
@@ -265,6 +337,55 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
       routines_done: routineDone,
       routine_adherence_pct: pct(routineDone, scheduledRoutines.length),
     }
+  })
+
+  const taskHistory: AiTaskHistoryRecord[] = selectedDays.flatMap(day =>
+    [...(day.tasks ?? []), ...(day.task_tombstones ?? [])].flatMap(task =>
+      (task.history ?? []).map(event => ({ ...event, date: day.date, task_id: task.id, task_text: task.text })),
+    ),
+  ).sort((a, b) => a.at.localeCompare(b.at))
+
+  const timeline: AiTimelineDay[] = selectedDays.map(day => {
+    const planned: AiTimelineBlock[] = []
+    const actual: AiTimelineBlock[] = []
+    for (const task of day.tasks ?? []) {
+      if (task.deleted_at || task.discarded) continue
+      const plan = plannedRange(task)
+      if (plan) planned.push({
+        task_id: task.id,
+        text: task.text,
+        category: task.category_name,
+        start: clockLabelFromMinute(plan.start),
+        end: clockLabelFromMinute(plan.end),
+        duration_min: Math.round(plan.duration),
+        source: 'plan',
+      })
+      if ((task.actual_sessions ?? []).length > 0) {
+        for (const session of task.actual_sessions ?? []) {
+          actual.push({
+            task_id: task.id,
+            text: task.text,
+            category: task.category_name,
+            start: localSessionLabel(session.started_at, day.date),
+            end: localSessionLabel(session.ended_at, day.date),
+            duration_min: Math.round(session.duration_min * 10) / 10,
+            source: 'focus',
+          })
+        }
+      } else if (task.actual_start_time && task.actual_end_time) {
+        const duration = timeDiffMinutes(task.actual_start_time, task.actual_end_time)
+        actual.push({
+          task_id: task.id,
+          text: task.text,
+          category: task.category_name,
+          start: task.actual_start_time,
+          end: task.actual_end_time,
+          duration_min: duration,
+          source: 'actual',
+        })
+      }
+    }
+    return { date: day.date, planned, actual }
   })
 
   const routines: AiRoutineRecord[] = source.routines
@@ -367,6 +488,8 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
     goals: [...longGoals, ...shortGoals],
     identities,
     behavior_system: behaviorSystem,
+    task_history: taskHistory,
+    timeline,
     recent_reviews: reviews,
   }
 }
@@ -408,6 +531,15 @@ export function aiSnapshotToCsv(snapshot: AiContextSnapshot): string {
 
   if (snapshot.behavior_system) {
     rows.push(['behavior_system', snapshot.meta.period_end, '', 'recovery_protocol', '', '', '', '', '', '', '', '', '', snapshot.behavior_system.resetRule ?? '', [snapshot.behavior_system.minimumRule, snapshot.behavior_system.selfTalk].filter(Boolean).join(' | ')])
+  }
+
+  for (const event of snapshot.task_history) {
+    rows.push(['task_history', event.date, event.task_id, event.task_text, event.kind, '', '', '', '', '', '', '', '', event.at, JSON.stringify({ before: event.before, after: event.after, note: event.note })])
+  }
+  for (const day of snapshot.timeline) {
+    for (const block of [...day.planned, ...day.actual]) {
+      rows.push(['timeline', day.date, block.task_id, block.text, block.source, block.category, block.start, block.end, block.source === 'plan' ? block.duration_min : '', block.source !== 'plan' ? block.start : '', block.source !== 'plan' ? block.end : '', block.source !== 'plan' ? block.duration_min : '', '', '', ''])
+    }
   }
 
   return '\uFEFF' + [columns, ...rows].map(row => row.map(csvEscape).join(',')).join('\n')
@@ -503,9 +635,33 @@ export function aiSnapshotToMarkdown(snapshot: AiContextSnapshot): string {
     lines.push(`- ${task.date} · ${status} · [${task.category}] ${task.text} · ${timing}${task.goal_title ? ` · 목표: ${task.goal_title}` : ''}`)
   }
 
+  lines.push('')
+  lines.push('## 8. 계획 변경 / 의사결정 기록')
+  if (snapshot.task_history.length === 0) {
+    lines.push('- 변경 이력 없음 (이 기능 적용 이전 기록은 현재 상태만 제공됨)')
+  } else {
+    for (const event of snapshot.task_history) {
+      const note = event.note ? ` · ${event.note}` : ''
+      lines.push(`- ${event.at} · ${event.date} · ${event.kind} · ${event.task_text}${note}`)
+      if (event.before || event.after) lines.push(`  - before: ${JSON.stringify(event.before ?? {})} / after: ${JSON.stringify(event.after ?? {})}`)
+    }
+  }
+
+  lines.push('')
+  lines.push('## 9. 계획 vs 실제 타임라인')
+  for (const day of snapshot.timeline) {
+    lines.push(`### ${day.date}`)
+    lines.push('- 계획')
+    if (day.planned.length === 0) lines.push('  - 시간 배치된 계획 없음')
+    for (const block of day.planned) lines.push(`  - ${block.start}–${block.end} · [${block.category}] ${block.text} · ${block.duration_min ?? '-'}분`)
+    lines.push('- 실제')
+    if (day.actual.length === 0) lines.push('  - 실제 시간 기록 없음')
+    for (const block of day.actual) lines.push(`  - ${block.start}–${block.end} · [${block.category}] ${block.text} · ${block.duration_min ?? '-'}분 · ${block.source}`)
+  }
+
   if (snapshot.recent_reviews.length) {
     lines.push('')
-    lines.push('## 8. 최근 회고')
+    lines.push('## 10. 최근 회고')
     for (const review of snapshot.recent_reviews) {
       lines.push(`### ${review.key}`)
       lines.push(review.content)
@@ -514,6 +670,6 @@ export function aiSnapshotToMarkdown(snapshot: AiContextSnapshot): string {
 
   lines.push('')
   lines.push('---')
-  lines.push('AI 피드백 시 권장 관점: 막연한 격려보다 데이터에 근거해 잘된 행동, 반복되는 실패 패턴, 계획-실행 오차, 회복력, 다음에 바꿀 수 있는 가장 작은 행동을 구체적으로 제시한다.')
+  lines.push('AI 피드백 지침: 1) 계획 변경 이력을 시간순으로 복원해 처음 계획→재배치/취소→최종 실행을 설명한다. 2) 계획 타임라인과 실제 타임라인을 비교해 계획과 다르게 행동한 구간을 구체적으로 짚는다. 3) 실제 기록이 비어 있는 시간은 딴짓이라고 단정하지 말고 '미기록 시간'으로 표현한다. 4) 폐기/취소를 무조건 실패로 해석하지 말고 합리적 계획 수정인지 구분한다. 5) 막연한 격려보다 잘된 행동, 반복 패턴, 추정오차, 회복력, 다음에 바꿀 가장 작은 행동을 근거와 함께 제시한다.')
   return lines.join('\n')
 }

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { DayEntry, ShortGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, Category, Task, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod, TaskScheduleInput } from '@/types'
+import type { DayEntry, ShortGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, Category, Task, TaskHistoryKind, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod, TaskScheduleInput } from '@/types'
 import { tasksProgress } from '@/lib/taskProgress'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
@@ -52,6 +52,70 @@ function save(key: string, value: unknown) {
 
 function uid() { return Math.random().toString(36).slice(2, 10) }
 function now() { return Date.now() }
+
+function taskAuditState(task: Task): Record<string, unknown> {
+  return {
+    text: task.text,
+    category: task.category_name,
+    category_id: task.category_id,
+    done: task.done,
+    discarded: !!task.discarded,
+    fixed: !!task.fixed,
+    schedule_type: task.schedule_type,
+    planned_start: task.start_time ?? task.time,
+    planned_end: task.end_time,
+    estimated_min: task.duration_min,
+    actual_start: task.actual_start_time,
+    actual_end: task.actual_end_time,
+    actual_min: task.actual_duration_min,
+    actual_sessions: task.actual_sessions?.length ?? 0,
+    progress_current: task.progress_current,
+    progress_target: task.progress_target,
+    progress_unit: task.progress_unit,
+    subtasks: (task.subtasks ?? []).map(subtask => ({
+      id: subtask.id,
+      text: subtask.text,
+      done: subtask.done,
+      discarded: !!subtask.discarded,
+      planned_start: subtask.start_time,
+      planned_end: subtask.end_time,
+      estimated_min: subtask.duration_min,
+      actual_start: subtask.actual_start_time,
+      actual_end: subtask.actual_end_time,
+    })),
+  }
+}
+
+function taskMutationKind(before: Task, after: Task): TaskHistoryKind {
+  if (!!before.discarded !== !!after.discarded) return after.discarded ? 'discarded' : 'restored'
+  if (before.done !== after.done) return after.done ? 'completed' : 'reopened'
+  const beforeStart = before.start_time ?? before.time
+  const afterStart = after.start_time ?? after.time
+  if (beforeStart !== afterStart || before.end_time !== after.end_time) {
+    if (!beforeStart && afterStart) return 'planned'
+    if (beforeStart && !afterStart) return 'unplanned'
+    return 'rescheduled'
+  }
+  if (
+    before.actual_start_time !== after.actual_start_time ||
+    before.actual_end_time !== after.actual_end_time ||
+    before.actual_duration_min !== after.actual_duration_min ||
+    (before.actual_sessions?.length ?? 0) !== (after.actual_sessions?.length ?? 0)
+  ) return 'actual_recorded'
+  return 'edited'
+}
+
+function appendTaskHistory(task: Task, kind: TaskHistoryKind, before?: Task, note?: string): Task {
+  const event = {
+    id: `hist-${now()}-${Math.random().toString(36).slice(2, 7)}`,
+    at: new Date().toISOString(),
+    kind,
+    ...(before ? { before: taskAuditState(before) } : {}),
+    after: taskAuditState(task),
+    ...(note ? { note } : {}),
+  }
+  return { ...task, history: [...(task.history ?? []), event].slice(-160) }
+}
 
 const DEFAULT_META: DayMeta = { sleep: null, condition: null, focus: null, top3: [], notes: [] }
 const DEADLINE_CATEGORY: Category = { id: DEADLINE_CAT_ID, name: '데드라인', color: 'red' }
@@ -855,7 +919,7 @@ export function usePlanrStore(userId: string) {
     const updatedSubtasks = task.subtasks?.map(subtask => subtask.discarded
       ? subtask
       : { ...subtask, done: nextDone, updated_at: now() })
-    const updatedTask: Task = {
+    const updatedTask = appendTaskHistory({
       ...task,
       done: nextDone,
       discarded: false,
@@ -866,7 +930,7 @@ export function usePlanrStore(userId: string) {
           ? { progress_current: undefined, progress_target: undefined, progress_unit: undefined }
           : {}),
       updated_at: now(),
-    }
+    }, nextDone ? 'completed' : 'reopened', task)
     // Task-only mutation: don't bump meta.updated_at so concurrent meta edits aren't clobbered.
     upsertDay({ ...entry, tasks: entry.tasks.map(t => t.id === taskId ? updatedTask : t) }, { bumpMeta: false })
     if (userId) trackWrite(upsertTask(userId, updatedTask, date))
@@ -882,7 +946,7 @@ export function usePlanrStore(userId: string) {
       ? { start_time: schedule, fixed: categoryId === SCHEDULE_CAT_ID }
       : (schedule ?? {})
     const legacyTime = scheduleFields.start_time
-    const task: Task = {
+    const task = appendTaskHistory({
       id: uid(), text, done: false,
       category_id: categoryId, day_id: entry.id,
       category_name: category.name, category_color: category.color,
@@ -890,7 +954,7 @@ export function usePlanrStore(userId: string) {
       ...scheduleFields,
       ...(legacyTime ? { time: legacyTime } : {}),
       ...(categoryId === SCHEDULE_CAT_ID ? { fixed: true } : {}),
-    }
+    }, 'created')
     upsertDay({ ...entry, tasks: [...entry.tasks, task] }, { bumpMeta: false })
     if (userId) trackWrite(upsertTask(userId, task, date))
   }
@@ -900,7 +964,7 @@ export function usePlanrStore(userId: string) {
     const task = entry.tasks.find(item => item.id === taskId)
     if (!task) return
     const deletedAt = now()
-    const tombstone: Task = { ...task, done: false, deleted_at: deletedAt, updated_at: deletedAt }
+    const tombstone = appendTaskHistory({ ...task, done: false, deleted_at: deletedAt, updated_at: deletedAt }, 'deleted', task)
     const taskTombstones = [...(entry.task_tombstones ?? []).filter(item => item.id !== taskId), tombstone]
     upsertDay({ ...entry, tasks: entry.tasks.filter(t => t.id !== taskId), task_tombstones: taskTombstones }, { bumpMeta: false })
     if (userId) trackWrite(deleteTaskSync(userId, taskId))
@@ -910,7 +974,8 @@ export function usePlanrStore(userId: string) {
     const entry = getDay(date)
     const task = entry.tasks.find(t => t.id === taskId)
     if (!task) return
-    const updated: Task = { ...task, ...patch, updated_at: now() }
+    const nextTask: Task = { ...task, ...patch, updated_at: now() }
+    const updated = appendTaskHistory(nextTask, taskMutationKind(task, nextTask), task)
     upsertDay({ ...entry, tasks: entry.tasks.map(t => t.id === taskId ? updated : t) }, { bumpMeta: false })
     if (userId) trackWrite(upsertTask(userId, updated, date))
   }
@@ -954,7 +1019,23 @@ export function usePlanrStore(userId: string) {
   }
 
   function updateGlobalCategory(id: string, patch: Partial<Omit<Category, 'id'>>) {
-    setCategories(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c))
+    const current = categoriesRef.current.find(category => category.id === id)
+    if (!current) return
+    const updated = { ...current, ...patch }
+    setCategories(prev => prev.map(category => category.id === id ? updated : category))
+
+    // Tasks cache their category label/color for historical rendering. Keep those
+    // embedded values aligned with the global category so edits are visible everywhere.
+    for (const day of daysRef.current) {
+      for (const task of day.tasks.filter(item => item.category_id === id)) {
+        updateTask(day.date, task.id, { category_name: updated.name, category_color: updated.color })
+      }
+    }
+    for (const goal of goalsRef.current) {
+      for (const task of goal.tasks.filter(item => item.category_id === id)) {
+        updateGoalTask(goal.id, task.id, { category_name: updated.name, category_color: updated.color })
+      }
+    }
   }
 
   function reorderCategory(draggedId: string, targetId: string) {
@@ -1337,8 +1418,11 @@ export function usePlanrStore(userId: string) {
       const reordered = [...catTasks]
       const [moved] = reordered.splice(dragIdx, 1)
       reordered.splice(dropIdx, 0, moved)
-      // Reorder is a meta-level change; bump meta.updated_at.
-      updatedEntry = { ...d, tasks: [...rest, ...reordered], meta: { ...d.meta, updated_at: now() } }
+      // Preserve positions of other categories while replacing this category's
+      // slots with the new order. This keeps repeated reorders deterministic.
+      let categoryCursor = 0
+      const nextTasks = d.tasks.map(task => task.category_id === categoryId ? reordered[categoryCursor++] : task)
+      updatedEntry = { ...d, tasks: nextTasks, meta: { ...d.meta, updated_at: now() } }
       return prev.map(day => day.date === date ? updatedEntry! : day)
     })
     if (userId && updatedEntry) {
