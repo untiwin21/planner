@@ -1411,7 +1411,6 @@ export function usePlanrStore(userId: string) {
       const d = prev.find(day => day.date === date)
       if (!d) return prev
       const catTasks = d.tasks.filter(t => t.category_id === categoryId)
-      const rest = d.tasks.filter(t => t.category_id !== categoryId)
       const dragIdx = catTasks.findIndex(t => t.id === draggedId)
       const dropIdx = catTasks.findIndex(t => t.id === targetId)
       if (dragIdx < 0 || dropIdx < 0) return prev

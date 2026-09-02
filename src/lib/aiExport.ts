@@ -450,7 +450,7 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
     }
   })
 
-  const activeTaskRecords = taskRecords.filter(task => !task.discarded)
+  const activeTaskRecords = taskRecords.filter(task => !task.discarded && !task.deleted)
   const completedTasks = activeTaskRecords.filter(task => task.done).length
   const taskEstimated = activeTaskRecords.map(task => task.estimated_min).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
   const taskActual = activeTaskRecords.map(task => task.actual_min).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
