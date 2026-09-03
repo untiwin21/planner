@@ -1,5 +1,6 @@
 import type { DayEntry, FocusSessionRecord, LongGoal, Routine, RoutineLog, ShortGoal, Task, TaskHistoryEvent } from '@/types'
 import { isRoutineScheduledOn, routineConfig } from '@/lib/routineSchedule'
+import { isActualOnlyTask } from '@/lib/taskVisibility'
 
 export type AiExportRange = 1 | 7 | 30 | 'all'
 
@@ -22,6 +23,7 @@ interface AiTaskRecord {
   done: boolean
   discarded: boolean
   fixed: boolean
+  actual_only: boolean
   schedule_type?: string
   planned_start?: string
   planned_end?: string
@@ -82,7 +84,10 @@ interface AiDailyRecord {
   tasks_done: number
   task_completion_pct: number | null
   estimated_min: number
+  planned_actual_min: number
+  unplanned_actual_min: number
   actual_min: number
+  actual_covered_min: number
   estimation_ratio: number | null
   routines_scheduled: number
   routines_done: number
@@ -125,7 +130,10 @@ export interface AiContextSnapshot {
     task_completion_pct: number | null
     routine_adherence_pct: number | null
     estimated_task_min: number
+    planned_actual_task_min: number
+    unplanned_actual_task_min: number
     actual_task_min: number
+    actual_covered_min: number
     estimation_ratio: number | null
     average_sleep_hours: number | null
     average_condition: number | null
@@ -214,6 +222,68 @@ function taskProgressLabel(task: Task): string | undefined {
   return `${task.progress_current ?? 0}/${task.progress_target}${task.progress_unit ? ` ${task.progress_unit}` : ''}`
 }
 
+function sleepHoursFromMinutes(value: number | null | undefined): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.round((value / 60) * 10) / 10
+}
+
+function plannerClockMinute(value?: string): number | null {
+  if (!value) return null
+  const [hour, minute] = value.split(':').map(Number)
+  if (![hour, minute].every(Number.isFinite)) return null
+  const raw = hour * 60 + minute
+  return raw < 5 * 60 ? raw + 24 * 60 : raw
+}
+
+function taskActualIntervals(task: Task, plannerDate: string): Array<[number, number]> {
+  const dayStart = 5 * 60
+  const dayEnd = 29 * 60
+  const intervals: Array<[number, number]> = []
+
+  if ((task.actual_sessions ?? []).length > 0) {
+    const base = new Date(`${plannerDate}T00:00:00`)
+    for (const session of task.actual_sessions ?? []) {
+      const started = new Date(session.started_at)
+      const ended = new Date(session.ended_at)
+      if (Number.isNaN(started.getTime())) continue
+      const startRaw = (started.getTime() - base.getTime()) / 60_000
+      const endRaw = Number.isNaN(ended.getTime())
+        ? startRaw + session.duration_min
+        : (ended.getTime() - base.getTime()) / 60_000
+      const start = Math.max(dayStart, startRaw)
+      const end = Math.min(dayEnd, endRaw)
+      if (end > start) intervals.push([start, end])
+    }
+    return intervals
+  }
+
+  const start = plannerClockMinute(task.actual_start_time)
+  const endClock = plannerClockMinute(task.actual_end_time)
+  if (start === null || endClock === null) return intervals
+  let end = endClock
+  if (end <= start) end += 24 * 60
+  const clippedStart = Math.max(dayStart, start)
+  const clippedEnd = Math.min(dayEnd, end)
+  if (clippedEnd > clippedStart) intervals.push([clippedStart, clippedEnd])
+  return intervals
+}
+
+function uniqueActualCoveredMinutes(tasks: Task[], plannerDate: string): number {
+  const intervals = tasks.flatMap(task => taskActualIntervals(task, plannerDate)).sort((a, b) => a[0] - b[0])
+  if (!intervals.length) return 0
+  let total = 0
+  let [start, end] = intervals[0]
+  for (const [nextStart, nextEnd] of intervals.slice(1)) {
+    if (nextStart <= end) end = Math.max(end, nextEnd)
+    else {
+      total += end - start
+      start = nextStart
+      end = nextEnd
+    }
+  }
+  return Math.round((total + end - start) * 10) / 10
+}
+
 function clockLabelFromMinute(minute: number): string {
   const normalized = ((minute % (24 * 60)) + 24 * 60) % (24 * 60)
   const hh = String(Math.floor(normalized / 60)).padStart(2, '0')
@@ -282,6 +352,7 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
 
   const taskRecords: AiTaskRecord[] = selectedDays.flatMap(day =>
     [...(day.tasks ?? []), ...(day.task_tombstones ?? [])].map(task => {
+      const actualOnly = isActualOnlyTask(task)
       const estimated = taskEstimatedMinutes(task)
       const actual = taskActualMinutes(task)
       const goal = task.goal_id ? shortGoalMap.get(task.goal_id) : undefined
@@ -295,10 +366,11 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
         done: task.done,
         discarded: !!task.discarded,
         fixed: !!task.fixed,
+        actual_only: actualOnly,
         schedule_type: task.schedule_type,
         planned_start: task.start_time ?? task.time,
         planned_end: task.end_time,
-        estimated_min: estimated,
+        estimated_min: actualOnly ? null : estimated,
         actual_start: task.actual_start_time,
         actual_end: task.actual_end_time,
         actual_min: actual,
@@ -315,24 +387,32 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
   )
 
   const daily: AiDailyRecord[] = selectedDays.map(day => {
-    const meaningfulTasks = (day.tasks ?? []).filter(task => !task.deleted_at && !task.discarded)
-    const estimated = meaningfulTasks.map(taskEstimatedMinutes).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
-    const actual = meaningfulTasks.map(taskActualMinutes).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
+    const activeTasks = (day.tasks ?? []).filter(task => !task.deleted_at && !task.discarded)
+    const plannedTasks = activeTasks.filter(task => !isActualOnlyTask(task))
+    const actualOnlyTasks = activeTasks.filter(task => isActualOnlyTask(task))
+    const estimated = plannedTasks.map(taskEstimatedMinutes).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
+    const plannedActual = plannedTasks.map(taskActualMinutes).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
+    const unplannedActual = actualOnlyTasks.map(taskActualMinutes).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
+    const actual = plannedActual + unplannedActual
+    const actualCovered = uniqueActualCoveredMinutes(activeTasks, day.date)
     const scheduledRoutines = source.routines.filter(routine => routine.status === 'active' && isRoutineScheduledOn(routine, day.date))
     const routineDone = scheduledRoutines.filter(routine => selectedLogs.some(log => log.routine_id === routine.id && log.date === day.date && log.done)).length
     return {
       date: day.date,
-      sleep_hours: day.meta?.sleep ?? null,
+      sleep_hours: sleepHoursFromMinutes(day.meta?.sleep),
       condition: day.meta?.condition ?? null,
       focus: day.meta?.focus ?? null,
       top3: day.meta?.top3 ?? [],
       note: day.note ?? '',
-      tasks_total: meaningfulTasks.length,
-      tasks_done: meaningfulTasks.filter(task => task.done).length,
-      task_completion_pct: pct(meaningfulTasks.filter(task => task.done).length, meaningfulTasks.length),
+      tasks_total: plannedTasks.length,
+      tasks_done: plannedTasks.filter(task => task.done).length,
+      task_completion_pct: pct(plannedTasks.filter(task => task.done).length, plannedTasks.length),
       estimated_min: estimated,
+      planned_actual_min: plannedActual,
+      unplanned_actual_min: unplannedActual,
       actual_min: actual,
-      estimation_ratio: estimated > 0 && actual > 0 ? Math.round(actual / estimated * 100) / 100 : null,
+      actual_covered_min: actualCovered,
+      estimation_ratio: estimated > 0 && plannedActual > 0 ? Math.round(plannedActual / estimated * 100) / 100 : null,
       routines_scheduled: scheduledRoutines.length,
       routines_done: routineDone,
       routine_adherence_pct: pct(routineDone, scheduledRoutines.length),
@@ -451,9 +531,14 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
   })
 
   const activeTaskRecords = taskRecords.filter(task => !task.discarded && !task.deleted)
-  const completedTasks = activeTaskRecords.filter(task => task.done).length
-  const taskEstimated = activeTaskRecords.map(task => task.estimated_min).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
-  const taskActual = activeTaskRecords.map(task => task.actual_min).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
+  const plannedTaskRecords = activeTaskRecords.filter(task => !task.actual_only)
+  const actualOnlyTaskRecords = activeTaskRecords.filter(task => task.actual_only)
+  const completedTasks = plannedTaskRecords.filter(task => task.done).length
+  const taskEstimated = plannedTaskRecords.map(task => task.estimated_min).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
+  const plannedTaskActual = plannedTaskRecords.map(task => task.actual_min).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
+  const unplannedTaskActual = actualOnlyTaskRecords.map(task => task.actual_min).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
+  const taskActual = plannedTaskActual + unplannedTaskActual
+  const actualCovered = daily.reduce((sum, day) => sum + day.actual_covered_min, 0)
   const routineScheduled = routines.reduce((sum, routine) => sum + routine.scheduled_count, 0)
   const routineCompleted = routines.reduce((sum, routine) => sum + routine.completed_count, 0)
 
@@ -473,11 +558,14 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
     },
     overview: {
       days_recorded: selectedDays.length,
-      task_completion_pct: pct(completedTasks, activeTaskRecords.length),
+      task_completion_pct: pct(completedTasks, plannedTaskRecords.length),
       routine_adherence_pct: pct(routineCompleted, routineScheduled),
       estimated_task_min: taskEstimated,
+      planned_actual_task_min: plannedTaskActual,
+      unplanned_actual_task_min: unplannedTaskActual,
       actual_task_min: taskActual,
-      estimation_ratio: taskEstimated > 0 && taskActual > 0 ? Math.round(taskActual / taskEstimated * 100) / 100 : null,
+      actual_covered_min: actualCovered,
+      estimation_ratio: taskEstimated > 0 && plannedTaskActual > 0 ? Math.round(plannedTaskActual / taskEstimated * 100) / 100 : null,
       average_sleep_hours: average(daily.map(day => day.sleep_hours)),
       average_condition: average(daily.map(day => day.condition)),
       average_focus: average(daily.map(day => day.focus)),
@@ -514,7 +602,7 @@ export function aiSnapshotToCsv(snapshot: AiContextSnapshot): string {
   }
 
   for (const task of snapshot.tasks) {
-    rows.push(['task', task.date, task.goal_title ?? task.goal_id ?? '', task.text, task.discarded ? 'discarded' : task.done ? 'done' : 'open', task.category, task.planned_start ?? '', task.planned_end ?? '', task.estimated_min, task.actual_start ?? '', task.actual_end ?? '', task.actual_min, '', task.progress ?? '', task.schedule_type ?? ''])
+    rows.push(['task', task.date, task.goal_title ?? task.goal_id ?? '', task.text, task.actual_only ? 'actual_only' : task.discarded ? 'discarded' : task.done ? 'done' : 'open', task.category, task.planned_start ?? '', task.planned_end ?? '', task.estimated_min, task.actual_start ?? '', task.actual_end ?? '', task.actual_min, '', task.progress ?? '', [task.schedule_type, task.actual_only ? 'retrospective-only' : 'planned'].filter(Boolean).join(' | ')])
   }
 
   for (const routine of snapshot.routines) {
@@ -566,11 +654,14 @@ export function aiSnapshotToMarkdown(snapshot: AiContextSnapshot): string {
   lines.push('- 목적: 이 기록을 바탕으로 사용자의 실제 행동 패턴, 계획 정확도, 습관 지속성, 목표 진행을 근거 중심으로 피드백하기')
   lines.push('')
   lines.push('## 1. 현재 요약')
-  lines.push(`- 할 일 완료율: ${optional(snapshot.overview.task_completion_pct)}${snapshot.overview.task_completion_pct !== null ? '%' : ''}`)
+  lines.push(`- 계획 할 일 완료율: ${optional(snapshot.overview.task_completion_pct)}${snapshot.overview.task_completion_pct !== null ? '%' : ''}`)
   lines.push(`- 루틴 실행률: ${optional(snapshot.overview.routine_adherence_pct)}${snapshot.overview.routine_adherence_pct !== null ? '%' : ''}`)
-  lines.push(`- 예상 작업시간: ${formatHours(snapshot.overview.estimated_task_min)}`)
-  lines.push(`- 실제 기록시간: ${formatHours(snapshot.overview.actual_task_min)}`)
-  lines.push(`- 실제/예상 시간 비율: ${optional(snapshot.overview.estimation_ratio)}`)
+  lines.push(`- 계획 예상 총시간: ${formatHours(snapshot.overview.estimated_task_min)}`)
+  lines.push(`- 계획 항목 실제시간: ${formatHours(snapshot.overview.planned_actual_task_min)}`)
+  lines.push(`- 계획 외 실제기록 합계: ${formatHours(snapshot.overview.unplanned_actual_task_min)}`)
+  lines.push(`- 전체 실제 활동시간 합계: ${formatHours(snapshot.overview.actual_task_min)} (동시 활동은 중복 합산될 수 있음)`)
+  lines.push(`- 실제 타임라인 커버리지: ${formatHours(snapshot.overview.actual_covered_min)} (겹치는 시간대는 1회만 계산)`)
+  lines.push(`- 계획 항목 실제/예상 시간 비율: ${optional(snapshot.overview.estimation_ratio)}`)
   lines.push(`- 평균 수면: ${optional(snapshot.overview.average_sleep_hours)}${snapshot.overview.average_sleep_hours !== null ? '시간' : ''}`)
   lines.push(`- 평균 컨디션: ${optional(snapshot.overview.average_condition)}`)
   lines.push(`- 평균 집중도: ${optional(snapshot.overview.average_focus)}`)
@@ -619,10 +710,11 @@ export function aiSnapshotToMarkdown(snapshot: AiContextSnapshot): string {
   lines.push('## 6. 일별 기록')
   for (const day of snapshot.daily) {
     lines.push(`### ${day.date}`)
-    lines.push(`- 할 일: ${day.tasks_done}/${day.tasks_total} (${day.task_completion_pct ?? '-'}%)`)
+    lines.push(`- 계획 할 일: ${day.tasks_done}/${day.tasks_total} (${day.task_completion_pct ?? '-'}%)`)
     lines.push(`- 루틴: ${day.routines_done}/${day.routines_scheduled} (${day.routine_adherence_pct ?? '-'}%)`)
-    lines.push(`- 예상/실제 작업시간: ${formatHours(day.estimated_min)} / ${formatHours(day.actual_min)}`)
-    lines.push(`- 수면/컨디션/집중: ${optional(day.sleep_hours)} / ${optional(day.condition)} / ${optional(day.focus)}`)
+    lines.push(`- 계획 예상/계획 항목 실제: ${formatHours(day.estimated_min)} / ${formatHours(day.planned_actual_min)}`)
+    lines.push(`- 계획 외 실제기록: ${formatHours(day.unplanned_actual_min)} · 전체 활동 합계 ${formatHours(day.actual_min)} · 실제 커버리지 ${formatHours(day.actual_covered_min)}`)
+    lines.push(`- 수면/컨디션/집중: ${day.sleep_hours !== null ? `${day.sleep_hours}시간` : '기록 없음'} / ${optional(day.condition)} / ${optional(day.focus)}`)
     if (day.top3.length) lines.push(`- Top 3: ${day.top3.join(' / ')}`)
     if (day.note) lines.push(`- 메모: ${day.note}`)
   }
@@ -630,8 +722,10 @@ export function aiSnapshotToMarkdown(snapshot: AiContextSnapshot): string {
 
   lines.push('## 7. 할 일 상세')
   for (const task of snapshot.tasks) {
-    const status = task.discarded ? '폐기' : task.done ? '완료' : '미완료'
-    const timing = `예상 ${task.estimated_min ?? '-'}분 / 실제 ${task.actual_min ?? '-'}분`
+    const status = task.actual_only ? '실제기록 전용' : task.discarded ? '폐기' : task.done ? '완료' : '미완료'
+    const timing = task.actual_only
+      ? `계획 예상시간 없음 / 실제 ${task.actual_min ?? '-'}분`
+      : `예상 ${task.estimated_min ?? '-'}분 / 실제 ${task.actual_min ?? '-'}분`
     lines.push(`- ${task.date} · ${status} · [${task.category}] ${task.text} · ${timing}${task.goal_title ? ` · 목표: ${task.goal_title}` : ''}`)
   }
 
@@ -670,6 +764,6 @@ export function aiSnapshotToMarkdown(snapshot: AiContextSnapshot): string {
 
   lines.push('')
   lines.push('---')
-  lines.push("AI 피드백 지침: 1) 계획 변경 이력을 시간순으로 복원해 처음 계획→재배치/취소→최종 실행을 설명한다. 2) 계획 타임라인과 실제 타임라인을 비교해 계획과 다르게 행동한 구간을 구체적으로 짚는다. 3) 실제 기록이 비어 있는 시간은 딴짓이라고 단정하지 말고 '미기록 시간'으로 표현한다. 4) 폐기/취소를 무조건 실패로 해석하지 말고 합리적 계획 수정인지 구분한다. 5) 막연한 격려보다 잘된 행동, 반복 패턴, 추정오차, 회복력, 다음에 바꿀 가장 작은 행동을 근거와 함께 제시한다.")
+  lines.push("AI 피드백 지침: 1) 계획 변경 이력을 시간순으로 복원해 처음 계획→재배치/취소→최종 실행을 설명한다. 2) 계획 타임라인과 실제 타임라인을 비교해 계획과 다르게 행동한 구간을 구체적으로 짚는다. 3) 실제 기록이 비어 있는 시간은 딴짓이라고 단정하지 말고 '미기록 시간'으로 표현한다. 4) 폐기/취소를 무조건 실패로 해석하지 말고 합리적 계획 수정인지 구분한다. 5) 막연한 격려보다 잘된 행동, 반복 패턴, 추정오차, 회복력, 다음에 바꿀 가장 작은 행동을 근거와 함께 제시한다. 6) '실제기록 전용' 항목은 사후 활동 로그이며 계획한 할 일/예상시간/완료율에 포함하지 않는다. 7) 전체 실제 활동시간 합계는 동시 활동 때문에 중복될 수 있으므로 하루 시간 사용량을 판단할 때는 실제 타임라인 커버리지와 함께 본다.")
   return lines.join('\n')
 }
