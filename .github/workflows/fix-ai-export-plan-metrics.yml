@@ -1,0 +1,23 @@
+name: Fix AI export plan metrics
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-ai-export-plan-metrics.yml'
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python .github/scripts/fix_ai_export_plan_metrics.py
+      - run: npm ci
+      - run: npm run build
+      - name: Commit verified export fix
+        run: |
+          git config user.name "Planr Export Fix Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/lib/aiExport.ts
+          git commit -m "fix: separate planned and retrospective AI metrics"
+          git push
