@@ -911,6 +911,21 @@ export function usePlanrStore(userId: string) {
     }
   }
 
+  useEffect(() => {
+    function onFocusStopwatchSaved(event: Event) {
+      const detail = (event as CustomEvent<{ entry?: DayEntry }>).detail
+      if (!detail?.entry) return
+      // The focus layer already committed this exact entry to localStorage.
+      // Route it through the store as well so React state updates immediately and
+      // Supabase persistence uses the normal dirty/retry path instead of blocking UI.
+      upsertDay(detail.entry, { bumpMeta: false })
+    }
+    window.addEventListener('planr:focus-stopwatch-saved', onFocusStopwatchSaved)
+    return () => window.removeEventListener('planr:focus-stopwatch-saved', onFocusStopwatchSaved)
+  // upsertDay intentionally follows the current userId; re-register on account change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId])
+
   function toggleTask(date: string, taskId: string) {
     const entry = getDay(date)
     const task = entry.tasks.find(t => t.id === taskId)

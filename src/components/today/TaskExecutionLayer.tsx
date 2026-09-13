@@ -7,8 +7,6 @@ import type { DayEntry, FocusSessionRecord, SubTask, Task, TaskHistoryEvent } fr
 import { formatDate } from '@/lib/dates'
 import { getTaskDuration, isFixedTask, timeToMinutes } from '@/lib/plannerTime'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
-import { supabase } from '@/lib/supabase'
-import { upsertDayEntry } from '@/lib/syncService'
 
 const DAY_STORAGE_KEY = 'planr_days'
 const SESSION_STORAGE_KEY = 'planr_task_focus_stopwatch_v1'
@@ -598,24 +596,23 @@ export function TaskExecutionLayer() {
       }
       const updatedDays = days.map((item, index) => index === dayIndex ? updatedEntry : item)
 
+      // Commit the stopwatch result locally first. Focus recording must never be
+      // blocked by a transient Supabase/auth failure: the main store owns cloud
+      // persistence and already has dirty-entity retry semantics.
       window.localStorage.setItem(DAY_STORAGE_KEY, JSON.stringify(updatedDays))
-      if (supabase) {
-        const { data, error } = await supabase.auth.getUser()
-        if (error) throw error
-        if (data.user) await upsertDayEntry(data.user.id, updatedEntry)
-      }
-
       writeSession(null)
       setSession(null)
       window.dispatchEvent(new CustomEvent('planr:focus-stopwatch-saved', {
-        detail: { date: session.date, taskId: session.taskId, durationMin: activeMinutes },
+        detail: {
+          entry: updatedEntry,
+          date: session.date,
+          taskId: session.taskId,
+          durationMin: activeMinutes,
+        },
       }))
-      // The main store already syncs on focus. Trigger it so the React state catches
-      // up immediately instead of waiting for the next periodic pull.
-      window.dispatchEvent(new Event('focus'))
     } catch (error) {
-      console.error('[Planr] focus stopwatch save failed:', error)
-      window.alert('집중 시간을 저장하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도해주세요.')
+      console.error('[Planr] focus stopwatch local save failed:', error)
+      window.alert('집중 시간을 브라우저에 저장하지 못했습니다. 저장 공간 또는 브라우저 상태를 확인한 뒤 다시 시도해주세요.')
     } finally {
       setSaving(false)
     }
