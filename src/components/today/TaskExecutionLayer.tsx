@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Clock3, Gauge, Pause, Play, Sparkles, Square, Target, TimerReset, X } from 'lucide-react'
+import { Clock3, Pause, Play, Sparkles, Square, Target, X } from 'lucide-react'
 import type { DayEntry, FocusSessionRecord, SubTask, Task, TaskHistoryEvent } from '@/types'
 import { formatDate } from '@/lib/dates'
 import { getTaskDuration, isFixedTask, timeToMinutes } from '@/lib/plannerTime'
@@ -38,7 +38,6 @@ interface TaskHost {
 interface ExecutionSnapshot {
   date: string
   entry: DayEntry
-  summaryHost: HTMLElement
   taskHosts: TaskHost[]
 }
 
@@ -82,6 +81,10 @@ function isVisible(element: Element) {
 }
 
 function findTaskPanel() {
+  const marked = Array.from(document.querySelectorAll('[data-today-task-panel]'))
+    .find(element => isVisible(element))
+  if (marked instanceof HTMLElement) return marked
+
   const heading = Array.from(document.querySelectorAll('h3'))
     .find(element => element.textContent?.trim() === '오늘 할 일' && isVisible(element))
   if (!(heading instanceof HTMLElement)) return null
@@ -108,6 +111,7 @@ function closestStoredDate(month: number, day: number, days: DayEntry[]) {
 }
 
 function selectedDate(panel: HTMLElement, days: DayEntry[]) {
+  if (panel.dataset.plannerDate) return panel.dataset.plannerDate
   const section = panel.closest('section')
   if (!section) return formatDate(new Date())
 
@@ -129,23 +133,26 @@ function flexibleTasks(entry: DayEntry): FocusTask[] {
     .filter(task => !isActualOnlyTask(task) && !isFixedTask(task)) as FocusTask[]
 }
 
-function ensureSummaryHost(panel: HTMLElement) {
-  let host = Array.from(panel.children)
-    .find(child => child instanceof HTMLElement && child.dataset.taskExecutionSummaryHost === 'true') as HTMLElement | undefined
-  if (host) return host
-
-  // Remove hosts left by older timing components after a hot deployment.
-  for (const legacy of Array.from(panel.querySelectorAll('[data-task-time-summary-host]'))) legacy.remove()
-
-  host = document.createElement('div')
-  host.dataset.taskExecutionSummaryHost = 'true'
-  const header = panel.firstElementChild
-  if (header?.nextSibling) panel.insertBefore(host, header.nextSibling)
-  else panel.appendChild(host)
-  return host
+function removeLegacyHosts(panel: HTMLElement) {
+  // Older builds injected a day summary card and a block under every task.
+  for (const legacy of Array.from(panel.querySelectorAll('[data-task-execution-summary-host], [data-task-time-summary-host], [data-task-execution-host], [data-task-time-insight-host], [data-focus-stopwatch-host]'))) {
+    legacy.remove()
+  }
 }
 
 function ensureTaskHosts(panel: HTMLElement, tasks: FocusTask[]) {
+  // Current Today panel renders an inline slot in each task row.
+  const slots = new Map(Array.from(panel.querySelectorAll('[data-task-execution-slot]'))
+    .filter((node): node is HTMLElement => node instanceof HTMLElement)
+    .map(node => [node.dataset.taskExecutionSlot ?? '', node]))
+  if (slots.size > 0) {
+    removeLegacyHosts(panel)
+    return tasks.flatMap(task => {
+      const host = slots.get(task.id)
+      return host ? [{ task, host }] : []
+    })
+  }
+
   const titleNodes = Array.from(panel.querySelectorAll('p'))
     .filter(node => node instanceof HTMLElement && isVisible(node)) as HTMLElement[]
   const used = new Set<HTMLElement>()
@@ -217,16 +224,10 @@ function formatMinutes(total: number) {
   return rest > 0 ? `${hours}시간 ${rest}분` : `${hours}시간`
 }
 
-function signedMinutes(total: number) {
-  if (total === 0) return '±0분'
-  return `${total > 0 ? '+' : '-'}${formatMinutes(Math.abs(total))}`
-}
-
 function snapshotSignature(snapshot: ExecutionSnapshot | null) {
   if (!snapshot) return 'empty'
   return JSON.stringify({
     date: snapshot.date,
-    summaryConnected: snapshot.summaryHost.isConnected,
     tasks: snapshot.taskHosts.map(({ task, host }) => ({
       id: task.id,
       connected: host.isConnected,
@@ -250,67 +251,6 @@ function snapshotSignature(snapshot: ExecutionSnapshot | null) {
   })
 }
 
-function Summary({ tasks }: { tasks: FocusTask[] }) {
-  const active = tasks.filter(task => !task.discarded)
-  const expectedTotal = active.reduce((sum, task) => sum + getTaskDuration(task), 0)
-  const recorded = active
-    .map(task => ({ task, actual: taskActualMinutes(task) }))
-    .filter((item): item is { task: FocusTask; actual: number } => item.actual !== null)
-  const actualTotal = recorded.reduce((sum, item) => sum + item.actual, 0)
-  const recordedExpected = recorded.reduce((sum, item) => sum + getTaskDuration(item.task), 0)
-  const recordedRatio = recordedExpected > 0 ? Math.round((actualTotal / recordedExpected) * 100) : 0
-  const dayRatio = expectedTotal > 0 ? Math.round((actualTotal / expectedTotal) * 100) : 0
-  const error = actualTotal - recordedExpected
-
-  return (
-    <div className="border-b border-[var(--border)] bg-[var(--surface-2)]/35 px-3 py-3">
-      <div className="rounded-[14px] border border-[var(--border)] bg-white px-3.5 py-3 shadow-sm">
-        <div className="flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[var(--purple-bg)] text-[var(--purple)]">
-            <Gauge size={17} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <p className="text-xs font-bold">오늘 시간 요약</p>
-              <span className="rounded-full bg-[var(--teal-bg)] px-2 py-0.5 text-[9px] font-bold text-[var(--teal-text)]">예상 vs 실제</span>
-            </div>
-            <p className="mt-0.5 text-[10px] text-[var(--text-3)]">스톱워치와 실제 타임라인 기록을 함께 집계합니다.</p>
-          </div>
-        </div>
-
-        <div className="mt-3 grid grid-cols-4 gap-2">
-          <div className="rounded-[10px] bg-[var(--purple-bg)]/55 px-2.5 py-2">
-            <p className="text-[9px] font-semibold text-[var(--purple-text)]">예상 총시간</p>
-            <p className="mt-1 text-sm font-black tabular-nums">{formatMinutes(expectedTotal)}</p>
-          </div>
-          <div className="rounded-[10px] bg-[var(--teal-bg)]/60 px-2.5 py-2">
-            <p className="text-[9px] font-semibold text-[var(--teal-text)]">실제 기록</p>
-            <p className="mt-1 text-sm font-black tabular-nums">{formatMinutes(actualTotal)}</p>
-          </div>
-          <div className="rounded-[10px] bg-[var(--surface-2)] px-2.5 py-2">
-            <p className="text-[9px] font-semibold text-[var(--text-3)]">기록</p>
-            <p className="mt-1 text-sm font-black tabular-nums">{recorded.length}/{active.length}</p>
-          </div>
-          <div className="rounded-[10px] bg-[var(--surface-2)] px-2.5 py-2">
-            <p className="text-[9px] font-semibold text-[var(--text-3)]">예상 오차</p>
-            <p className={`mt-1 text-sm font-black tabular-nums ${recorded.length === 0 ? 'text-[var(--text-3)]' : error > 0 ? 'text-[var(--amber-text)]' : 'text-[var(--teal-text)]'}`}>
-              {recorded.length > 0 ? signedMinutes(error) : '—'}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-3 flex items-center gap-2.5">
-          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--surface-2)]">
-            <div className="h-full rounded-full bg-[var(--teal)] transition-all" style={{ width: `${Math.min(100, dayRatio)}%` }} />
-          </div>
-          <span className="shrink-0 text-[10px] font-bold text-[var(--text-3)] tabular-nums">오늘 {dayRatio}% 기록</span>
-          {recorded.length > 0 && <span className="shrink-0 text-[10px] font-bold text-[var(--purple-text)] tabular-nums">기록분 기준 {recordedRatio}%</span>}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function TaskExecution({ task, date, disabled, onStart }: {
   task: FocusTask
   date: string
@@ -321,41 +261,32 @@ function TaskExecution({ task, date, disabled, onStart }: {
   const actual = taskActualMinutes(task)
   const ratio = actual === null ? null : Math.round((actual / expected) * 100)
 
-  if (task.discarded) return <div className="text-[10px] font-medium text-[var(--text-3)]">시간 집계 제외</div>
+  if (task.discarded) return null
 
+  // Inline, one-line: actual/estimate chip (only once something is recorded) + a small stopwatch button.
   return (
-    <div className="flex flex-col gap-2">
-      {actual === null || ratio === null ? (
-        <div className="flex items-center gap-2 text-[10px] text-[var(--text-3)]">
-          <TimerReset size={11} className="shrink-0" />
-          <span>실제 — / 예상 {formatMinutes(expected)}</span>
-          <span className="ml-auto rounded-full bg-[var(--surface-2)] px-2 py-0.5 font-semibold">기록 없음</span>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <Clock3 size={11} className={ratio > 100 ? 'shrink-0 text-[var(--amber)]' : 'shrink-0 text-[var(--teal)]'} />
-          <span className="shrink-0 text-[10px] font-semibold text-[var(--text-2)] tabular-nums">실제 {formatMinutes(actual)} / 예상 {formatMinutes(expected)}</span>
-          <div className="h-1.5 min-w-[44px] flex-1 overflow-hidden rounded-full bg-[var(--surface-2)]">
-            <div className={`h-full rounded-full transition-all ${ratio > 100 ? 'bg-[var(--amber)]' : 'bg-[var(--teal)]'}`} style={{ width: `${Math.min(100, ratio)}%` }} />
-          </div>
-          <span className={`shrink-0 text-[10px] font-black tabular-nums ${ratio > 100 ? 'text-[var(--amber-text)]' : 'text-[var(--teal-text)]'}`}>{ratio}%</span>
-        </div>
+    <>
+      {actual !== null && ratio !== null && (
+        <span
+          className={`inline-flex items-center gap-0.5 rounded-[5px] px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${ratio > 100 ? 'bg-[var(--amber-bg)] text-[var(--amber-text)]' : 'bg-[var(--teal-bg)] text-[var(--teal-text)]'}`}
+          title={`실제 ${formatMinutes(actual)} / 예상 ${formatMinutes(expected)} (${ratio}%)`}
+        >
+          <Clock3 size={9} />{formatMinutes(actual)}
+        </span>
       )}
-
       {!task.done && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => onStart(task, date)}
-            className="inline-flex items-center gap-1.5 rounded-[7px] border border-[var(--purple)]/35 bg-[var(--purple-bg)] px-2 py-1 text-[10px] font-bold text-[var(--purple-text)] transition-all hover:border-[var(--purple)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-35"
-            title="이 할 일에만 집중하며 실제 시간을 측정합니다."
-          >
-            <Play size={10} fill="currentColor" /> 스톱워치
-          </button>
-        </div>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onStart(task, date)}
+          aria-label={`${task.text} 스톱워치 시작`}
+          className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--purple-bg)] text-[var(--purple)] transition-colors hover:bg-[var(--purple)] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+          title="스톱워치 — 이 할 일에만 집중하며 실제 시간을 잽니다"
+        >
+          <Play size={8} fill="currentColor" />
+        </button>
       )}
-    </div>
+    </>
   )
 }
 
@@ -422,7 +353,6 @@ export function TaskExecutionLayer() {
       const next: ExecutionSnapshot = {
         date,
         entry,
-        summaryHost: ensureSummaryHost(panel),
         taskHosts: ensureTaskHosts(panel, tasks),
       }
       const signature = snapshotSignature(next)
@@ -618,7 +548,6 @@ export function TaskExecutionLayer() {
     }
   }
 
-  const tasks = useMemo(() => snapshot ? flexibleTasks(snapshot.entry) : [], [snapshot])
   const elapsed = session ? elapsedMs(session, currentTime) : 0
   const elapsedMinutes = elapsed / 60_000
   const progress = session ? Math.min(100, (elapsedMinutes / session.expectedMinutes) * 100) : 0
@@ -630,7 +559,6 @@ export function TaskExecutionLayer() {
 
   return (
     <>
-      {snapshot?.summaryHost.isConnected && createPortal(<Summary tasks={tasks} />, snapshot.summaryHost)}
       {snapshot?.taskHosts.map(({ task, host }) => host.isConnected
         ? createPortal(
             <TaskExecution task={task} date={snapshot.date} disabled={Boolean(session)} onStart={startSession} />,

@@ -13,7 +13,10 @@ import {
   HeartPulse,
   History,
   Flame,
+  ListChecks,
+  ListPlus,
   Moon,
+  MoreHorizontal,
   Pencil,
   Percent,
   Plus,
@@ -314,6 +317,9 @@ export function TodayDashboard({
   const [subtaskInputs, setSubtaskInputs] = useState<Record<string, string>>({})
   const [subtaskDurations, setSubtaskDurations] = useState<Record<string, string>>({})
   const [showRoutineManager, setShowRoutineManager] = useState(false)
+  const [menuTaskId, setMenuTaskId] = useState<string | null>(null)
+  const [timeEditTaskId, setTimeEditTaskId] = useState<string | null>(null)
+  const taskInputRef = useRef<HTMLInputElement>(null)
   const panelsRef = useRef<HTMLDivElement>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const pointerTaskIdRef = useRef<string | null>(null)
@@ -460,6 +466,10 @@ export function TodayDashboard({
   }, [flexible, selectableCategories])
 
   const currentCategory = selectableCategories.find(category => category.id === categoryId)
+  const dayProgress = useMemo(() => tasksProgress(flexible), [flexible])
+  const remainingEstimate = useMemo(() => flexible
+    .filter(task => !task.done && !task.discarded)
+    .reduce((sum, task) => sum + getTaskDuration(task) * (1 - taskProgressPercent(task) / 100), 0), [flexible])
   const activeRoutines = useMemo(() => routines
     .filter(routine => isRoutineScheduledOn(routine, date))
     .sort((a, b) => {
@@ -1421,20 +1431,27 @@ export function TodayDashboard({
           </div>
         </div>
 
-        <div className="bg-white border border-[var(--border)] rounded-[18px] overflow-visible self-start flex flex-col" style={{ height: panelsHeight }}>
-          <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
-            <div>
+        <div data-today-task-panel="true" data-planner-date={date} className="bg-white border border-[var(--border)] rounded-[18px] overflow-visible self-start flex flex-col" style={{ height: panelsHeight }}>
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-2.5">
+            <div className="flex min-w-0 items-center gap-2.5" title="카테고리 안에서는 끌어서 순서를 바꾸고, 왼쪽 타임라인에 놓으면 시간을 배치합니다.">
               <h3 className="text-sm font-bold">오늘 할 일</h3>
-              <p className="mt-0.5 text-xs text-[var(--text-3)]">카테고리 안에서는 드래그로 순서를 바꾸고, 왼쪽 타임라인에 놓으면 시간을 배치할 수 있습니다.</p>
+              {dayProgress.total > 0 && (
+                <>
+                  <span className="text-xs font-semibold tabular-nums text-[var(--text-3)]">{flexible.filter(task => task.done && !task.discarded).length}/{dayProgress.total}</span>
+                  <span className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--surface-2)]"><span className="block h-full rounded-full bg-[var(--teal)] transition-all" style={{ width: `${dayProgress.pct}%` }} /></span>
+                  <span className="text-[11px] font-bold tabular-nums text-[var(--teal-text)]">{dayProgress.pct}%</span>
+                  <span className="text-[11px] tabular-nums text-[var(--text-3)]">· 남은 {formatDuration(remainingEstimate)}</span>
+                </>
+              )}
             </div>
             {onAddRoutine && onUpdateRoutine && onSetRoutineStatus && onDeleteRoutine && (
-              <button type="button" onClick={() => setShowRoutineManager(true)} className="flex shrink-0 items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-xs font-semibold text-[var(--text-2)] hover:bg-[var(--surface-2)]"><Settings2 size={13} /> 루틴 관리</button>
+              <button type="button" onClick={() => setShowRoutineManager(true)} className="flex shrink-0 items-center gap-1.5 rounded-[8px] px-2 py-1.5 text-xs font-semibold text-[var(--text-2)] hover:bg-[var(--surface-2)]"><Settings2 size={13} /> 루틴 관리</button>
             )}
           </div>
-          <div className="p-3 border-b border-[var(--border)] bg-[var(--surface-2)]/45">
-            <div className={clsx('grid gap-2', compact ? 'grid-cols-[auto_1fr_76px_auto]' : 'grid-cols-[minmax(104px,auto)_1fr_92px_auto]')}>
+          <div className="px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-2)]/45">
+            <div className={clsx('grid gap-1.5', compact ? 'grid-cols-[auto_1fr_68px_auto]' : 'grid-cols-[minmax(96px,auto)_1fr_76px_auto]')}>
               <div className="relative">
-                <button type="button" onClick={() => setShowCategories(value => !value)} className="h-10 w-full px-3 rounded-[10px] bg-white border border-[var(--border)] text-xs font-semibold flex items-center justify-between gap-2">
+                <button type="button" onClick={() => setShowCategories(value => !value)} className="h-8 w-full px-2.5 rounded-[9px] bg-white border border-[var(--border)] text-xs font-semibold flex items-center justify-between gap-2">
                   <span className="flex items-center gap-2 min-w-0">{currentCategory ? <CategoryDot color={currentCategory.color} /> : <Tag size={13} />}<span className="truncate">{currentCategory?.name ?? '카테고리'}</span></span>
                   <ChevronDown size={13} />
                 </button>
@@ -1500,23 +1517,23 @@ export function TodayDashboard({
                   </div>
                 )}
               </div>
-              <input value={taskText} onChange={event => setTaskText(event.target.value)} onKeyDown={event => event.key === 'Enter' && addTask()} placeholder="할 일 입력" className="h-10 min-w-0 px-3 rounded-[10px] bg-white border border-[var(--border)] text-sm outline-none focus:border-[var(--purple)]" />
-              <label className="h-10 px-2 rounded-[10px] bg-white border border-[var(--border)] flex items-center gap-1">
+              <input ref={taskInputRef} value={taskText} onChange={event => setTaskText(event.target.value)} onKeyDown={event => event.key === 'Enter' && addTask()} placeholder={currentCategory ? `${currentCategory.name}에 할 일 추가` : '할 일 입력'} className="h-8 min-w-0 px-3 rounded-[9px] bg-white border border-[var(--border)] text-sm outline-none focus:border-[var(--purple)]" />
+              <label className="h-8 px-2 rounded-[9px] bg-white border border-[var(--border)] flex items-center gap-1" title="예상 시간(분)">
                 <input aria-label="예상 시간(분)" inputMode="numeric" value={durationText} onChange={event => setDurationText(event.target.value.replace(/\D/g, '').slice(0, 4))} onKeyDown={event => event.key === 'Enter' && addTask()} className="w-full min-w-0 text-right text-sm font-semibold outline-none" />
                 <span className="text-[11px] text-[var(--text-3)]">분</span>
               </label>
-              <button type="button" onClick={addTask} aria-label="할 일 추가" className="h-10 w-10 rounded-[10px] bg-[var(--purple)] text-white flex items-center justify-center"><Plus size={17} /></button>
+              <button type="button" onClick={addTask} aria-label="할 일 추가" className="h-8 w-8 rounded-[9px] bg-[var(--purple)] text-white flex items-center justify-center"><Plus size={16} /></button>
             </div>
           </div>
 
-          <div className="p-3 min-h-0 flex-1 flex flex-col gap-4 overflow-y-auto scrollbar-thin">
+          <div className="px-2 py-2 min-h-0 flex-1 flex flex-col gap-3 overflow-y-auto scrollbar-thin">
             {flexible.length === 0 && activeRoutines.length === 0 ? (
               <div className="py-10 text-center text-sm text-[var(--text-3)]">오늘 할 일을 추가해보세요.</div>
             ) : (
               <>
                 {activeRoutines.length > 0 && (
                   <section>
-                    <div className="flex items-center gap-2 px-1 mb-2">
+                    <div className="flex items-center gap-2 px-1 mb-1">
                       <Flame size={13} className="text-[var(--amber)]" />
                       <h4 className="text-xs font-bold text-[var(--text-2)]">루틴</h4>
                       <span className="text-[10px] text-[var(--text-3)]">{activeRoutines.length}개</span>
@@ -1528,17 +1545,17 @@ export function TodayDashboard({
                         <span className="text-[10px]">{currentRoutineGroup.doneCount}/{currentRoutineGroup.items.length}</span>
                       </button>
                     )}
-                    <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-1.5">
                       {ROUTINE_PERIOD_ORDER.map(period => {
                         const periodRoutines = activeRoutines.filter(routine => (routine.period ?? 'anytime') === period)
                         if (periodRoutines.length === 0) return null
                         return (
                           <div key={period}>
-                            <div className="mb-1.5 flex items-center gap-2 px-1">
+                            <div className="mb-0.5 flex items-center gap-2 px-1">
                               <span className="text-[10px] font-semibold text-[var(--text-3)]">{ROUTINE_PERIOD_LABELS[period]}</span>
                               <div className="h-px flex-1 bg-[var(--border)]" />
                             </div>
-                            <div className="flex flex-col gap-1.5">
+                            <div className="flex flex-col">
                               {periodRoutines.map(routine => {
                                 const log = routineLogs.find(item => item.routine_id === routine.id && item.date === date)
                                 const done = Boolean(log?.done)
@@ -1546,22 +1563,19 @@ export function TodayDashboard({
                                 const config = routineConfig(routine)
                                 const timed = isTimedRoutine(routine)
                                 return (
-                                  <div key={routine.id} className={clsx('flex items-stretch overflow-hidden rounded-[12px] border', done ? 'border-transparent bg-[var(--teal-bg)] opacity-70' : 'border-[var(--border)] bg-white')}>
-                                    <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'full')} className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left">
-                                      <span className={clsx('flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2', done ? 'border-[var(--teal)] bg-[var(--teal)] text-white' : `cat-${config.category_color}`)}>{done && (minimum ? <span className="text-[9px] font-black">M</span> : <Check size={11} strokeWidth={3} />)}</span>
-                                      <span className="min-w-0 flex-1">
-                                        <span className={clsx('block truncate text-sm font-medium', done && !minimum && 'line-through')}>{routine.name}</span>
-                                        <span className="block truncate text-[10px] text-[var(--text-3)]">{timed ? '시간형' : '체크형'}{config.cue_label || config.bundle ? ` · ${config.cue_label || config.bundle}` : ''}{timed && config.minimum_version ? ` · 최소 ${config.minimum_version}` : ''}</span>
-                                      </span>
-                                      <span className="shrink-0 text-right text-[10px] text-[var(--text-3)]"><span className="block tabular-nums">{routine.time ?? (timed ? '유동' : '언제든')}</span><span>{timed ? `${config.duration_min}분` : '체크'}</span></span>
+                                  <div key={routine.id} className={clsx('flex min-h-[30px] items-center gap-1 rounded-[9px] pr-1', done ? 'opacity-60' : 'hover:bg-[var(--surface-2)]/70')}>
+                                    <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'full')} className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-1.5 text-left" title={[timed ? '시간형' : '체크형', config.cue_label || config.bundle, timed && config.minimum_version ? `최소 ${config.minimum_version}` : ''].filter(Boolean).join(' · ')}>
+                                      <span className={clsx('flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-2', done ? 'border-[var(--teal)] bg-[var(--teal)] text-white' : `cat-${config.category_color}`)}>{done && (minimum ? <span className="text-[8px] font-black">M</span> : <Check size={10} strokeWidth={3} />)}</span>
+                                      <span className={clsx('min-w-0 truncate text-[13px] font-medium', done && !minimum && 'line-through')}>{routine.name}</span>
+                                      {(config.cue_label || config.bundle) && <span className="min-w-0 shrink truncate text-[10px] text-[var(--text-3)]">{config.cue_label || config.bundle}</span>}
+                                      <span className="ml-auto shrink-0 text-[10px] tabular-nums text-[var(--text-3)]">{routine.time ?? (timed ? '유동' : '언제든')}{timed ? ` · ${config.duration_min}분` : ''}</span>
                                     </button>
                                     {done && timed && (
-                                      <button type="button" onClick={() => openRoutineActualEditor([routine])} className="border-l border-[var(--teal)] px-2 text-[10px] font-semibold text-[var(--teal-text)] hover:bg-white/60" title="실제 수행 시간 수정">
-                                        <Clock3 size={11} className="mx-auto mb-0.5" />
-                                        {log?.actual_start_time ?? '시간'}
+                                      <button type="button" onClick={() => openRoutineActualEditor([routine])} className="flex h-6 shrink-0 items-center gap-0.5 rounded-[6px] px-1.5 text-[10px] font-semibold text-[var(--teal-text)] hover:bg-[var(--teal-bg)]" title="실제 수행 시간 수정">
+                                        <Clock3 size={10} />{log?.actual_start_time ?? '시간'}
                                       </button>
                                     )}
-                                    {timed && config.minimum_version && <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'minimum')} className={clsx('border-l px-2 text-[10px] font-bold', minimum ? 'border-[var(--teal)] text-[var(--teal-text)]' : 'border-[var(--border)] text-[var(--text-3)] hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]')} title={`최소 버전: ${config.minimum_version}`}>최소</button>}
+                                    {timed && config.minimum_version && <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'minimum')} className={clsx('flex h-6 shrink-0 items-center rounded-[6px] px-1.5 text-[10px] font-bold', minimum ? 'bg-[var(--teal-bg)] text-[var(--teal-text)]' : 'text-[var(--text-3)] hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]')} title={`최소 버전: ${config.minimum_version}`}>최소</button>}
                                   </div>
                                 )
                               })}
@@ -1573,21 +1587,32 @@ export function TodayDashboard({
                   </section>
                 )}
 
-                {taskGroups.map(({ category, tasks }) => (
+                {taskGroups.map(({ category, tasks }) => {
+                  const groupProgress = tasksProgress(tasks)
+                  const groupDone = tasks.filter(task => task.done && !task.discarded).length
+                  const groupActive = tasks.filter(task => !task.discarded).length
+                  return (
               <section key={category.id}>
-                <div className="flex items-center gap-2 px-1 mb-2">
-                  <CategoryDot color={category.color} />
-                  <h4 className="text-xs font-bold text-[var(--text-2)]">{category.name}</h4>
-                  <span className="text-[10px] text-[var(--text-3)]">{tasks.length}개</span>
+                <div className="group/cat flex items-center gap-1.5 px-1 mb-1">
+                  <span className={clsx('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold', `cat-${category.color}`)}>
+                    <CategoryDot color={category.color} />{category.name}
+                  </span>
+                  <span className="text-[10px] font-semibold tabular-nums text-[var(--text-3)]">{groupDone}/{groupActive}{groupActive > 0 && groupProgress.pct > 0 && groupProgress.pct < 100 ? ` · ${groupProgress.pct}%` : ''}</span>
+                  {selectableCategories.some(item => item.id === category.id) && (
+                    <button type="button" onClick={() => { setCategoryId(category.id); taskInputRef.current?.focus() }} aria-label={`${category.name}에 할 일 추가`} title={`${category.name}에 할 일 추가`} className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-[var(--text-3)] opacity-40 hover:bg-[var(--surface-2)] hover:text-[var(--purple)] group-hover/cat:opacity-100"><Plus size={12} /></button>
+                  )}
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col">
                   {tasks.map(task => {
                     const progressPercent = taskProgressPercent(task)
                     const isPartial = !task.done && !task.discarded && progressPercent > 0
+                    const hasMeasuredProgress = isPartial && task.progress_target !== undefined && task.progress_current !== undefined
                     const token = taskDragToken(task.id)
                     const subtasks = task.subtasks ?? []
                     const activeSubtasks = subtasks.filter(subtask => !subtask.discarded)
                     const isExpanded = expandedTaskIds.has(task.id)
+                    const plannedTime = task.start_time ?? task.time ?? ''
+                    const menuOpen = menuTaskId === task.id
                     return (
                     <div
                       key={task.id}
@@ -1609,12 +1634,14 @@ export function TodayDashboard({
                         setDraggedTaskId(null)
                         setDragPreviewMinute(null)
                       }}
-                      className={clsx('rounded-[12px] border px-3 py-2.5 group', task.discarded ? 'border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] opacity-65' : task.done ? 'bg-[var(--surface-2)] border-transparent opacity-60' : isPartial ? 'bg-[var(--amber-bg)]/45 border-amber-200' : 'bg-white border-[var(--border)]', draggedTaskId === token && 'opacity-50 ring-2 ring-[var(--purple)]')}
+                      data-task-row={task.id}
+                      className={clsx('group relative rounded-[9px] transition-colors', menuOpen ? 'z-20 bg-[var(--surface-2)]' : 'hover:bg-[var(--surface-2)]/70', task.discarded && 'opacity-55', draggedTaskId === token && 'opacity-50 ring-2 ring-[var(--purple)]')}
                     >
-                      <div className="flex items-start gap-2.5">
+                      <div className="flex min-h-[34px] items-center gap-1.5 py-1 pl-0.5 pr-1">
                         <button
                           type="button"
                           aria-label={`${task.text} 타임라인에 배치`}
+                          title="끌어서 순서 변경 · 타임라인에 놓으면 시간 배치"
                           draggable={!task.done && !task.discarded}
                           onDragStart={event => {
                             if (task.done || task.discarded) return
@@ -1623,7 +1650,7 @@ export function TodayDashboard({
                             event.dataTransfer.effectAllowed = 'move'
                           }}
                           onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
-                          className={clsx('mt-0.5 -ml-1 h-6 w-6 touch-none rounded-[6px] text-[var(--text-3)] hover:bg-[var(--surface-2)] flex items-center justify-center shrink-0', !task.done && !task.discarded ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed opacity-30')}
+                          className={clsx('h-6 w-4 touch-none rounded-[5px] text-[var(--text-3)] flex items-center justify-center shrink-0 opacity-30 group-hover:opacity-80', !task.done && !task.discarded ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed !opacity-10')}
                           onPointerDown={event => {
                             // Mouse uses native HTML5 drag/drop so cards can reorder reliably.
                             // Pointer capture is reserved for touch/pen timeline placement.
@@ -1646,71 +1673,114 @@ export function TodayDashboard({
                             if (event.pointerType !== 'mouse') finishPointerDrag(-1, -1)
                           }}
                         >
-                          <GripVertical size={15} aria-hidden="true" />
+                          <GripVertical size={13} aria-hidden="true" />
                         </button>
                         <button
                           type="button"
                           aria-label={task.discarded ? '폐기된 할 일' : task.done ? '완료 취소' : '완료'}
                           onClick={() => toggleTaskWithActualEditor(task)}
                           disabled={task.discarded}
-                          className={clsx('mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', task.discarded ? 'border-[var(--text-3)] cursor-not-allowed' : task.done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : isPartial ? 'border-[var(--amber)]' : 'border-[var(--border-strong)]')}
+                          className={clsx('h-[18px] w-[18px] rounded-full border-2 flex items-center justify-center shrink-0', task.discarded ? 'border-[var(--text-3)] cursor-not-allowed' : task.done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : isPartial ? 'border-[var(--amber)]' : 'border-[var(--border-strong)] hover:border-[var(--purple)]')}
                           style={isPartial ? { background: `conic-gradient(var(--amber) ${progressPercent}%, white ${progressPercent}%)` } : undefined}
                         >
-                          {task.discarded ? <Ban size={11} /> : task.done ? <Check size={11} strokeWidth={3} /> : isPartial ? <span className="h-2.5 w-2.5 rounded-full bg-white" /> : null}
+                          {task.discarded ? <Ban size={10} /> : task.done ? <Check size={10} strokeWidth={3} /> : isPartial ? <span className="h-2 w-2 rounded-full bg-white" /> : null}
                         </button>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className={clsx('min-w-0 flex-1 truncate text-sm font-medium', (task.done || task.discarded) && 'line-through')}>{task.text}</p>
-                            {task.discarded && <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[9px] font-bold text-[var(--text-3)]">폐기됨 · 실패 아님</span>}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2 mt-2">
-                            {!task.done && !task.discarded && (
-                              <button type="button" onClick={() => openProgressEditor(task)} className={clsx('flex items-center gap-1 rounded-[6px] px-1.5 py-1 text-[11px] font-semibold', isPartial ? 'bg-white text-[var(--amber-text)]' : 'bg-[var(--surface-2)] text-[var(--text-3)] hover:text-[var(--purple)]')}>
-                                <Percent size={11} />
-                                {isPartial ? `${task.progress_current}/${task.progress_target}${task.progress_unit ?? ''} · ${progressPercent}%` : '부분 완료'}
-                              </button>
-                            )}
-                            <label className="flex items-center gap-1 text-[11px] text-[var(--text-3)]">
-                              예상
-                              <input key={`${task.id}:${task.duration_min ?? ''}`} inputMode="numeric" defaultValue={getTaskDuration(task)} onBlur={event => { const value = Number.parseInt(event.target.value, 10); if (value > 0 && value !== getTaskDuration(task)) onUpdateTask(task.id, { duration_min: value }) }} className="w-14 px-1.5 py-1 rounded-[6px] bg-[var(--surface-2)] text-right text-xs font-semibold outline-none focus:bg-white focus:ring-1 focus:ring-[var(--purple)]" />분
-                            </label>
-                            <label className="flex items-center gap-1 text-[11px] text-[var(--text-3)]">
-                              타임라인
-                              <input disabled={task.discarded} type="time" value={task.start_time ?? task.time ?? ''} onChange={event => onUpdateTask(task.id, { start_time: event.target.value || undefined, time: event.target.value || undefined })} className="px-1.5 py-1 rounded-[6px] bg-[var(--surface-2)] text-xs outline-none focus:bg-white focus:ring-1 focus:ring-[var(--purple)] disabled:opacity-40" />
-                            </label>
-                            <button type="button" onClick={() => toggleTaskExpanded(task.id)} className="flex items-center gap-1 rounded-[6px] bg-[var(--purple-bg)] px-1.5 py-1 text-[11px] font-semibold text-[var(--purple-text)]">
-                              {isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />} 하위 할 일 {activeSubtasks.length > 0 ? `${activeSubtasks.filter(item => item.done).length}/${activeSubtasks.length}` : '추가'}
+                        <button
+                          type="button"
+                          onClick={() => toggleTaskExpanded(task.id)}
+                          onDoubleClick={() => openTaskEditor(task)}
+                          title={`${task.text}${activeSubtasks.length > 0 ? ' · 눌러서 하위 할 일 보기' : ' · 눌러서 하위 할 일 추가'} · 더블클릭으로 수정`}
+                          className={clsx('min-w-0 flex-1 truncate text-left text-[13px] font-medium leading-5', (task.done || task.discarded) && 'line-through text-[var(--text-3)]')}
+                        >
+                          {task.text}
+                        </button>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {task.discarded && <span className="rounded-full bg-[var(--surface-2)] px-1.5 py-0.5 text-[9px] font-bold text-[var(--text-3)]">폐기</span>}
+                          {hasMeasuredProgress && (
+                            <button type="button" onClick={() => openProgressEditor(task)} title="진행률 수정" className="rounded-[5px] bg-[var(--amber-bg)] px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-[var(--amber-text)]">
+                              {task.progress_unit === '%' ? `${progressPercent}%` : `${task.progress_current}/${task.progress_target}${task.progress_unit ?? ''} · ${progressPercent}%`}
                             </button>
-                          </div>
+                          )}
+                          {activeSubtasks.length > 0 && (
+                            <button type="button" onClick={() => toggleTaskExpanded(task.id)} title="하위 할 일" className={clsx('flex items-center gap-0.5 rounded-[5px] px-1.5 py-0.5 text-[10px] font-bold tabular-nums', isExpanded ? 'bg-[var(--purple)] text-white' : 'bg-[var(--purple-bg)] text-[var(--purple-text)]')}>
+                              <ListChecks size={10} />{activeSubtasks.filter(item => item.done).length}/{activeSubtasks.length}
+                            </button>
+                          )}
+                          {timeEditTaskId === task.id ? (
+                            <input
+                              aria-label="타임라인 시작 시각"
+                              type="time"
+                              autoFocus
+                              defaultValue={plannedTime}
+                              onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Escape') event.currentTarget.blur() }}
+                              onBlur={event => {
+                                const value = event.target.value || undefined
+                                if (value !== (plannedTime || undefined)) onUpdateTask(task.id, { start_time: value, time: value })
+                                setTimeEditTaskId(null)
+                              }}
+                              className="w-[104px] rounded-[5px] bg-white px-1 py-0.5 text-[11px] font-semibold text-[var(--purple-text)] outline-none ring-1 ring-[var(--purple)]"
+                            />
+                          ) : plannedTime && (
+                            <button type="button" disabled={task.discarded} onClick={() => setTimeEditTaskId(task.id)} title="타임라인 시작 시각 (눌러서 바꾸기)" className="rounded-[5px] bg-[var(--purple-bg)] px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums text-[var(--purple-text)] hover:ring-1 hover:ring-[var(--purple)] disabled:opacity-40">
+                              {plannedTime}
+                            </button>
+                          )}
+                          <span data-task-execution-slot={task.id} className="contents" />
+                          <label className="flex items-center rounded-[5px] bg-[var(--surface-2)] pl-1 pr-1 py-0.5 text-[10px] text-[var(--text-3)] focus-within:bg-white focus-within:ring-1 focus-within:ring-[var(--purple)]" title="예상 시간(분)">
+                            <input aria-label="예상 시간(분)" key={`${task.id}:${task.duration_min ?? ''}`} inputMode="numeric" defaultValue={getTaskDuration(task)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} onBlur={event => { const value = Number.parseInt(event.target.value, 10); if (value > 0 && value !== getTaskDuration(task)) onUpdateTask(task.id, { duration_min: value }) }} className="w-7 bg-transparent text-right text-[11px] font-semibold tabular-nums text-[var(--text-2)] outline-none" />분
+                          </label>
                         </div>
-                        <button type="button" onClick={() => openTaskEditor(task)} aria-label={`${task.text} 수정`} className="w-7 h-7 rounded-[7px] opacity-40 group-hover:opacity-100 text-[var(--text-3)] hover:text-[var(--purple)] hover:bg-[var(--purple-bg)] flex items-center justify-center"><Pencil size={13} /></button>
-                        <button type="button" onClick={() => discardTask(task)} aria-label={task.discarded ? `${task.text} 폐기 취소` : `${task.text} 폐기`} title={task.discarded ? '폐기 취소' : '필요 없어져서 폐기'} className="w-7 h-7 rounded-[7px] opacity-40 group-hover:opacity-100 text-[var(--text-3)] hover:text-[var(--amber-text)] hover:bg-[var(--amber-bg)] flex items-center justify-center">{task.discarded ? <Undo2 size={13} /> : <Ban size={13} />}</button>
-                        <button type="button" onClick={() => onDeleteTask(task.id)} aria-label={`${task.text} 삭제`} className="w-7 h-7 rounded-[7px] opacity-40 group-hover:opacity-100 text-[var(--text-3)] hover:text-[var(--red)] hover:bg-[var(--red-bg)] flex items-center justify-center"><Trash2 size={13} /></button>
+                        <div className="flex shrink-0 items-center opacity-35 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          {!task.done && !task.discarded && (
+                            <button type="button" onClick={() => openProgressEditor(task)} aria-label={`${task.text} 부분 완료`} title="부분 완료 · 진행률" className="flex h-6 w-6 items-center justify-center rounded-[6px] text-[var(--text-3)] hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]"><Percent size={12} /></button>
+                          )}
+                          {!task.discarded && (
+                            <button type="button" onClick={() => { setExpandedTaskIds(current => new Set(current).add(task.id)); window.setTimeout(() => document.getElementById(`subtask-input-${task.id}`)?.focus(), 0) }} aria-label={`${task.text} 하위 할 일 추가`} title="하위 할 일 추가" className="flex h-6 w-6 items-center justify-center rounded-[6px] text-[var(--text-3)] hover:bg-[var(--purple-bg)] hover:text-[var(--purple)]"><ListPlus size={13} /></button>
+                          )}
+                          <button type="button" onClick={() => setMenuTaskId(current => current === task.id ? null : task.id)} aria-label={`${task.text} 더보기`} aria-expanded={menuOpen} title="더보기" className="flex h-6 w-6 items-center justify-center rounded-[6px] text-[var(--text-3)] hover:bg-white hover:text-[var(--text)]"><MoreHorizontal size={14} /></button>
+                        </div>
                       </div>
 
+                      {menuOpen && (
+                        <>
+                          <div className="fixed inset-0 z-30" onClick={() => setMenuTaskId(null)} aria-hidden="true" />
+                          <div role="menu" className="absolute right-1 top-full z-40 mt-0.5 w-40 rounded-[10px] border border-[var(--border)] bg-white p-1 text-xs shadow-lg">
+                            {!task.discarded && (
+                              <button type="button" role="menuitem" onClick={() => { setTimeEditTaskId(task.id); setMenuTaskId(null) }} className="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left hover:bg-[var(--surface-2)]"><Clock3 size={12} /> {plannedTime ? '시작 시각 바꾸기' : '시작 시각 지정'}</button>
+                            )}
+                            {plannedTime && !task.discarded && (
+                              <button type="button" role="menuitem" onClick={() => { onUpdateTask(task.id, { start_time: undefined, end_time: undefined, time: undefined }); setMenuTaskId(null) }} className="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left hover:bg-[var(--surface-2)]"><CalendarClock size={12} /> 타임라인에서 빼기</button>
+                            )}
+                            <button type="button" role="menuitem" onClick={() => { openTaskEditor(task); setMenuTaskId(null) }} className="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left hover:bg-[var(--surface-2)]"><Pencil size={12} /> 수정</button>
+                            <button type="button" role="menuitem" onClick={() => { discardTask(task); setMenuTaskId(null) }} className="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]">{task.discarded ? <Undo2 size={12} /> : <Ban size={12} />} {task.discarded ? '폐기 취소' : '폐기 (필요 없어짐)'}</button>
+                            <button type="button" role="menuitem" onClick={() => { onDeleteTask(task.id); setMenuTaskId(null) }} className="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-[var(--red)] hover:bg-[var(--red-bg)]"><Trash2 size={12} /> 삭제</button>
+                          </div>
+                        </>
+                      )}
+
                       {isExpanded && (
-                        <div className="ml-7 mt-3 border-l-2 border-[var(--border)] pl-3">
-                          <div className="flex flex-col gap-1.5">
+                        <div className="mb-1 ml-[26px] mr-1 border-l-2 border-[var(--border)] pl-2">
+                          <div className="flex flex-col">
                             {subtasks.map(subtask => {
                               const subToken = subtaskDragToken(task.id, subtask.id)
                               return (
-                                <div key={subtask.id} className={clsx('group/sub flex items-center gap-2 rounded-[9px] px-2 py-1.5', subtask.discarded ? 'bg-[var(--surface-2)] opacity-60' : 'bg-white/70')}>
-                                  <button type="button" aria-label={`${subtask.text} 타임라인에 배치`} draggable={!subtask.done && !subtask.discarded} onDragStart={event => { setDraggedTaskId(subToken); event.dataTransfer.setData('text/plain', subToken); event.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }} onPointerDown={event => { if (subtask.done || subtask.discarded || !event.isPrimary) return; pointerTaskIdRef.current = subToken; setDraggedTaskId(subToken); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={event => { if (pointerTaskIdRef.current !== subToken) return; event.preventDefault(); const drop = timelineDropAtPoint(event.clientX, event.clientY); setDragPreviewMinute(drop?.minute ?? null); if (drop) setDragTargetSide(drop.side) }} onPointerUp={event => finishPointerDrag(event.clientX, event.clientY)} onPointerCancel={() => finishPointerDrag(-1, -1)} className={clsx('flex h-6 w-6 shrink-0 touch-none items-center justify-center rounded-[6px] text-[var(--text-3)]', !subtask.done && !subtask.discarded ? 'cursor-grab hover:bg-[var(--surface-2)]' : 'cursor-not-allowed opacity-30')}><GripVertical size={13} /></button>
-                                  <button type="button" disabled={subtask.discarded} aria-label={subtask.done ? '하위 할 일 완료 취소' : '하위 할 일 완료'} onClick={() => toggleSubtaskWithActualEditor(task, subtask)} className={clsx('flex h-4 w-4 shrink-0 items-center justify-center rounded-full border', subtask.done ? 'border-[var(--teal)] bg-[var(--teal)] text-white' : 'border-[var(--border-strong)]', subtask.discarded && 'cursor-not-allowed')} >{subtask.done && <Check size={9} strokeWidth={3} />}</button>
-                                  <input key={`${subtask.id}:${subtask.updated_at ?? 0}`} defaultValue={subtask.text} disabled={subtask.discarded} onBlur={event => { const text = event.target.value.trim(); if (text && text !== subtask.text) updateSubtask(task, subtask.id, { text }) }} className={clsx('min-w-0 flex-1 bg-transparent text-xs outline-none focus:border-b focus:border-[var(--purple)]', (subtask.done || subtask.discarded) && 'line-through text-[var(--text-3)]')} />
-                                  <label className="flex shrink-0 items-center gap-1 text-[10px] text-[var(--text-3)]"><input inputMode="numeric" disabled={subtask.discarded} key={`${subtask.id}:duration:${subtask.duration_min ?? 30}`} defaultValue={subtask.duration_min ?? 30} onBlur={event => { const value = Number.parseInt(event.target.value, 10); if (value > 0 && value !== subtask.duration_min) updateSubtask(task, subtask.id, { duration_min: value }) }} className="w-10 rounded-[5px] bg-[var(--surface-2)] px-1 py-1 text-right text-[10px] outline-none" />분</label>
-                                  {subtask.start_time && <span className="shrink-0 text-[10px] font-mono text-[var(--purple)]">{subtask.start_time}</span>}
-                                  <button type="button" onClick={() => updateSubtask(task, subtask.id, subtask.discarded ? { discarded: false } : { discarded: true, done: false, start_time: undefined, end_time: undefined })} aria-label={subtask.discarded ? '하위 할 일 폐기 취소' : '하위 할 일 폐기'} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-[var(--text-3)] hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]">{subtask.discarded ? <Undo2 size={11} /> : <Ban size={11} />}</button>
-                                  <button type="button" onClick={() => removeSubtask(task, subtask.id)} aria-label="하위 할 일 삭제" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-[var(--text-3)] hover:bg-[var(--red-bg)] hover:text-[var(--red)]"><Trash2 size={11} /></button>
+                                <div key={subtask.id} className={clsx('group/sub flex min-h-[28px] items-center gap-1.5 rounded-[7px] px-1', subtask.discarded ? 'opacity-55' : 'hover:bg-white/80')}>
+                                  <button type="button" aria-label={`${subtask.text} 타임라인에 배치`} draggable={!subtask.done && !subtask.discarded} onDragStart={event => { setDraggedTaskId(subToken); event.dataTransfer.setData('text/plain', subToken); event.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }} onPointerDown={event => { if (subtask.done || subtask.discarded || !event.isPrimary) return; pointerTaskIdRef.current = subToken; setDraggedTaskId(subToken); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={event => { if (pointerTaskIdRef.current !== subToken) return; event.preventDefault(); const drop = timelineDropAtPoint(event.clientX, event.clientY); setDragPreviewMinute(drop?.minute ?? null); if (drop) setDragTargetSide(drop.side) }} onPointerUp={event => finishPointerDrag(event.clientX, event.clientY)} onPointerCancel={() => finishPointerDrag(-1, -1)} className={clsx('flex h-5 w-3.5 shrink-0 touch-none items-center justify-center text-[var(--text-3)] opacity-30 group-hover/sub:opacity-80', !subtask.done && !subtask.discarded ? 'cursor-grab' : 'cursor-not-allowed !opacity-10')}><GripVertical size={11} /></button>
+                                  <button type="button" disabled={subtask.discarded} aria-label={subtask.done ? '하위 할 일 완료 취소' : '하위 할 일 완료'} onClick={() => toggleSubtaskWithActualEditor(task, subtask)} className={clsx('flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border', subtask.done ? 'border-[var(--teal)] bg-[var(--teal)] text-white' : 'border-[var(--border-strong)]', subtask.discarded && 'cursor-not-allowed')} >{subtask.done && <Check size={8} strokeWidth={3} />}</button>
+                                  <input key={`${subtask.id}:${subtask.updated_at ?? 0}`} defaultValue={subtask.text} disabled={subtask.discarded} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} onBlur={event => { const text = event.target.value.trim(); if (text && text !== subtask.text) updateSubtask(task, subtask.id, { text }) }} className={clsx('min-w-0 flex-1 bg-transparent text-xs outline-none focus:border-b focus:border-[var(--purple)]', (subtask.done || subtask.discarded) && 'line-through text-[var(--text-3)]')} />
+                                  {subtask.start_time && <span className="shrink-0 font-mono text-[10px] text-[var(--purple)]">{subtask.start_time}</span>}
+                                  <label className="flex shrink-0 items-center text-[10px] text-[var(--text-3)]"><input aria-label="하위 할 일 예상 시간(분)" inputMode="numeric" disabled={subtask.discarded} key={`${subtask.id}:duration:${subtask.duration_min ?? 30}`} defaultValue={subtask.duration_min ?? 30} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} onBlur={event => { const value = Number.parseInt(event.target.value, 10); if (value > 0 && value !== subtask.duration_min) updateSubtask(task, subtask.id, { duration_min: value }) }} className="w-7 bg-transparent text-right text-[10px] tabular-nums outline-none focus:bg-white" />분</label>
+                                  <button type="button" onClick={() => updateSubtask(task, subtask.id, subtask.discarded ? { discarded: false } : { discarded: true, done: false, start_time: undefined, end_time: undefined })} aria-label={subtask.discarded ? '하위 할 일 폐기 취소' : '하위 할 일 폐기'} title={subtask.discarded ? '폐기 취소' : '폐기'} className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[var(--text-3)] opacity-0 group-hover/sub:opacity-100 focus:opacity-100 hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]">{subtask.discarded ? <Undo2 size={10} /> : <Ban size={10} />}</button>
+                                  <button type="button" onClick={() => removeSubtask(task, subtask.id)} aria-label="하위 할 일 삭제" title="삭제" className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[var(--text-3)] opacity-0 group-hover/sub:opacity-100 focus:opacity-100 hover:bg-[var(--red-bg)] hover:text-[var(--red)]"><Trash2 size={10} /></button>
                                 </div>
                               )
                             })}
                           </div>
                           {!task.discarded && (
-                            <div className="mt-2 flex gap-1.5 pb-1">
-                              <input value={subtaskInputs[task.id] ?? ''} onChange={event => setSubtaskInputs(current => ({ ...current, [task.id]: event.target.value }))} onKeyDown={event => { if (event.key === 'Enter') addSubtask(task) }} placeholder="하위 할 일 입력" className="min-w-0 flex-1 rounded-[7px] bg-[var(--surface-2)] px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-[var(--purple)]" />
-                              <label className="flex w-20 items-center rounded-[7px] bg-[var(--surface-2)] px-2 text-[10px] text-[var(--text-3)]"><input inputMode="numeric" value={subtaskDurations[task.id] ?? '30'} onChange={event => setSubtaskDurations(current => ({ ...current, [task.id]: event.target.value.replace(/\D/g, '').slice(0, 3) }))} className="min-w-0 flex-1 bg-transparent text-right text-xs outline-none" />분</label>
-                              <button type="button" onClick={() => addSubtask(task)} aria-label="하위 할 일 추가" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px] bg-[var(--purple)] text-white"><Plus size={13} /></button>
+                            <div className="flex items-center gap-1 py-1">
+                              <Plus size={11} className="ml-1 shrink-0 text-[var(--text-3)]" />
+                              <input id={`subtask-input-${task.id}`} value={subtaskInputs[task.id] ?? ''} onChange={event => setSubtaskInputs(current => ({ ...current, [task.id]: event.target.value }))} onKeyDown={event => { if (event.key === 'Enter') addSubtask(task); if (event.key === 'Escape') toggleTaskExpanded(task.id) }} placeholder="하위 할 일 추가 후 Enter" className="h-6 min-w-0 flex-1 rounded-[6px] bg-transparent px-1 text-xs outline-none placeholder:text-[var(--text-3)] focus:bg-white focus:ring-1 focus:ring-[var(--purple)]" />
+                              <label className="flex h-6 items-center rounded-[6px] bg-[var(--surface-2)] px-1 text-[10px] text-[var(--text-3)]"><input aria-label="새 하위 할 일 예상 시간(분)" inputMode="numeric" value={subtaskDurations[task.id] ?? '30'} onChange={event => setSubtaskDurations(current => ({ ...current, [task.id]: event.target.value.replace(/\D/g, '').slice(0, 3) }))} onKeyDown={event => { if (event.key === 'Enter') addSubtask(task) }} className="w-6 bg-transparent text-right text-[10px] outline-none" />분</label>
                             </div>
                           )}
                         </div>
@@ -1720,7 +1790,8 @@ export function TodayDashboard({
                   })}
                 </div>
               </section>
-                ))}
+                  )
+                })}
               </>
             )}
           </div>
