@@ -49,12 +49,14 @@ import { RoutineManagerDialog } from '@/components/routine/RoutineManagerDialog'
 import {
   ROUTINE_PERIOD_LABELS,
   ROUTINE_PERIOD_ORDER,
+  ROUTINE_WEEKDAYS,
   isRoutineScheduledOn,
   isTimedRoutine,
   routineBundleLabel,
   routineColor,
   routineConfig,
   routineStartMinute,
+  routineStage,
 } from '@/lib/routineSchedule'
 
 interface Props {
@@ -303,6 +305,11 @@ export function TodayDashboard({
   const [draggedCategoryId, setDraggedCategoryId] = useState<string | null>(null)
   const [taskText, setTaskText] = useState('')
   const [durationText, setDurationText] = useState('60')
+  const [addMode, setAddMode] = useState<'task' | 'routine'>('task')
+  const [routineTime, setRoutineTime] = useState('')
+  const [routineDays, setRoutineDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6])
+  const [addError, setAddError] = useState('')
+  const [headerCategoryForm, setHeaderCategoryForm] = useState(false)
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [dragPreviewMinute, setDragPreviewMinute] = useState<number | null>(null)
   const [dragTargetSide, setDragTargetSide] = useState<TimelineSide>('plan')
@@ -455,7 +462,6 @@ export function TodayDashboard({
     const knownIds = new Set(selectableCategories.map(category => category.id))
     const knownGroups = selectableCategories
       .map(category => ({ category, tasks: byCategory.get(category.id) ?? [] }))
-      .filter(group => group.tasks.length > 0)
     const unknownGroups = [...byCategory.entries()]
       .filter(([id]) => !knownIds.has(id))
       .map(([id, tasks]) => ({
@@ -612,12 +618,50 @@ export function TodayDashboard({
     setTaskText('')
   }
 
+  function switchAddMode(mode: 'task' | 'routine') {
+    setAddMode(mode)
+    setAddError('')
+    setDurationText(mode === 'routine' ? '15' : '60')
+    taskInputRef.current?.focus()
+  }
+
+  function addRoutineFromBar() {
+    const name = taskText.trim()
+    if (!name || !onAddRoutine) return
+    if (routineDays.length === 0) {
+      setAddError('루틴을 할 요일을 하나 이상 골라주세요.')
+      return
+    }
+    const minutes = Number.parseInt(durationText, 10)
+    const timed = Number.isFinite(minutes) && minutes > 0
+    const formingCount = routines.filter(routine => routine.status === 'active' && routineStage(routine) === 'forming').length
+    const config: RoutineConfig = {
+      days_of_week: [...routineDays].sort(),
+      kind: timed ? 'timed' : 'check',
+      duration_min: timed ? Math.max(5, minutes) : undefined,
+      cue_type: 'time',
+      // 형성 중 루틴은 3개까지 — 넘치면 유지 중으로 넣고, 루틴 관리에서 옮길 수 있다
+      stage: formingCount < 3 ? 'forming' : 'maintenance',
+      category_color: currentCategory && ['amber', 'purple', 'teal', 'blue', 'coral'].includes(currentCategory.color) ? currentCategory.color : 'amber',
+    }
+    onAddRoutine(name, routineTime || undefined, undefined, config)
+    setTaskText('')
+    setRoutineTime('')
+    setAddError('')
+  }
+
+  function submitAddBar() {
+    if (addMode === 'routine') addRoutineFromBar()
+    else addTask()
+  }
+
   function addCategory() {
     const name = newCategoryName.trim()
     if (!name || !onAddCategory) return
     onAddCategory({ name, color: newCategoryColor })
     setNewCategoryName('')
     setShowCategoryForm(false)
+    setHeaderCategoryForm(false)
   }
 
   function beginCategoryEdit(category: Category) {
@@ -1449,9 +1493,19 @@ export function TodayDashboard({
             )}
           </div>
           <div className="px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-2)]/45">
-            <div className={clsx('grid gap-1.5', compact ? 'grid-cols-[auto_1fr_68px_auto]' : 'grid-cols-[minmax(96px,auto)_1fr_76px_auto]')}>
+            <div className={clsx('grid gap-1.5', compact ? 'grid-cols-[auto_auto_1fr_60px_auto]' : 'grid-cols-[auto_auto_1fr_64px_auto]')}>
+              <div role="tablist" aria-label="추가할 종류" className="flex h-8 items-center rounded-[9px] border border-[var(--border)] bg-white p-0.5 text-xs font-semibold">
+                <button type="button" role="tab" aria-selected={addMode === 'task'} onClick={() => switchAddMode('task')} className={clsx('h-full rounded-[7px] px-2', addMode === 'task' ? 'bg-[var(--purple)] text-white' : 'text-[var(--text-3)] hover:text-[var(--text)]')}>할 일</button>
+                <button type="button" role="tab" aria-selected={addMode === 'routine'} disabled={!onAddRoutine} onClick={() => switchAddMode('routine')} className={clsx('h-full rounded-[7px] px-2 disabled:opacity-40', addMode === 'routine' ? 'bg-[var(--amber)] text-white' : 'text-[var(--text-3)] hover:text-[var(--text)]')}>루틴</button>
+              </div>
+              {addMode === 'routine' ? (
+                <label className="h-8 px-2 rounded-[9px] bg-white border border-[var(--border)] flex items-center gap-1 text-[11px] text-[var(--text-3)]" title="루틴 시각 (비우면 시간 미지정)">
+                  <Clock3 size={12} className="shrink-0" />
+                  <input aria-label="루틴 시각" type="time" value={routineTime} onChange={event => setRoutineTime(event.target.value)} onKeyDown={event => event.key === 'Enter' && submitAddBar()} className="min-w-0 w-[84px] bg-transparent text-xs font-semibold text-[var(--text)] outline-none" />
+                </label>
+              ) : (
               <div className="relative">
-                <button type="button" onClick={() => setShowCategories(value => !value)} className="h-8 w-full px-2.5 rounded-[9px] bg-white border border-[var(--border)] text-xs font-semibold flex items-center justify-between gap-2">
+                <button type="button" onClick={() => setShowCategories(value => !value)} className="h-8 w-full max-w-[112px] px-2 rounded-[9px] bg-white border border-[var(--border)] text-xs font-semibold flex items-center justify-between gap-1.5">
                   <span className="flex items-center gap-2 min-w-0">{currentCategory ? <CategoryDot color={currentCategory.color} /> : <Tag size={13} />}<span className="truncate">{currentCategory?.name ?? '카테고리'}</span></span>
                   <ChevronDown size={13} />
                 </button>
@@ -1517,17 +1571,27 @@ export function TodayDashboard({
                   </div>
                 )}
               </div>
-              <input ref={taskInputRef} value={taskText} onChange={event => setTaskText(event.target.value)} onKeyDown={event => event.key === 'Enter' && addTask()} placeholder={currentCategory ? `${currentCategory.name}에 할 일 추가` : '할 일 입력'} className="h-8 min-w-0 px-3 rounded-[9px] bg-white border border-[var(--border)] text-sm outline-none focus:border-[var(--purple)]" />
-              <label className="h-8 px-2 rounded-[9px] bg-white border border-[var(--border)] flex items-center gap-1" title="예상 시간(분)">
-                <input aria-label="예상 시간(분)" inputMode="numeric" value={durationText} onChange={event => setDurationText(event.target.value.replace(/\D/g, '').slice(0, 4))} onKeyDown={event => event.key === 'Enter' && addTask()} className="w-full min-w-0 text-right text-sm font-semibold outline-none" />
+              )}
+              <input ref={taskInputRef} value={taskText} onChange={event => setTaskText(event.target.value)} onKeyDown={event => event.key === 'Enter' && submitAddBar()} placeholder={addMode === 'routine' ? '루틴 이름' : '할 일 추가'} className={clsx('h-8 min-w-0 px-3 rounded-[9px] bg-white border text-sm outline-none', addMode === 'routine' ? 'border-[var(--amber)]/50 focus:border-[var(--amber)]' : 'border-[var(--border)] focus:border-[var(--purple)]')} />
+              <label className="h-8 px-2 rounded-[9px] bg-white border border-[var(--border)] flex items-center gap-1" title={addMode === 'routine' ? '루틴 소요 시간(분) — 비우면 체크만 하는 루틴' : '예상 시간(분)'}>
+                <input aria-label={addMode === 'routine' ? '루틴 소요 시간(분)' : '예상 시간(분)'} inputMode="numeric" value={durationText} placeholder={addMode === 'routine' ? '체크' : ''} onChange={event => setDurationText(event.target.value.replace(/\D/g, '').slice(0, 4))} onKeyDown={event => event.key === 'Enter' && submitAddBar()} className="w-full min-w-0 text-right text-sm font-semibold outline-none placeholder:text-[11px] placeholder:font-normal" />
                 <span className="text-[11px] text-[var(--text-3)]">분</span>
               </label>
-              <button type="button" onClick={addTask} aria-label="할 일 추가" className="h-8 w-8 rounded-[9px] bg-[var(--purple)] text-white flex items-center justify-center"><Plus size={16} /></button>
+              <button type="button" onClick={submitAddBar} aria-label={addMode === 'routine' ? '루틴 추가' : '할 일 추가'} className={clsx('h-8 w-8 rounded-[9px] text-white flex items-center justify-center', addMode === 'routine' ? 'bg-[var(--amber)]' : 'bg-[var(--purple)]')}><Plus size={16} /></button>
             </div>
+            {addMode === 'routine' && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px] text-[var(--text-3)]">
+                {ROUTINE_WEEKDAYS.map((label, day) => (
+                  <button type="button" key={label} onClick={() => setRoutineDays(current => current.includes(day) ? current.filter(item => item !== day) : [...current, day])} aria-pressed={routineDays.includes(day)} className={clsx('h-5 w-5 rounded-full text-[10px] font-bold', routineDays.includes(day) ? 'bg-[var(--amber-bg)] text-[var(--amber-text)]' : 'bg-white text-[var(--text-3)] border border-[var(--border)]')}>{label}</button>
+                ))}
+                <span className="ml-1">분을 비우면 체크형 · 단서·최소 버전은 <button type="button" onClick={() => setShowRoutineManager(true)} className="font-semibold text-[var(--amber-text)] underline-offset-2 hover:underline">루틴 관리</button>에서</span>
+              </div>
+            )}
+            {addError && <p className="mt-1 text-[11px] font-medium text-[var(--red)]">{addError}</p>}
           </div>
 
           <div className="px-2 py-2 min-h-0 flex-1 flex flex-col gap-3 overflow-y-auto scrollbar-thin">
-            {flexible.length === 0 && activeRoutines.length === 0 ? (
+            {flexible.length === 0 && activeRoutines.length === 0 && taskGroups.length === 0 ? (
               <div className="py-10 text-center text-sm text-[var(--text-3)]">오늘 할 일을 추가해보세요.</div>
             ) : (
               <>
@@ -1593,15 +1657,30 @@ export function TodayDashboard({
                   const groupActive = tasks.filter(task => !task.discarded).length
                   return (
               <section key={category.id}>
+                {editingCategoryId === category.id && !showCategories ? (
+                  <div className="mb-1 flex flex-wrap items-center gap-1.5 rounded-[10px] bg-[var(--surface-2)] px-2 py-1.5">
+                    <input autoFocus value={editingCategoryName} onChange={event => setEditingCategoryName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') saveCategoryEdit(); if (event.key === 'Escape') setEditingCategoryId(null) }} aria-label="카테고리 이름" className="h-7 min-w-0 flex-1 rounded-[7px] bg-white px-2 text-xs outline-none focus:ring-1 focus:ring-[var(--purple)]" />
+                    {CATEGORY_COLORS.map(color => <button type="button" key={color} aria-label={color} onClick={() => setEditingCategoryColor(color)} className={clsx(`h-4 w-4 rounded-full cat-${color}`, editingCategoryColor === color && 'ring-2 ring-[var(--purple)] ring-offset-1')} />)}
+                    <button type="button" onClick={saveCategoryEdit} aria-label="카테고리 저장" className="flex h-7 w-7 items-center justify-center rounded-[7px] bg-[var(--purple)] text-white"><Check size={12} /></button>
+                    {onDeleteCategory && selectableCategories.length > 1 && (
+                      <button type="button" onClick={() => { if (window.confirm(`'${category.name}' 카테고리를 지울까요?`)) { onDeleteCategory(category.id); setEditingCategoryId(null) } }} aria-label="카테고리 삭제" title="카테고리 삭제" className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--text-3)] hover:bg-[var(--red-bg)] hover:text-[var(--red)]"><Trash2 size={12} /></button>
+                    )}
+                    <button type="button" onClick={() => setEditingCategoryId(null)} aria-label="취소" className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--text-3)] hover:bg-white"><X size={12} /></button>
+                  </div>
+                ) : (
                 <div className="group/cat flex items-center gap-1.5 px-1 mb-1">
-                  <span className={clsx('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold', `cat-${category.color}`)}>
+                  <button type="button" disabled={!onUpdateCategory || !selectableCategories.some(item => item.id === category.id)} onClick={() => beginCategoryEdit(category)} title="눌러서 이름·색 바꾸기" className={clsx('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold enabled:hover:ring-1 enabled:hover:ring-[var(--border-strong)]', `cat-${category.color}`)}>
                     <CategoryDot color={category.color} />{category.name}
-                  </span>
-                  <span className="text-[10px] font-semibold tabular-nums text-[var(--text-3)]">{groupDone}/{groupActive}{groupActive > 0 && groupProgress.pct > 0 && groupProgress.pct < 100 ? ` · ${groupProgress.pct}%` : ''}</span>
+                  </button>
+                  <span className="text-[10px] font-semibold tabular-nums text-[var(--text-3)]">{groupActive > 0 ? `${groupDone}/${groupActive}` : ''}{groupActive > 0 && groupProgress.pct > 0 && groupProgress.pct < 100 ? ` · ${groupProgress.pct}%` : ''}</span>
+                  {onUpdateCategory && selectableCategories.some(item => item.id === category.id) && (
+                    <button type="button" onClick={() => beginCategoryEdit(category)} aria-label={`${category.name} 카테고리 수정`} title="카테고리 수정" className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--text-3)] opacity-0 hover:bg-[var(--surface-2)] hover:text-[var(--purple)] focus:opacity-100 group-hover/cat:opacity-100"><Pencil size={10} /></button>
+                  )}
                   {selectableCategories.some(item => item.id === category.id) && (
-                    <button type="button" onClick={() => { setCategoryId(category.id); taskInputRef.current?.focus() }} aria-label={`${category.name}에 할 일 추가`} title={`${category.name}에 할 일 추가`} className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-[var(--text-3)] opacity-40 hover:bg-[var(--surface-2)] hover:text-[var(--purple)] group-hover/cat:opacity-100"><Plus size={12} /></button>
+                    <button type="button" onClick={() => { setCategoryId(category.id); if (addMode !== 'task') switchAddMode('task'); taskInputRef.current?.focus() }} aria-label={`${category.name}에 할 일 추가`} title={`${category.name}에 할 일 추가`} className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-[var(--text-3)] opacity-40 hover:bg-[var(--surface-2)] hover:text-[var(--purple)] group-hover/cat:opacity-100"><Plus size={12} /></button>
                   )}
                 </div>
+                )}
                 <div className="flex flex-col">
                   {tasks.map(task => {
                     const progressPercent = taskProgressPercent(task)
@@ -1792,6 +1871,18 @@ export function TodayDashboard({
               </section>
                   )
                 })}
+                {onAddCategory && (
+                  headerCategoryForm ? (
+                    <div className="flex flex-wrap items-center gap-1.5 rounded-[10px] bg-[var(--surface-2)] px-2 py-1.5">
+                      <input autoFocus value={newCategoryName} onChange={event => setNewCategoryName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addCategory(); if (event.key === 'Escape') setHeaderCategoryForm(false) }} placeholder="새 카테고리 이름" aria-label="새 카테고리 이름" className="h-7 min-w-0 flex-1 rounded-[7px] bg-white px-2 text-xs outline-none focus:ring-1 focus:ring-[var(--purple)]" />
+                      {CATEGORY_COLORS.map(color => <button type="button" key={color} aria-label={color} onClick={() => setNewCategoryColor(color)} className={clsx(`h-4 w-4 rounded-full cat-${color}`, newCategoryColor === color && 'ring-2 ring-[var(--purple)] ring-offset-1')} />)}
+                      <button type="button" onClick={addCategory} className="h-7 rounded-[7px] bg-[var(--purple)] px-2.5 text-xs font-semibold text-white">추가</button>
+                      <button type="button" onClick={() => setHeaderCategoryForm(false)} aria-label="취소" className="flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--text-3)] hover:bg-white"><X size={12} /></button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => { setHeaderCategoryForm(true); setNewCategoryName('') }} className="flex w-fit items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-[var(--text-3)] hover:bg-[var(--surface-2)] hover:text-[var(--purple)]"><Plus size={11} /> 카테고리</button>
+                  )
+                )}
               </>
             )}
           </div>

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useMemo, useEffect } from 'react'
-import { ChevronLeft, ChevronRight, Plus, X, LogOut, RefreshCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, X, LogOut } from 'lucide-react'
 import { addWeeks, subWeeks, parseISO, startOfWeek as dfStartOfWeek, format } from 'date-fns'
 import { getWeekDays, formatDate, formatMonth } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
@@ -9,7 +9,6 @@ import { DayCard } from '@/components/weekly/DayCard'
 import { GoalSpanRow } from '@/components/weekly/GoalSpanRow'
 import { GoalDetail } from '@/components/goals/GoalDetail'
 import { GoalHierarchyView } from '@/components/goals/GoalHierarchyView'
-import { RoutineSidebar } from '@/components/routine/RoutineSidebar'
 import { RightSidebar } from '@/components/layout/RightSidebar'
 import { WeeklyReview } from '@/components/review/WeeklyReview'
 import { JournalView } from '@/components/journal/JournalView'
@@ -69,7 +68,6 @@ export default function Home() {
   const [newGoalLongId, setNewGoalLongId] = useState('')
   const [view, setView] = useState<'today' | 'week' | 'review' | 'journal' | 'direction'>('today')
   const [showCalendar, setShowCalendar] = useState(true)
-  const [todayFace, setTodayFace] = useState<'tasks' | 'routines'>('tasks')
 
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   const [qaTaskText, setQaTaskText] = useState('')
@@ -388,19 +386,6 @@ export default function Home() {
           <div className="flex flex-col gap-4 min-w-0">
             {view === 'today' ? (
               <>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setTodayFace(face => face === 'tasks' ? 'routines' : 'tasks')}
-                    className="h-8 px-3 rounded-[9px] bg-white border border-[var(--border)] text-sm font-medium text-[var(--text-2)] hover:border-[var(--purple)] hover:text-[var(--purple)] transition-all flex items-center gap-1.5 shadow-sm"
-                    title={todayFace === 'tasks' ? '루틴으로 뒤집기' : '오늘 할 일로 뒤집기'}
-                  >
-                    <RefreshCw size={13} />
-                    {todayFace === 'tasks' ? '루틴 보기' : '오늘 할 일 보기'}
-                  </button>
-                </div>
-
-                {todayFace === 'tasks' ? (
                   <TodayDashboard
                     date={selectedDate}
                     entry={selectedEntry}
@@ -419,19 +404,15 @@ export default function Home() {
                     onUpdateCategory={store.updateGlobalCategory}
                     onReorderCategory={store.reorderCategory}
                     onReorderTask={(categoryId, draggedId, targetId) => store.reorderDayTasks(selectedDate, categoryId, draggedId, targetId)}
-                  />
-                ) : (
-                  <RoutineSidebar
                     routines={store.routines}
-                    logs={store.logs}
-                    selectedDate={selectedDate}
-                    onToggleLog={store.toggleRoutineLog}
+                    routineLogs={store.logs}
+                    onToggleRoutine={store.toggleRoutineLog}
+                    onUpdateRoutineLog={store.updateRoutineLog}
                     onAddRoutine={store.addRoutine}
-                    onSetStatus={store.setRoutineStatus}
                     onUpdateRoutine={store.updateRoutine}
+                    onSetRoutineStatus={store.setRoutineStatus}
                     onDeleteRoutine={store.deleteRoutine}
                   />
-                )}
               </>
             ) : view === 'direction' ? (
     <DirectionDashboard
