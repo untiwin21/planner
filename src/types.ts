@@ -119,6 +119,9 @@ export interface DayMeta {
   linkedGoalTaskIds?: string[]   // IDs of short-goal tasks linked to this day
   linkedGoalSubtaskIds?: string[] // IDs of specific subtasks linked to this day
   routineTimes?: Record<string, string>  // Routine time moved for this day only (routine id → HH:mm)
+  // Actual routine execution window kept on the day entry as well, so it survives
+  // Supabase schemas whose routine_logs table has no actual_* columns.
+  routineActual?: Record<string, { start: string; end: string }>
   dayStart?: string               // Start of the usable planning window (HH:mm)
   dayEnd?: string                 // End of the usable planning window (HH:mm)
   // Last-write-wins timestamp (ms epoch) for non-task meta fields (sleep/condition/focus/top3/note links etc.)

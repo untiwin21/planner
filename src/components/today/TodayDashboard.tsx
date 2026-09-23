@@ -499,6 +499,18 @@ export function TodayDashboard({
     return routineStartMinute(routine)
   }
   const routineClock = (routine: Routine) => routineTimes[routine.id] ?? routine.time
+  // 루틴 수행 시각은 그날 기록(meta)에도 남긴다 — 플래너 DB(routine_logs)에 actual 칸이 없어도 지워지지 않게.
+  const routineActual = entry.meta.routineActual ?? {}
+  const routineActualOf = (routineId: string) => {
+    const log = routineLogs.find(item => item.routine_id === routineId && item.date === date)
+    const kept = routineActual[routineId]
+    return { start: log?.actual_start_time ?? kept?.start, end: log?.actual_end_time ?? kept?.end }
+  }
+  function keepRoutineActual(routineIds: string[], start: string, end: string) {
+    const next = { ...routineActual }
+    for (const id of routineIds) next[id] = { start, end }
+    onMetaChange({ routineActual: next })
+  }
   function moveRoutineTime(routineId: string, time: string | null) {
     const next = { ...routineTimes }
     if (time) next[routineId] = time
@@ -573,8 +585,9 @@ export function TodayDashboard({
         const log = routineLogs.find(candidate => candidate.routine_id === item.id && candidate.date === date && candidate.done)
         const rawFallbackStart = routineMinute(item)
         const fallbackStart = rawFallbackStart === null ? null : normalizeTimelineMinute(rawFallbackStart)
-        const rawStart = timeToMinutes(log?.actual_start_time) ?? fallbackStart
-        const rawEnd = timeToMinutes(log?.actual_end_time) ?? (rawStart !== null ? rawStart + routineConfig(item).duration_min : null)
+        const kept = routineActualOf(item.id)
+        const rawStart = timeToMinutes(kept.start) ?? fallbackStart
+        const rawEnd = timeToMinutes(kept.end) ?? (rawStart !== null ? rawStart + routineConfig(item).duration_min : null)
         if (rawStart === null || rawEnd === null) return null
         const start = rawStart < TIMELINE_START ? rawStart + 24 * 60 : rawStart
         let end = rawEnd < TIMELINE_START ? rawEnd + 24 * 60 : rawEnd
@@ -775,6 +788,7 @@ export function TodayDashboard({
         if (log?.done) onUpdateRoutineLog?.(routine.id, date, actual)
         else onToggleRoutine?.(routine.id, date, 'full', actual)
       }
+      keepRoutineActual(group.items.map(routine => routine.id), actual.actual_start_time, actual.actual_end_time)
     } else if (token.startsWith('subtask:') || token.startsWith('actual-subtask:')) {
       const parts = token.split(':')
       const taskId = parts[1]
@@ -1055,8 +1069,9 @@ export function TodayDashboard({
       .map(item => routineLogs.find(log => log.routine_id === item.id && log.date === date && log.done))
       .filter((log): log is RoutineLog => Boolean(log))
     if (logs.length === 0) return
-    const starts = logs.map(log => toTimelineMinute(log.actual_start_time ?? '')).filter((value): value is number => value !== null)
-    const ends = logs.map(log => toTimelineMinute(log.actual_end_time ?? '')).filter((value): value is number => value !== null)
+    const kept = items.map(item => routineActualOf(item.id))
+    const starts = kept.map(value => toTimelineMinute(value.start ?? '')).filter((value): value is number => value !== null)
+    const ends = kept.map(value => toTimelineMinute(value.end ?? '')).filter((value): value is number => value !== null)
     const totalDuration = items.reduce((sum, item) => sum + routineConfig(item).duration_min, 0)
     const plannedStart = routineMinute(items[0]) ?? editableUntil - totalDuration
     const fallbackStart = Math.max(TIMELINE_START, Math.min(plannedStart, editableUntil - Math.min(totalDuration, editableUntil - TIMELINE_START)))
@@ -1089,6 +1104,7 @@ export function TodayDashboard({
         actual_end_time: routineActualEditor.end,
       })
     }
+    keepRoutineActual(routineActualEditor.routineIds, routineActualEditor.start, routineActualEditor.end)
     setRoutineActualEditor(null)
     setActualError('')
   }
@@ -1753,7 +1769,7 @@ export function TodayDashboard({
                                     )}
                                     {done && timed && (
                                       <button type="button" onClick={() => openRoutineActualEditor([routine])} className="flex h-6 shrink-0 items-center gap-0.5 rounded-[6px] px-1.5 text-[10px] font-semibold text-[var(--teal-text)] hover:bg-[var(--teal-bg)]" title="실제 수행 시간 수정">
-                                        <Clock3 size={10} />{log?.actual_start_time ?? '시간'}
+                                        <Clock3 size={10} />{routineActualOf(routine.id).start ?? '시간'}
                                       </button>
                                     )}
                                     {timed && config.minimum_version && <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'minimum')} className={clsx('flex h-6 shrink-0 items-center rounded-[6px] px-1.5 text-[10px] font-bold', minimum ? 'bg-[var(--teal-bg)] text-[var(--teal-text)]' : 'text-[var(--text-3)] hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]')} title={`최소 버전: ${config.minimum_version}`}>최소</button>}
