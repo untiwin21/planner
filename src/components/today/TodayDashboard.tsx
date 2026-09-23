@@ -95,6 +95,10 @@ interface ActualEditorState {
   start: string
   end: string
   categoryId: string
+  /** 'task' = 그 할 일의 실제 기록을 고쳐 쓴다 · 'manual' = 지난 시간을 하나 더 얹는다 */
+  mode: 'task' | 'manual'
+  /** manual 모드에서 고른 할 일 ('' 이면 계획에 없던 일로 새로 만든다) */
+  attachTaskId: string
 }
 
 interface RoutineActualEditorState {
@@ -230,6 +234,18 @@ function newSubtaskId() {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `subtask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function sessionMinutes(session: FocusSessionRecord) {
+  if (Number.isFinite(session.duration_min) && session.duration_min > 0) return session.duration_min
+  const started = new Date(session.started_at).getTime()
+  const ended = new Date(session.ended_at).getTime()
+  return Number.isNaN(started) || Number.isNaN(ended) ? 0 : Math.max(0, (ended - started) / 60_000)
+}
+
+function clockOf(iso: string) {
+  const at = new Date(iso)
+  return Number.isNaN(at.getTime()) ? undefined : `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
 }
 
 function taskDragToken(taskId: string) {
@@ -817,6 +833,42 @@ export function TodayDashboard({
     return minute < TIMELINE_START ? minute + 24 * 60 : minute
   }
 
+  /** 그 날짜의 분 단위 구간을 하나의 기록(세션)으로 만든다. 05:00 이전은 다음 날로 넘어간 시각이다. */
+  function manualSession(startMinute: number, endMinute: number): FocusSessionRecord {
+    const base = parseISO(date)
+    base.setHours(0, 0, 0, 0)
+    return {
+      id: newSubtaskId(),
+      started_at: new Date(base.getTime() + startMinute * 60_000).toISOString(),
+      ended_at: new Date(base.getTime() + endMinute * 60_000).toISOString(),
+      duration_min: endMinute - startMinute,
+      source: 'manual',
+    }
+  }
+
+  /** 이미 있는 기록(스톱워치·수기)을 지우지 않고 뒤에 더한다. */
+  function appendActualSession(task: Task, startMinute: number, endMinute: number) {
+    const focus = task as Task & { actual_sessions?: FocusSessionRecord[]; actual_duration_min?: number }
+    const existing = [...(focus.actual_sessions ?? [])]
+    if (existing.length === 0 && task.actual_status === 'recorded' && task.actual_start_time && task.actual_end_time) {
+      // 세션 없이 시각만 있던 옛 기록도 세션으로 옮겨 둔다
+      const legacyStart = toTimelineMinute(task.actual_start_time)
+      const legacyEnd = toTimelineMinute(task.actual_end_time)
+      if (legacyStart !== null && legacyEnd !== null) {
+        existing.push(manualSession(legacyStart, legacyEnd > legacyStart ? legacyEnd : legacyEnd + 24 * 60))
+      }
+    }
+    const sessions = [...existing, manualSession(startMinute, endMinute)]
+      .sort((a, b) => a.started_at.localeCompare(b.started_at))
+    onUpdateTask(task.id, {
+      actual_sessions: sessions,
+      actual_duration_min: sessions.reduce((sum, session) => sum + sessionMinutes(session), 0),
+      actual_start_time: clockOf(sessions[0].started_at),
+      actual_end_time: clockOf(sessions[sessions.length - 1].ended_at),
+      actual_status: 'recorded',
+    })
+  }
+
   function openActualEditor(task?: Task, plannedStart?: number, plannedEnd?: number, subtask?: SubTask) {
     if (!canEditActual) return
     const existingStart = subtask?.actual_start_time ?? task?.actual_start_time
@@ -833,6 +885,8 @@ export function TodayDashboard({
       start: existingStart ?? minutesToTime(startMinute),
       end: existingEnd ?? minutesToTime(endMinute),
       categoryId: task?.category_id ?? categoryId ?? selectableCategories[0]?.id ?? '',
+      mode: task ? 'task' : 'manual',
+      attachTaskId: '',
     })
   }
 
@@ -875,6 +929,13 @@ export function TodayDashboard({
           done: true,
         })
       }
+    } else if (actualEditor.attachTaskId) {
+      const task = entry.tasks.find(item => item.id === actualEditor.attachTaskId)
+      if (!task) {
+        setActualError('고른 할 일을 찾지 못했습니다.')
+        return
+      }
+      appendActualSession(task, start, end)
     } else {
       const title = actualEditor.text.trim()
       if (!title || !actualEditor.categoryId) {
@@ -1961,16 +2022,42 @@ export function TodayDashboard({
             {actualEditor.taskId ? (
               <div className="rounded-[11px] bg-[var(--purple-bg)] px-3 py-2.5 mb-4">
                 <p className="text-sm font-semibold">{actualEditor.text}</p>
-                <p className="text-[10px] text-[var(--purple-text)] mt-1">계획 블록과 달라도 괜찮습니다.</p>
+                {(() => {
+                  const sessions = (entry.tasks.find(item => item.id === actualEditor.taskId) as (Task & { actual_sessions?: FocusSessionRecord[] }) | undefined)?.actual_sessions ?? []
+                  return sessions.length > 0 && !actualEditor.subtaskId
+                    ? <p className="text-[10px] text-[var(--red)] mt-1">이미 기록된 {sessions.length}건({formatDuration(sessions.reduce((sum, session) => sum + sessionMinutes(session), 0))})이 이 구간 하나로 바뀝니다. 시간을 더하려면 타임라인의 [지난 시간 기록]을 쓰세요.</p>
+                    : <p className="text-[10px] text-[var(--purple-text)] mt-1">계획 블록과 달라도 괜찮습니다.</p>
+                })()}
               </div>
-            ) : (
-              <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-2 mb-4">
-                <input autoFocus value={actualEditor.text} onChange={event => setActualEditor(value => value ? { ...value, text: event.target.value } : value)} placeholder="실제로 한 일" className="min-w-0 px-3 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
-                <select value={actualEditor.categoryId} onChange={event => setActualEditor(value => value ? { ...value, categoryId: event.target.value } : value)} className="px-2 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-xs outline-none">
-                  {selectableCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
-                </select>
+            ) : (() => {
+              const attached = entry.tasks.find(item => item.id === actualEditor.attachTaskId)
+              const attachedSessions = ((attached as (Task & { actual_sessions?: FocusSessionRecord[] }) | undefined)?.actual_sessions ?? [])
+              return (
+              <div className="mb-4 flex flex-col gap-2">
+                <label className="text-xs font-semibold text-[var(--text-2)]">어떤 할 일인가요?
+                  <select autoFocus value={actualEditor.attachTaskId} onChange={event => setActualEditor(value => value ? { ...value, attachTaskId: event.target.value } : value)} className="mt-1.5 w-full px-3 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]">
+                    <option value="">계획에 없던 일 — 새로 적기</option>
+                    {flexible.filter(task => !task.discarded).map(task => (
+                      <option key={task.id} value={task.id}>{task.text}{task.done ? ' (완료)' : ''}</option>
+                    ))}
+                  </select>
+                </label>
+                {attached ? (
+                  <p className="rounded-[10px] bg-[var(--teal-bg)] px-3 py-2 text-[11px] text-[var(--teal-text)]">
+                    <b>{attached.text}</b>의 실제 기록에 더합니다 — 스톱워치로 잰 시간은 그대로 남아요.
+                    {attachedSessions.length > 0 && ` (이미 ${attachedSessions.length}건 · ${formatDuration(attachedSessions.reduce((sum, session) => sum + sessionMinutes(session), 0))})`}
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
+                    <input value={actualEditor.text} onChange={event => setActualEditor(value => value ? { ...value, text: event.target.value } : value)} placeholder="실제로 한 일" className="min-w-0 px-3 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-sm outline-none focus:ring-1 focus:ring-[var(--purple)]" />
+                    <select value={actualEditor.categoryId} onChange={event => setActualEditor(value => value ? { ...value, categoryId: event.target.value } : value)} className="px-2 py-2.5 rounded-[10px] bg-[var(--surface-2)] text-xs outline-none">
+                      {selectableCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
-            )}
+              )
+            })()}
 
             <div className="grid grid-cols-2 gap-3">
               <label className="text-xs font-semibold text-[var(--text-2)]">시작
@@ -1992,7 +2079,7 @@ export function TodayDashboard({
                   : task?.actual_status === 'recorded'
                 return recorded ? <button type="button" onClick={clearActualRecord} className="px-3 py-2 rounded-[9px] text-xs font-semibold text-[var(--red)] hover:bg-[var(--red-bg)]">실제 기록 삭제</button> : null
               })()}
-              <button type="button" onClick={saveActualRecord} className="ml-auto px-4 py-2 rounded-[9px] bg-[var(--purple)] text-white text-xs font-semibold">{actualEditor.taskId ? '실제 시간 저장' : '기록 추가'}</button>
+              <button type="button" onClick={saveActualRecord} className="ml-auto px-4 py-2 rounded-[9px] bg-[var(--purple)] text-white text-xs font-semibold">{actualEditor.taskId ? '실제 시간 저장' : actualEditor.attachTaskId ? '이 할 일에 기록 더하기' : '기록 추가'}</button>
             </div>
           </div>
         </div>
