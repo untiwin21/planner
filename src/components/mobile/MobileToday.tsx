@@ -429,12 +429,15 @@ export function MobileToday(props: Props) {
                     {category.routines.map(routine => {
                       const done = routineIsDone(routine.id)
                       const config = routineConfig(routine)
+                      // 그날만 옮긴 시각이 있으면 그것을 보여준다 (PC 오늘 할 일에서 옮길 수 있다)
+                      const movedTime = entry.meta.routineTimes?.[routine.id]
+                      const shownTime = movedTime ?? routine.time
                       return (
                         <button key={routine.id} type="button" onClick={() => onToggleRoutine(routine.id, date)} className={clsx('w-full flex items-center gap-3 px-4 py-3 text-left', done && 'bg-[var(--surface-2)]/60')}>
                           <span className={clsx('h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : 'border-[var(--border-strong)]')}>{done && <Check size={11} strokeWidth={3} />}</span>
                           <span className="min-w-0 flex-1">
                             <span className={clsx('block truncate text-sm font-semibold', done && 'line-through text-[var(--text-3)]')}>{routine.name}</span>
-                            <span className="mt-0.5 block truncate text-[10px] text-[var(--text-3)]">{routine.time ? `${routine.time} · ` : ''}{isTimedRoutine(routine) ? `${config.duration_min}분` : '체크형'}{config.cue_label ? ` · ${config.cue_label}` : ''}</span>
+                            <span className="mt-0.5 block truncate text-[10px] text-[var(--text-3)]">{shownTime ? `${shownTime}${movedTime ? ' (오늘만)' : ''} · ` : ''}{isTimedRoutine(routine) ? `${config.duration_min}분` : '체크형'}{config.cue_label ? ` · ${config.cue_label}` : ''}</span>
                           </span>
                         </button>
                       )

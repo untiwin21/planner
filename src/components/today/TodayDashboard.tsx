@@ -342,6 +342,7 @@ export function TodayDashboard({
   const [showRoutineManager, setShowRoutineManager] = useState(false)
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null)
   const [timeEditTaskId, setTimeEditTaskId] = useState<string | null>(null)
+  const [routineTimeEditId, setRoutineTimeEditId] = useState<string | null>(null)
   const taskInputRef = useRef<HTMLInputElement>(null)
   const panelsRef = useRef<HTMLDivElement>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
@@ -487,6 +488,24 @@ export function TodayDashboard({
     return [...knownGroups, ...unknownGroups]
   }, [flexible, selectableCategories])
 
+  // 루틴을 그 시간대에 못 할 수도 있다. 그날만 시각을 옮겨 두면 루틴 자체(매일 시각)는 그대로 둔다.
+  const routineTimes = entry.meta.routineTimes ?? {}
+  const routineMinute = (routine: Routine) => {
+    const moved = routineTimes[routine.id]
+    if (moved) {
+      const minute = timeToMinutes(moved)
+      if (minute !== null) return minute < TIMELINE_START ? minute + 24 * 60 : minute
+    }
+    return routineStartMinute(routine)
+  }
+  const routineClock = (routine: Routine) => routineTimes[routine.id] ?? routine.time
+  function moveRoutineTime(routineId: string, time: string | null) {
+    const next = { ...routineTimes }
+    if (time) next[routineId] = time
+    else delete next[routineId]
+    onMetaChange({ routineTimes: next })
+  }
+
   const currentCategory = selectableCategories.find(category => category.id === categoryId)
   const dayProgress = useMemo(() => tasksProgress(flexible), [flexible])
   const remainingEstimate = useMemo(() => flexible
@@ -495,8 +514,8 @@ export function TodayDashboard({
   const activeRoutines = useMemo(() => routines
     .filter(routine => isRoutineScheduledOn(routine, date))
     .sort((a, b) => {
-      const rawAStart = routineStartMinute(a)
-      const rawBStart = routineStartMinute(b)
+      const rawAStart = routineMinute(a)
+      const rawBStart = routineMinute(b)
       const aStart = rawAStart === null ? Number.MAX_SAFE_INTEGER : normalizeTimelineMinute(rawAStart)
       const bStart = rawBStart === null ? Number.MAX_SAFE_INTEGER : normalizeTimelineMinute(rawBStart)
       return aStart - bStart || (a.order ?? 0) - (b.order ?? 0)
@@ -505,7 +524,7 @@ export function TodayDashboard({
     const grouped = new Map<string, Routine[]>()
     for (const routine of activeRoutines) {
       if (!isTimedRoutine(routine)) continue
-      const rawStart = routineStartMinute(routine)
+      const rawStart = routineMinute(routine)
       const start = rawStart === null ? null : normalizeTimelineMinute(rawStart)
       if (start === null || start >= TIMELINE_END) continue
       const bundle = routine.config?.bundle?.trim()
@@ -513,7 +532,7 @@ export function TodayDashboard({
       grouped.set(key, [...(grouped.get(key) ?? []), routine])
     }
     return [...grouped.entries()].map(([key, items]) => {
-      const starts = items.map(item => normalizeTimelineMinute(routineStartMinute(item)!)).sort((a, b) => a - b)
+      const starts = items.map(item => normalizeTimelineMinute(routineMinute(item)!)).sort((a, b) => a - b)
       const start = starts[0]
       const sameStart = starts.every(itemStart => itemStart === start)
       const end = Math.min(
@@ -521,7 +540,7 @@ export function TodayDashboard({
         sameStart
           ? start + items.reduce((sum, item) => sum + routineConfig(item).duration_min, 0)
           : Math.max(...items.map(item => {
-            const itemStart = routineStartMinute(item)
+            const itemStart = routineMinute(item)
             return (itemStart === null ? start : normalizeTimelineMinute(itemStart)) + routineConfig(item).duration_min
           })),
       )
@@ -552,7 +571,7 @@ export function TodayDashboard({
     return [...grouped.entries()].flatMap(([key, items]) => {
       const ranges = items.map(item => {
         const log = routineLogs.find(candidate => candidate.routine_id === item.id && candidate.date === date && candidate.done)
-        const rawFallbackStart = routineStartMinute(item)
+        const rawFallbackStart = routineMinute(item)
         const fallbackStart = rawFallbackStart === null ? null : normalizeTimelineMinute(rawFallbackStart)
         const rawStart = timeToMinutes(log?.actual_start_time) ?? fallbackStart
         const rawEnd = timeToMinutes(log?.actual_end_time) ?? (rawStart !== null ? rawStart + routineConfig(item).duration_min : null)
@@ -701,7 +720,21 @@ export function TodayDashboard({
 
   function placePlanItem(token: string, minute: number) {
     const time = minutesToTime(minute)
-    if (token.startsWith('routine-group:')) return
+    if (token.startsWith('routine-group:')) {
+      const key = decodeURIComponent(token.slice('routine-group:'.length))
+      const group = routineTimelineGroups.find(item => item.key === key)
+      if (!group) return
+      const shift = minute - group.start
+      const next = { ...routineTimes }
+      for (const routine of group.items) {
+        const start = routineMinute(routine)
+        next[routine.id] = minutesToTime(Math.max(TIMELINE_START, Math.min(TIMELINE_END - 5, (start ?? minute) + shift)))
+      }
+      onMetaChange({ routineTimes: next })
+      setDraggedTaskId(null)
+      setDragPreviewMinute(null)
+      return
+    }
     if (token.startsWith('subtask:') || token.startsWith('actual-subtask:')) {
       const [, taskId, subtaskId] = token.split(':')
       const task = entry.tasks.find(item => item.id === taskId)
@@ -1025,7 +1058,7 @@ export function TodayDashboard({
     const starts = logs.map(log => toTimelineMinute(log.actual_start_time ?? '')).filter((value): value is number => value !== null)
     const ends = logs.map(log => toTimelineMinute(log.actual_end_time ?? '')).filter((value): value is number => value !== null)
     const totalDuration = items.reduce((sum, item) => sum + routineConfig(item).duration_min, 0)
-    const plannedStart = routineStartMinute(items[0]) ?? editableUntil - totalDuration
+    const plannedStart = routineMinute(items[0]) ?? editableUntil - totalDuration
     const fallbackStart = Math.max(TIMELINE_START, Math.min(plannedStart, editableUntil - Math.min(totalDuration, editableUntil - TIMELINE_START)))
     const fallbackEnd = Math.min(editableUntil, fallbackStart + totalDuration)
     setActualError('')
@@ -1687,14 +1720,37 @@ export function TodayDashboard({
                                 const minimum = done && log?.completion === 'minimum'
                                 const config = routineConfig(routine)
                                 const timed = isTimedRoutine(routine)
+                                const moved = Boolean(routineTimes[routine.id])
                                 return (
                                   <div key={routine.id} className={clsx('flex min-h-[30px] items-center gap-1 rounded-[9px] pr-1', done ? 'opacity-60' : 'hover:bg-[var(--surface-2)]/70')}>
                                     <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'full')} className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-1.5 text-left" title={[timed ? '시간형' : '체크형', config.cue_label || config.bundle, timed && config.minimum_version ? `최소 ${config.minimum_version}` : ''].filter(Boolean).join(' · ')}>
                                       <span className={clsx('flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-2', done ? 'border-[var(--teal)] bg-[var(--teal)] text-white' : `cat-${config.category_color}`)}>{done && (minimum ? <span className="text-[8px] font-black">M</span> : <Check size={10} strokeWidth={3} />)}</span>
                                       <span className={clsx('min-w-0 truncate text-[13px] font-medium', done && !minimum && 'line-through')}>{routine.name}</span>
                                       {(config.cue_label || config.bundle) && <span className="min-w-0 shrink truncate text-[10px] text-[var(--text-3)]">{config.cue_label || config.bundle}</span>}
-                                      <span className="ml-auto shrink-0 text-[10px] tabular-nums text-[var(--text-3)]">{routine.time ?? (timed ? '유동' : '언제든')}{timed ? ` · ${config.duration_min}분` : ''}</span>
+                                      <span className="ml-auto shrink-0 text-[10px] tabular-nums text-[var(--text-3)]">{timed ? `${config.duration_min}분` : '체크'}</span>
                                     </button>
+                                    {routineTimeEditId === routine.id ? (
+                                      <input
+                                        aria-label={`${routine.name} 오늘 시각`}
+                                        type="time"
+                                        autoFocus
+                                        defaultValue={routineClock(routine) ?? ''}
+                                        onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Escape') event.currentTarget.blur() }}
+                                        onBlur={event => {
+                                          const value = event.target.value
+                                          if (value !== (routineClock(routine) ?? '')) moveRoutineTime(routine.id, value || null)
+                                          setRoutineTimeEditId(null)
+                                        }}
+                                        className="w-[104px] shrink-0 rounded-[5px] bg-white px-1 py-0.5 text-[11px] font-semibold text-[var(--amber-text)] outline-none ring-1 ring-[var(--amber)]"
+                                      />
+                                    ) : (
+                                      <button type="button" onClick={() => setRoutineTimeEditId(routine.id)} title={moved ? `오늘만 ${routineClock(routine)} 로 옮김 (원래 ${routine.time ?? '시간 없음'})` : '오늘 할 시각 바꾸기'} className={clsx('flex h-6 shrink-0 items-center gap-0.5 rounded-[6px] px-1.5 font-mono text-[10px] font-semibold tabular-nums', moved ? 'bg-[var(--amber-bg)] text-[var(--amber-text)]' : 'text-[var(--text-3)] hover:bg-[var(--surface-2)]')}>
+                                        {moved && <Repeat2 size={9} />}{routineClock(routine) ?? (timed ? '유동' : '언제든')}
+                                      </button>
+                                    )}
+                                    {moved && (
+                                      <button type="button" onClick={() => moveRoutineTime(routine.id, null)} aria-label={`${routine.name} 원래 시각으로`} title={`원래 시각(${routine.time ?? '시간 없음'})으로 되돌리기`} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-[var(--text-3)] hover:bg-[var(--surface-2)] hover:text-[var(--purple)]"><Undo2 size={11} /></button>
+                                    )}
                                     {done && timed && (
                                       <button type="button" onClick={() => openRoutineActualEditor([routine])} className="flex h-6 shrink-0 items-center gap-0.5 rounded-[6px] px-1.5 text-[10px] font-semibold text-[var(--teal-text)] hover:bg-[var(--teal-bg)]" title="실제 수행 시간 수정">
                                         <Clock3 size={10} />{log?.actual_start_time ?? '시간'}
