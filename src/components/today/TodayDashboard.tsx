@@ -969,13 +969,30 @@ export function TodayDashboard({
     setActualError('')
   }
 
+  /** 지금까지 기록된 실제 타임라인의 마지막 끝 시각 (이어서 적을 수 있게) */
+  function lastActualEnd(): number | null {
+    const ends = [
+      ...actualBlocks.map(item => item.end),
+      ...routineActualGroups.map(group => group.end),
+    ].filter(end => end <= editableUntil)
+    return ends.length > 0 ? Math.max(...ends) : null
+  }
+
   function openActualEditor(task?: Task, plannedStart?: number, plannedEnd?: number, subtask?: SubTask) {
     if (!canEditActual) return
     const existingStart = subtask?.actual_start_time ?? task?.actual_start_time
     const existingEnd = subtask?.actual_end_time ?? task?.actual_end_time
     const rawEndMinute = Math.min(editableUntil, plannedEnd ?? editableUntil)
-    const endMinute = Math.max(TIMELINE_START + 15, Math.floor(rawEndMinute / 15) * 15)
-    const startMinute = Math.max(TIMELINE_START, Math.min(endMinute - 15, plannedStart ?? endMinute - 60))
+    let endMinute = Math.max(TIMELINE_START + 15, Math.floor(rawEndMinute / 15) * 15)
+    let startMinute = Math.max(TIMELINE_START, Math.min(endMinute - 15, plannedStart ?? endMinute - 60))
+    const previousEnd = task ? null : lastActualEnd()
+    if (previousEnd !== null && previousEnd < editableUntil - 5) {
+      // 지난 시간 기록은 '앞 기록이 끝난 때부터'가 기본 — 빈틈 없이 이어 적게.
+      // 끝 시각은 오늘이면 지금(공백이 길면 3시간까지), 지난 날이면 한 시간 뒤로 둔다.
+      startMinute = previousEnd
+      const natural = isPastDate ? startMinute + 60 : Math.min(editableUntil, startMinute + 180)
+      endMinute = Math.max(startMinute + 5, Math.floor(Math.min(editableUntil, natural) / 5) * 5)
+    }
     if (task && !existingStart && startMinute >= editableUntil) return
     setActualError('')
     setActualEditor({
