@@ -95,8 +95,11 @@ interface ActualEditorState {
   start: string
   end: string
   categoryId: string
-  /** 'task' = 그 할 일의 실제 기록을 고쳐 쓴다 · 'manual' = 지난 시간을 하나 더 얹는다 */
-  mode: 'task' | 'manual'
+  /** 'task' = 그 할 일의 실제 기록 전체를 고쳐 쓴다 · 'manual' = 지난 시간을 하나 더 얹는다
+   *  'session' = 잘못 들어간 기록 한 줄만 고치거나 지운다 */
+  mode: 'task' | 'manual' | 'session'
+  /** session 모드에서 고치는 기록 */
+  sessionId?: string
   /** manual 모드에서 고른 할 일 ('' 이면 계획에 없던 일로 새로 만든다) */
   attachTaskId: string
 }
@@ -916,6 +919,56 @@ export function TodayDashboard({
     })
   }
 
+  function openSessionEditor(task: Task, session: FocusSessionRecord, start: number, end: number) {
+    setActualError('')
+    setActualEditor({
+      taskId: task.id,
+      sessionId: session.id,
+      text: task.text,
+      start: minutesToTime(start),
+      end: minutesToTime(end),
+      categoryId: task.category_id,
+      mode: 'session',
+      attachTaskId: '',
+    })
+  }
+
+  /** 세션 목록이 바뀌었을 때 합계·시작/끝을 다시 맞춘다. 하나도 없으면 실제 기록을 지운다. */
+  function writeSessions(taskId: string, sessions: FocusSessionRecord[]) {
+    const sorted = [...sessions].sort((a, b) => a.started_at.localeCompare(b.started_at))
+    if (sorted.length === 0) {
+      onUpdateTask(taskId, {
+        actual_sessions: undefined,
+        actual_duration_min: undefined,
+        actual_start_time: undefined,
+        actual_end_time: undefined,
+        actual_status: undefined,
+      })
+      return
+    }
+    onUpdateTask(taskId, {
+      actual_sessions: sorted,
+      actual_duration_min: sorted.reduce((sum, item) => sum + sessionMinutes(item), 0),
+      actual_start_time: clockOf(sorted[0].started_at),
+      actual_end_time: clockOf(sorted[sorted.length - 1].ended_at),
+      actual_status: 'recorded',
+    })
+  }
+
+  function deleteActualSession() {
+    if (!actualEditor?.taskId || !actualEditor.sessionId) return
+    const task = entry.tasks.find(item => item.id === actualEditor.taskId) as (Task & { actual_sessions?: FocusSessionRecord[] }) | undefined
+    if (!task) return
+    if (isActualOnlyTask(task) && (task.actual_sessions ?? []).length <= 1) {
+      // 계획에 없던 기록은 그 자체가 기록이므로 통째로 지운다
+      onDeleteTask(task.id)
+    } else {
+      writeSessions(task.id, (task.actual_sessions ?? []).filter(item => item.id !== actualEditor.sessionId))
+    }
+    setActualEditor(null)
+    setActualError('')
+  }
+
   function openActualEditor(task?: Task, plannedStart?: number, plannedEnd?: number, subtask?: SubTask) {
     if (!canEditActual) return
     const existingStart = subtask?.actual_start_time ?? task?.actual_start_time
@@ -933,6 +986,7 @@ export function TodayDashboard({
       end: existingEnd ?? minutesToTime(endMinute),
       categoryId: task?.category_id ?? categoryId ?? selectableCategories[0]?.id ?? '',
       mode: task ? 'task' : 'manual',
+      sessionId: undefined,
       attachTaskId: '',
     })
   }
@@ -950,7 +1004,18 @@ export function TodayDashboard({
       setActualError('현재 시각 이전의 구간만 기록할 수 있습니다.')
       return
     }
-    if (actualEditor.taskId) {
+    if (actualEditor.mode === 'session' && actualEditor.taskId && actualEditor.sessionId) {
+      const task = entry.tasks.find(item => item.id === actualEditor.taskId) as (Task & { actual_sessions?: FocusSessionRecord[] }) | undefined
+      if (!task) {
+        setActualError('기록을 찾지 못했습니다.')
+        return
+      }
+      const edited = manualSession(start, end)
+      writeSessions(task.id, (task.actual_sessions ?? []).map(item => item.id === actualEditor.sessionId
+        ? { ...item, started_at: edited.started_at, ended_at: edited.ended_at, duration_min: end - start }
+        : item))
+      if (isActualOnlyTask(task)) onUpdateTask(task.id, { duration_min: end - start })
+    } else if (actualEditor.taskId) {
       const task = entry.tasks.find(item => item.id === actualEditor.taskId)
       if (task && actualEditor.subtaskId) {
         const nextSubtasks = (task.subtasks ?? []).map(subtask => subtask.id === actualEditor.subtaskId ? {
@@ -1528,10 +1593,10 @@ export function TodayDashboard({
                       event.dataTransfer.effectAllowed = 'move'
                     }}
                     onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }}
-                    onClick={() => { if (!session) openActualEditor(task, start, end, subtask) }}
-                    className={clsx('absolute right-0.5 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-sm', !session && 'hover:ring-2 hover:ring-black/10 active:cursor-grabbing', TIMELINE_CATEGORY_STYLE[categoryColor])}
+                    onClick={() => { if (session) openSessionEditor(task, session, start, end); else openActualEditor(task, start, end, subtask) }}
+                    className={clsx('absolute right-0.5 z-20 rounded-[9px] border px-2 py-1.5 overflow-hidden text-left shadow-sm hover:ring-2 hover:ring-black/10', !session && 'active:cursor-grabbing', TIMELINE_CATEGORY_STYLE[categoryColor])}
                     style={{ top, height, left: 'calc(50% + 2px)', right: overlapsRoutine ? '25%' : 2 }}
-                    title={session ? `스톱워치 집중 세션 · ${timelineRangeLabel(start, end)}` : '실제 시간 수정'}
+                    title={session ? `${timelineRangeLabel(start, end)} · 눌러서 이 기록만 고치거나 지우기` : '실제 시간 수정'}
                   >
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-semibold flex-1 min-w-0 truncate">{text}</span>
@@ -2085,13 +2150,18 @@ export function TodayDashboard({
           <div className="w-full max-w-md bg-white rounded-[20px] shadow-xl p-5" onClick={event => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
-                <h3 className="text-lg font-bold">{actualEditor.taskId ? '실제 시간 정리' : '지난 시간 기록'}</h3>
+                <h3 className="text-lg font-bold">{actualEditor.mode === 'session' ? '이 기록 고치기' : actualEditor.taskId ? '실제 시간 정리' : '지난 시간 기록'}</h3>
                 <p className="text-xs text-[var(--text-3)] mt-1">{isToday ? `현재 시각 ${minutesToTime(editableUntil)} 이전만 기록할 수 있습니다.` : '지난 날은 05:00~다음 날 05:00을 정리할 수 있습니다.'}</p>
               </div>
               <button type="button" onClick={() => setActualEditor(null)} className="w-8 h-8 rounded-full hover:bg-[var(--surface-2)] flex items-center justify-center"><X size={17} /></button>
             </div>
 
-            {actualEditor.taskId ? (
+            {actualEditor.mode === 'session' ? (
+              <div className="rounded-[11px] bg-[var(--purple-bg)] px-3 py-2.5 mb-4">
+                <p className="text-sm font-semibold">{actualEditor.text}</p>
+                <p className="mt-1 text-[10px] text-[var(--purple-text)]">잘못 들어간 구간이면 시간을 고치거나 [이 기록 삭제]로 지우세요. 다른 기록은 그대로 남습니다.</p>
+              </div>
+            ) : actualEditor.taskId ? (
               <div className="rounded-[11px] bg-[var(--purple-bg)] px-3 py-2.5 mb-4">
                 <p className="text-sm font-semibold">{actualEditor.text}</p>
                 {(() => {
@@ -2143,15 +2213,18 @@ export function TodayDashboard({
             {actualError && <p className="text-xs text-[var(--red)] mt-3">{actualError}</p>}
 
             <div className="flex flex-wrap gap-2 mt-5">
-              {actualEditor.taskId && !isActualOnlyTask(entry.tasks.find(task => task.id === actualEditor.taskId)) && <button type="button" onClick={markActualSkipped} className="px-3 py-2 rounded-[9px] bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-2)]">미수행</button>}
-              {actualEditor.taskId && (() => {
+              {actualEditor.mode === 'session' && (
+                <button type="button" onClick={deleteActualSession} className="px-3 py-2 rounded-[9px] text-xs font-semibold text-[var(--red)] hover:bg-[var(--red-bg)]">이 기록 삭제</button>
+              )}
+              {actualEditor.mode !== 'session' && actualEditor.taskId && !isActualOnlyTask(entry.tasks.find(task => task.id === actualEditor.taskId)) && <button type="button" onClick={markActualSkipped} className="px-3 py-2 rounded-[9px] bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-2)]">미수행</button>}
+              {actualEditor.mode !== 'session' && actualEditor.taskId && (() => {
                 const task = entry.tasks.find(item => item.id === actualEditor.taskId)
                 const recorded = actualEditor.subtaskId
                   ? task?.subtasks?.find(item => item.id === actualEditor.subtaskId)?.actual_status === 'recorded'
                   : task?.actual_status === 'recorded'
                 return recorded ? <button type="button" onClick={clearActualRecord} className="px-3 py-2 rounded-[9px] text-xs font-semibold text-[var(--red)] hover:bg-[var(--red-bg)]">실제 기록 삭제</button> : null
               })()}
-              <button type="button" onClick={saveActualRecord} className="ml-auto px-4 py-2 rounded-[9px] bg-[var(--purple)] text-white text-xs font-semibold">{actualEditor.taskId ? '실제 시간 저장' : actualEditor.attachTaskId ? '이 할 일에 기록 더하기' : '기록 추가'}</button>
+              <button type="button" onClick={saveActualRecord} className="ml-auto px-4 py-2 rounded-[9px] bg-[var(--purple)] text-white text-xs font-semibold">{actualEditor.mode === 'session' ? '이 기록 저장' : actualEditor.taskId ? '실제 시간 저장' : actualEditor.attachTaskId ? '이 할 일에 기록 더하기' : '기록 추가'}</button>
             </div>
           </div>
         </div>

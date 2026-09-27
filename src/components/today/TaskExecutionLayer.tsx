@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Clock3, Pause, Play, Sparkles, Square, Target, X } from 'lucide-react'
 import type { DayEntry, FocusSessionRecord, SubTask, Task, TaskHistoryEvent } from '@/types'
@@ -11,6 +11,9 @@ import { isActualOnlyTask } from '@/lib/taskVisibility'
 const DAY_STORAGE_KEY = 'planr_days'
 const SESSION_STORAGE_KEY = 'planr_task_focus_stopwatch_v1'
 const REFRESH_MS = 1200
+// 컴퓨터가 잠들거나 탭이 오래 멈춰 있으면 그 시간까지 '집중'으로 세어 버린다 (25분이 9시간이 되는 식).
+// 마지막 신호 뒤 이만큼 비면 그 지점에서 끊고 멈춘다.
+const GAP_LIMIT_MS = 3 * 60_000
 
 type FocusTask = Task & {
   actual_duration_min?: number
@@ -28,6 +31,8 @@ interface ActiveFocusSession {
   accumulatedMs: number
   segments: Array<{ startedAt: number; endedAt: number }>
   running: boolean
+  /** 살아 있다는 신호 — 이 값이 오래 전이면 그 뒤 시간은 자리를 비운 것으로 본다. */
+  lastTickAt?: number
 }
 
 interface TaskHost {
@@ -290,6 +295,23 @@ function TaskExecution({ task, date, disabled, onStart }: {
   )
 }
 
+/** running 세션을 stoppedAt 에서 끊어 멈춘 상태로 만든다. */
+function pauseAt(session: ActiveFocusSession, stoppedAt: number): ActiveFocusSession {
+  if (!session.running || !session.segmentStartedAt) return session
+  const ended = Math.max(session.segmentStartedAt, stoppedAt)
+  return {
+    ...session,
+    accumulatedMs: session.accumulatedMs + Math.max(0, ended - session.segmentStartedAt),
+    segments: [
+      ...(session.segments ?? []),
+      ...(ended > session.segmentStartedAt ? [{ startedAt: session.segmentStartedAt, endedAt: ended }] : []),
+    ],
+    segmentStartedAt: null,
+    running: false,
+    lastTickAt: ended,
+  }
+}
+
 function elapsedMs(session: ActiveFocusSession, currentTime: number) {
   return session.accumulatedMs + (session.running && session.segmentStartedAt ? Math.max(0, currentTime - session.segmentStartedAt) : 0)
 }
@@ -312,9 +334,22 @@ export function TaskExecutionLayer() {
   const [session, setSession] = useState<ActiveFocusSession | null>(null)
   const [currentTime, setCurrentTime] = useState(() => Date.now())
   const [saving, setSaving] = useState(false)
+  const [gapNotice, setGapNotice] = useState<number | null>(null)
+  const lastTickRef = useRef<number | null>(null)
 
   useEffect(() => {
-    setSession(readSession())
+    const stored = readSession()
+    if (stored?.running && stored.segmentStartedAt) {
+      const last = stored.lastTickAt ?? stored.segmentStartedAt
+      if (Date.now() - last > GAP_LIMIT_MS) {
+        const paused = pauseAt(stored, last)
+        writeSession(paused)
+        setSession(paused)
+        setGapNotice(last)
+        return
+      }
+    }
+    setSession(stored)
   }, [])
 
   useEffect(() => {
@@ -380,9 +415,33 @@ export function TaskExecutionLayer() {
 
   useEffect(() => {
     if (!session) return
-    const interval = window.setInterval(() => setCurrentTime(Date.now()), 250)
-    return () => window.clearInterval(interval)
-  }, [session])
+    const interval = window.setInterval(() => {
+      const now = Date.now()
+      const last = lastTickRef.current
+      lastTickRef.current = now
+      setCurrentTime(now)
+      setSession(current => {
+        if (!current?.running || !current.segmentStartedAt) return current
+        if (last !== null && now - last > GAP_LIMIT_MS) {
+          // 자리를 비웠거나 컴퓨터가 잤다 — 마지막으로 살아 있던 시각에서 끊는다
+          const paused = pauseAt(current, last)
+          writeSession(paused)
+          setGapNotice(last)
+          return paused
+        }
+        if (now - (current.lastTickAt ?? 0) > 5_000) {
+          const next = { ...current, lastTickAt: now }
+          writeSession(next)
+          return next
+        }
+        return current
+      })
+    }, 250)
+    return () => {
+      window.clearInterval(interval)
+      lastTickRef.current = null
+    }
+  }, [session?.taskId, session?.running])
 
   useEffect(() => {
     if (!session) return
@@ -412,10 +471,12 @@ export function TaskExecutionLayer() {
   }
 
   function resumeSession() {
+    setGapNotice(null)
+    lastTickRef.current = Date.now()
     setSession(current => {
       if (!current || current.running) return current
       const resumedAt = Date.now()
-      const next = { ...current, segmentStartedAt: resumedAt, running: true }
+      const next = { ...current, segmentStartedAt: resumedAt, running: true, lastTickAt: resumedAt }
       setCurrentTime(resumedAt)
       writeSession(next)
       return next
@@ -450,8 +511,11 @@ export function TaskExecutionLayer() {
       accumulatedMs: 0,
       segments: [],
       running: true,
+      lastTickAt: startedAt,
     }
     setCurrentTime(startedAt)
+    lastTickRef.current = startedAt
+    setGapNotice(null)
     setSession(next)
     writeSession(next)
   }
@@ -610,6 +674,11 @@ export function TaskExecutionLayer() {
                   <p className="mt-5 rounded-full bg-[var(--purple-bg)] px-3 py-1.5 text-xs font-bold text-[var(--purple-text)]">
                     실제 진행 {formatMinutes(elapsedMinutes)} · 예상 {formatMinutes(session.expectedMinutes)}
                   </p>
+                  {gapNotice !== null && (
+                    <p className="mt-3 max-w-[260px] rounded-[10px] bg-[var(--amber-bg)] px-3 py-2 text-[11px] font-semibold text-[var(--amber-text)]">
+                      {wallClock(gapNotice)} 이후로 신호가 끊겨 거기서 멈췄어요. 그 뒤 시간은 집중으로 세지 않았습니다.
+                    </p>
+                  )}
                 </div>
               </div>
 
