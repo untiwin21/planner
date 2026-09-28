@@ -80,6 +80,7 @@ interface AiDailyRecord {
   focus: number | null
   top3: string[]
   note: string
+  review: { keep: string; problem: string; try: string } | null
   tasks_total: number
   tasks_done: number
   task_completion_pct: number | null
@@ -404,6 +405,9 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
       focus: day.meta?.focus ?? null,
       top3: day.meta?.top3 ?? [],
       note: day.note ?? '',
+      review: day.meta?.review && (day.meta.review.keep || day.meta.review.problem || day.meta.review.try)
+        ? { keep: day.meta.review.keep ?? '', problem: day.meta.review.problem ?? '', try: day.meta.review.try ?? '' }
+        : null,
       tasks_total: plannedTasks.length,
       tasks_done: plannedTasks.filter(task => task.done).length,
       task_completion_pct: pct(plannedTasks.filter(task => task.done).length, plannedTasks.length),
@@ -717,6 +721,7 @@ export function aiSnapshotToMarkdown(snapshot: AiContextSnapshot): string {
     lines.push(`- 수면/컨디션/집중: ${day.sleep_hours !== null ? `${day.sleep_hours}시간` : '기록 없음'} / ${optional(day.condition)} / ${optional(day.focus)}`)
     if (day.top3.length) lines.push(`- Top 3: ${day.top3.join(' / ')}`)
     if (day.note) lines.push(`- 메모: ${day.note}`)
+    if (day.review) lines.push(`- 내 하루 피드백: Keep ${day.review.keep || '-'} / Problem ${day.review.problem || '-'} / Try ${day.review.try || '-'}`)
   }
   lines.push('')
 

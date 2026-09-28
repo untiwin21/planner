@@ -1,6 +1,6 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { DayEntry, ShortGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, Category, Task, TaskHistoryKind, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod, TaskScheduleInput } from '@/types'
+import type { DayEntry, ShortGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, Category, Task, TaskHistoryKind, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod, TaskScheduleInput, JarvisFeedbackEntry } from '@/types'
 import { tasksProgress } from '@/lib/taskProgress'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
@@ -194,7 +194,17 @@ function mergeDay(loc: DayEntry, rem: DayEntry): DayEntry {
   const rTime = rem.meta?.updated_at ?? 0
   const baseMeta = rTime >= lTime ? rem.meta : loc.meta
   const baseEntry = rTime >= lTime ? rem : loc
-  return { ...baseEntry, meta: baseMeta, tasks, task_tombstones: taskTombstones }
+  // JARVIS writes its feedback without bumping meta.updated_at, so it must survive either side winning.
+  const jarvisFeedback = mergeJarvisFeedback(loc.meta?.jarvisFeedback, rem.meta?.jarvisFeedback)
+  const meta = jarvisFeedback ? { ...baseMeta, jarvisFeedback } : baseMeta
+  return { ...baseEntry, meta, tasks, task_tombstones: taskTombstones }
+}
+
+function mergeJarvisFeedback(local?: JarvisFeedbackEntry[], remote?: JarvisFeedbackEntry[]): JarvisFeedbackEntry[] | undefined {
+  if (!local?.length && !remote?.length) return undefined
+  const map = new Map<string, JarvisFeedbackEntry>()
+  for (const item of [...(local ?? []), ...(remote ?? [])]) if (item?.id) map.set(item.id, item)
+  return Array.from(map.values()).sort((a, b) => a.created_at.localeCompare(b.created_at))
 }
 
 function daySyncSignature(entry: DayEntry): string {

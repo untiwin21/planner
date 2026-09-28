@@ -24,6 +24,7 @@ import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
 import { isRoutineScheduledOn, isTimedRoutine, routineConfig } from '@/lib/routineSchedule'
 import { RoutineManagerDialog } from '@/components/routine/RoutineManagerDialog'
+import { DayFeedbackPanel } from '@/components/today/DayFeedbackPanel'
 
 interface Props {
   date: string
@@ -158,6 +159,7 @@ export function MobileToday(props: Props) {
     onToggleLinkedTask,
     onLinkGoalTask,
     onUnlinkGoalTask,
+    onMetaChange,
   } = props
 
   const [face, setFace] = useState<'tasks' | 'routines'>('tasks')
@@ -457,6 +459,8 @@ export function MobileToday(props: Props) {
             <button type="button" onClick={() => setShowRoutineManager(true)} className="h-11 w-full rounded-[14px] border border-[var(--border)] bg-white text-xs font-bold text-[var(--text-2)] flex items-center justify-center gap-1.5"><Settings2 size={14} /> 루틴 관리</button>
           </div>
         )}
+
+        <DayFeedbackPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} compact />
       </main>
 
       {showRoutineManager && (
