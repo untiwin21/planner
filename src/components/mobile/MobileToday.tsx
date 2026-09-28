@@ -24,7 +24,7 @@ import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
 import { isRoutineScheduledOn, isTimedRoutine, routineConfig } from '@/lib/routineSchedule'
 import { RoutineManagerDialog } from '@/components/routine/RoutineManagerDialog'
-import { DayFeedbackPanel } from '@/components/today/DayFeedbackPanel'
+import { DayReviewPanel } from '@/components/today/DayReviewPanel'
 
 interface Props {
   date: string
@@ -460,7 +460,7 @@ export function MobileToday(props: Props) {
           </div>
         )}
 
-        <DayFeedbackPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} compact />
+        <DayReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} compact />
       </main>
 
       {showRoutineManager && (

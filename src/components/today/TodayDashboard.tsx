@@ -46,7 +46,7 @@ import {
 import { taskProgressPercent, tasksProgress } from '@/lib/taskProgress'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
 import { RoutineManagerDialog } from '@/components/routine/RoutineManagerDialog'
-import { DayFeedbackPanel } from './DayFeedbackPanel'
+import { DayReviewPanel } from './DayReviewPanel'
 import {
   ROUTINE_PERIOD_LABELS,
   ROUTINE_PERIOD_ORDER,
@@ -2105,7 +2105,7 @@ export function TodayDashboard({
         </div>
       </div>
 
-      <DayFeedbackPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} compact={compact} />
+      <DayReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} compact={compact} />
 
       {taskEditor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setTaskEditor(null)}>

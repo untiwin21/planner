@@ -8,7 +8,7 @@ import type { DayEntry, Category, DayMeta, Task, SubTask, JournalEntry, ShortGoa
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
 import clsx from 'clsx'
-import { DayFeedbackPanel } from '@/components/today/DayFeedbackPanel'
+import { DayReviewPanel } from '@/components/today/DayReviewPanel'
 
 const LEVEL_EMOJI: Record<number, string> = { 1: '😞', 2: '😕', 3: '😐', 4: '🙂', 5: '😄' }
 const genId = () => Math.random().toString(36).slice(2, 10)
@@ -628,7 +628,7 @@ export function DayDetail({
         ))
       )}
 
-      <DayFeedbackPanel date={entry.date} meta={entry.meta} onMetaChange={onMetaChange} compact />
+      <DayReviewPanel date={entry.date} meta={entry.meta} onMetaChange={onMetaChange} compact />
 
       {/* ── 오늘의 생각 journal ── */}
       <div className="pt-1">

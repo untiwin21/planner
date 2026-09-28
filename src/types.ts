@@ -117,15 +117,6 @@ export interface DayReview {
   updated_at?: number
 }
 
-/** Feedback written by JARVIS into the day entry. JARVIS only appends; entries are merged by id. */
-export interface JarvisFeedbackEntry {
-  id: string
-  kind: 'midday' | 'daily' | 'weekly' | string
-  label: string
-  content: string
-  created_at: string
-}
-
 export interface DayMeta {
   sleep: number | null
   condition: number | null
@@ -142,7 +133,6 @@ export interface DayMeta {
   dayStart?: string               // Start of the usable planning window (HH:mm)
   dayEnd?: string                 // End of the usable planning window (HH:mm)
   review?: DayReview              // The user's own daily feedback
-  jarvisFeedback?: JarvisFeedbackEntry[] // Written by JARVIS; merged by id regardless of meta.updated_at
   // Last-write-wins timestamp (ms epoch) for non-task meta fields (sleep/condition/focus/top3/note links etc.)
   // Per-task fields use Task.updated_at directly; this covers everything else in the day entry.
   updated_at?: number
