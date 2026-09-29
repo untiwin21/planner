@@ -194,7 +194,13 @@ function mergeDay(loc: DayEntry, rem: DayEntry): DayEntry {
   const rTime = rem.meta?.updated_at ?? 0
   const baseMeta = rTime >= lTime ? rem.meta : loc.meta
   const baseEntry = rTime >= lTime ? rem : loc
-  return { ...baseEntry, meta: baseMeta, tasks, task_tombstones: taskTombstones }
+  // JARVIS writes jarvisReview without bumping meta.updated_at, so it is merged on its own timestamp.
+  const lReview = loc.meta?.jarvisReview
+  const rReview = rem.meta?.jarvisReview
+  const jarvisReview = !lReview ? rReview : !rReview ? lReview
+    : (rReview.updated_at ?? 0) >= (lReview.updated_at ?? 0) ? rReview : lReview
+  const meta = jarvisReview ? { ...baseMeta, jarvisReview } : baseMeta
+  return { ...baseEntry, meta, tasks, task_tombstones: taskTombstones }
 }
 
 function daySyncSignature(entry: DayEntry): string {

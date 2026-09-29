@@ -38,7 +38,11 @@ export function JarvisReviewPanel({ date, meta, onMetaChange }: Props) {
       <div className="flex items-center gap-2">
         <Bot size={15} className="text-[var(--teal)]" />
         <h3 className="text-sm font-bold">JARVIS 최종 피드백</h3>
-        {updatedAt && content && !editing && <span className="text-[10px] text-[var(--text-3)] tabular-nums">{format(updatedAt, 'M/d HH:mm')}</span>}
+        {updatedAt && content && !editing && (
+          <span className="text-[10px] text-[var(--text-3)] tabular-nums">
+            {format(updatedAt, 'M/d HH:mm')} · {meta.jarvisReview?.jarvis_id ? '자동 기록' : '직접 수정'}
+          </span>
+        )}
         {!editing && (
           <button type="button" onClick={startEdit} className="ml-auto flex items-center gap-1 rounded-[8px] px-2 py-1 text-[11px] font-semibold text-[var(--teal-text)] hover:bg-white/70">
             <Pencil size={11} /> {content ? '수정' : '기록하기'}
@@ -59,7 +63,7 @@ export function JarvisReviewPanel({ date, meta, onMetaChange }: Props) {
       ) : content ? (
         <div className="mt-2"><FeedbackMarkdown text={content} /></div>
       ) : (
-        <p className="mt-1 text-xs text-[var(--text-3)]">아직 기록된 피드백이 없습니다.</p>
+        <p className="mt-1 text-xs text-[var(--text-3)]">JARVIS가 하루 회고를 마치면 여기에 자동으로 기록됩니다.</p>
       )}
     </div>
   )
