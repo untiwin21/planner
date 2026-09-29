@@ -133,6 +133,7 @@ export interface DayMeta {
   dayStart?: string               // Start of the usable planning window (HH:mm)
   dayEnd?: string                 // End of the usable planning window (HH:mm)
   review?: DayReview              // The user's own daily feedback
+  jarvisReview?: { content: string; updated_at?: number } // JARVIS's final feedback for the day (markdown)
   // Last-write-wins timestamp (ms epoch) for non-task meta fields (sleep/condition/focus/top3/note links etc.)
   // Per-task fields use Task.updated_at directly; this covers everything else in the day entry.
   updated_at?: number

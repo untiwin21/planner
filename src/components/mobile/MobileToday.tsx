@@ -25,6 +25,7 @@ import { formatDate } from '@/lib/dates'
 import { isRoutineScheduledOn, isTimedRoutine, routineConfig } from '@/lib/routineSchedule'
 import { RoutineManagerDialog } from '@/components/routine/RoutineManagerDialog'
 import { DayReviewPanel } from '@/components/today/DayReviewPanel'
+import { JarvisReviewPanel } from '@/components/today/JarvisReviewPanel'
 
 interface Props {
   date: string
@@ -299,6 +300,7 @@ export function MobileToday(props: Props) {
       </header>
 
       <main className="px-4 pt-4">
+        <JarvisReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} />
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold text-[var(--text-3)]">{face === 'tasks' ? 'TODAY TASKS' : 'MY ROUTINES'}</p>

@@ -47,6 +47,7 @@ import { taskProgressPercent, tasksProgress } from '@/lib/taskProgress'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
 import { RoutineManagerDialog } from '@/components/routine/RoutineManagerDialog'
 import { DayReviewPanel } from './DayReviewPanel'
+import { JarvisReviewPanel } from './JarvisReviewPanel'
 import {
   ROUTINE_PERIOD_LABELS,
   ROUTINE_PERIOD_ORDER,
@@ -1387,28 +1388,25 @@ export function TodayDashboard({
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <button type="button" onClick={() => setShowWellness(true)} className="rounded-[16px] bg-white border border-[var(--border)] p-4 text-left hover:border-[var(--purple)] transition-colors">
-          <div className="flex items-center gap-2 text-xs text-[var(--text-3)]"><Moon size={14} /> 수면시간</div>
-          <p className="text-2xl font-bold mt-2">{entry.meta.sleep != null ? formatSleepMin(entry.meta.sleep) : '기록 전'}</p>
-          <p className="text-[11px] text-[var(--purple)] mt-1">클릭하여 기록</p>
+      <JarvisReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} />
+
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => setShowWellness(true)} title="클릭하여 기록" className="rounded-[14px] bg-white border border-[var(--border)] px-3 py-2 text-left hover:border-[var(--purple)] transition-colors flex items-center gap-2">
+          <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-3)] shrink-0"><Moon size={13} /> 수면</span>
+          <span className="ml-auto truncate text-sm font-bold">{entry.meta.sleep != null ? formatSleepMin(entry.meta.sleep) : <span className="text-xs font-semibold text-[var(--purple)]">기록하기</span>}</span>
         </button>
 
-        <button type="button" onClick={() => setShowWellness(true)} className="rounded-[16px] bg-white border border-[var(--border)] p-4 text-left hover:border-[var(--purple)] transition-colors">
-          <div className="flex items-center gap-2 text-xs text-[var(--text-3)]"><HeartPulse size={14} /> 컨디션</div>
-          <p className="text-2xl font-bold mt-2">{entry.meta.condition != null ? `${CONDITION_EMOJI[entry.meta.condition]} ${CONDITION_LABELS[entry.meta.condition]}` : '기록 전'}</p>
-          <p className="text-[11px] text-[var(--purple)] mt-1">클릭하여 기록</p>
+        <button type="button" onClick={() => setShowWellness(true)} title="클릭하여 기록" className="rounded-[14px] bg-white border border-[var(--border)] px-3 py-2 text-left hover:border-[var(--purple)] transition-colors flex items-center gap-2">
+          <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-3)] shrink-0"><HeartPulse size={13} /> 컨디션</span>
+          <span className="ml-auto truncate text-sm font-bold">{entry.meta.condition != null ? `${CONDITION_EMOJI[entry.meta.condition]} ${CONDITION_LABELS[entry.meta.condition]}` : <span className="text-xs font-semibold text-[var(--purple)]">기록하기</span>}</span>
         </button>
       </div>
 
-      <div className="bg-white border border-[var(--border)] rounded-[18px] p-4 mt-4">
-        <div className="mb-3">
-          <h3 className="text-sm font-bold">오늘 한눈에</h3>
-          <p className="text-xs text-[var(--text-3)] mt-0.5">선택한 날짜의 일정과 진행 중인 단기계획이 자동으로 표시됩니다.</p>
-        </div>
-        <div className={clsx('grid gap-3', compact ? 'grid-cols-1' : 'md:grid-cols-2')}>
-          <section className="rounded-[14px] border border-[var(--border)] bg-[var(--purple-bg)]/35 p-3">
-            <div className="mb-2 flex items-center gap-2">
+      <div className="bg-white border border-[var(--border)] rounded-[16px] p-3 mt-3">
+        <h3 className="mb-2 text-xs font-bold text-[var(--text-2)]">오늘 한눈에</h3>
+        <div className={clsx('grid gap-2', compact ? 'grid-cols-1' : 'md:grid-cols-2')}>
+          <section className="rounded-[12px] border border-[var(--border)] bg-[var(--purple-bg)]/35 p-2.5">
+            <div className="mb-1.5 flex items-center gap-2">
               <CalendarClock size={14} className="text-[var(--purple)]" />
               <h4 className="text-xs font-bold">오늘의 일정</h4>
               <span className="ml-auto text-[10px] font-semibold text-[var(--purple-text)]">{todaySchedules.length}개</span>
@@ -1418,7 +1416,7 @@ export function TodayDashboard({
                 {todaySchedules.map(task => {
                   const start = getTaskStart(task)
                   return (
-                    <div key={task.id} className="flex items-center gap-2 rounded-[10px] bg-white/80 px-2.5 py-2">
+                    <div key={task.id} className="flex items-center gap-2 rounded-[8px] bg-white/80 px-2.5 py-1.5">
                       <span className="w-11 shrink-0 text-[10px] font-bold tabular-nums text-[var(--purple-text)]">{start === null ? '미정' : minutesToTime(start)}</span>
                       <span className={clsx('min-w-0 flex-1 truncate text-xs font-semibold', task.done && 'line-through opacity-55')}>{task.text}</span>
                     </div>
@@ -1426,12 +1424,12 @@ export function TodayDashboard({
                 })}
               </div>
             ) : (
-              <p className="rounded-[10px] border border-dashed border-[var(--border-strong)] bg-white/45 px-3 py-4 text-center text-xs text-[var(--text-3)]">등록된 일정이 없습니다.</p>
+              <p className="rounded-[8px] border border-dashed border-[var(--border-strong)] bg-white/45 px-3 py-2 text-center text-[11px] text-[var(--text-3)]">등록된 일정이 없습니다.</p>
             )}
           </section>
 
-          <section className="rounded-[14px] border border-[var(--border)] bg-[var(--teal-bg)]/35 p-3">
-            <div className="mb-2 flex items-center gap-2">
+          <section className="rounded-[12px] border border-[var(--border)] bg-[var(--teal-bg)]/35 p-2.5">
+            <div className="mb-1.5 flex items-center gap-2">
               <Target size={14} className="text-[var(--teal)]" />
               <h4 className="text-xs font-bold">오늘의 단기계획</h4>
               <span className="ml-auto text-[10px] font-semibold text-[var(--teal-text)]">{focusGoals.length}개</span>
@@ -1441,7 +1439,7 @@ export function TodayDashboard({
                 {focusGoals.map(goal => {
                   const progress = tasksProgress(goal.tasks)
                   return (
-                    <div key={goal.id} className="rounded-[10px] bg-white/80 px-2.5 py-2">
+                    <div key={goal.id} className="rounded-[8px] bg-white/80 px-2.5 py-1.5">
                       <div className="flex items-start gap-2">
                         <p className="min-w-0 flex-1 text-xs font-semibold leading-snug">{goal.title}</p>
                         <span className="shrink-0 text-[10px] font-bold text-[var(--teal-text)]">{progress.total > 0 ? `${progress.pct}%` : '준비'}</span>
@@ -1452,7 +1450,7 @@ export function TodayDashboard({
                 })}
               </div>
             ) : (
-              <p className="rounded-[10px] border border-dashed border-[var(--border-strong)] bg-white/45 px-3 py-4 text-center text-xs text-[var(--text-3)]">진행 중인 단기계획이 없습니다.</p>
+              <p className="rounded-[8px] border border-dashed border-[var(--border-strong)] bg-white/45 px-3 py-2 text-center text-[11px] text-[var(--text-3)]">진행 중인 단기계획이 없습니다.</p>
             )}
           </section>
         </div>
