@@ -5,8 +5,6 @@ import type { DayEntry, Category, ShortGoal, Routine, RoutineConfig, RoutineLog,
 import { BottomTabBar, type MobileTab } from './BottomTabBar'
 import { MobileToday } from './MobileToday'
 import { MobileWeekly } from './MobileWeekly'
-import { MobileGoals } from './MobileGoals'
-import { MobileReview } from './MobileReview'
 
 interface Props {
   days: DayEntry[]
@@ -91,38 +89,14 @@ export function MobileLayout({
         )}
         {activeTab === 'weekly' && (
           <MobileWeekly
+            routines={routines}
+            logs={logs}
             selectedDate={selectedDate}
             days={days}
             goals={goals}
             onSelectDate={d => { setSelectedDate(d) }}
-            getDay={getDay}
-            onToggleTask={toggleTask}
-            onAddTask={addTask}
-            onUpdateTask={updateTask}
-            onDeleteTask={deleteTask}
             onAddGoal={addGoal}
             onUpdateGoal={updateGoal}
-          />
-        )}
-        {activeTab === 'goals' && (
-          <MobileGoals
-            goals={goals}
-            categories={categories}
-            onToggleTask={toggleGoalTask}
-            onAddTask={addGoalTask}
-            onDeleteTask={deleteGoalTask}
-            onAddGoal={addGoal}
-            onDeleteGoal={deleteGoal}
-          />
-        )}
-        {activeTab === 'review' && (
-          <MobileReview
-            days={days}
-            goals={goals}
-            routines={routines}
-            logs={logs}
-            getWeeklyReview={getWeeklyReview}
-            updateWeeklyReview={updateWeeklyReview}
           />
         )}
       </div>

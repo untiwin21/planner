@@ -1,22 +1,13 @@
 'use client'
 import { useState, useMemo, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Plus, X, LogOut } from 'lucide-react'
-import { addWeeks, subWeeks, parseISO, startOfWeek as dfStartOfWeek, format } from 'date-fns'
+import { addWeeks, subWeeks, parseISO } from 'date-fns'
 import { getWeekDays, formatDate, formatMonth } from '@/lib/dates'
-import { tasksProgress } from '@/lib/taskProgress'
 import { usePlanrStore } from '@/hooks/usePlanrStore'
 import { WeekOverview } from '@/components/weekly/WeekOverview'
 import { PlannerAssistantBridge } from '@/components/assistant/PlannerAssistantBridge'
-import { GoalSpanRow } from '@/components/weekly/GoalSpanRow'
-import { GoalDetail } from '@/components/goals/GoalDetail'
-import { GoalHierarchyView } from '@/components/goals/GoalHierarchyView'
-import { RightSidebar } from '@/components/layout/RightSidebar'
-import { WeeklyReview } from '@/components/review/WeeklyReview'
-import { JournalView } from '@/components/journal/JournalView'
-import { WeeklyPrompt } from '@/components/system/WeeklyPrompt'
 import { Card } from '@/components/ui'
-import type { JournalEntry, ShortGoal, Task } from '@/types'
-import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
+import { WeeklySummary } from '@/components/review/WeeklySummary'
 import clsx from 'clsx'
 import { useUserId } from '@/context/UserContext'
 import { supabase } from '@/lib/supabase'
@@ -26,32 +17,6 @@ import { MobileLayout } from '@/components/mobile/MobileLayout'
 import { TodayDashboard } from '@/components/today/TodayDashboard'
 import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
 import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
-import { DirectionDashboard } from '@/components/direction/DirectionDashboard'
-
-function packGoalsIntoRows(goals: ShortGoal[], weekDays: Date[]) {
-  const weekStart = formatDate(weekDays[0])
-  const weekEnd = formatDate(weekDays[6])
-  const weekGoals = goals
-    .filter(g => g.date_from <= weekEnd && g.date_to >= weekStart)
-    .sort((a, b) => a.date_from.localeCompare(b.date_from))
-  const rows: ShortGoal[][] = []
-  for (const goal of weekGoals) {
-    const clampedFrom = goal.date_from < weekStart ? weekStart : goal.date_from
-    let placed = false
-    for (const row of rows) {
-      const last = row[row.length - 1]
-      const lastTo = last.date_to > weekEnd ? weekEnd : last.date_to
-      if (clampedFrom > lastTo) { row.push(goal); placed = true; break }
-    }
-    if (!placed) rows.push([goal])
-  }
-  return rows
-}
-
-function getWeekKey(date: Date): string {
-  const ws = dfStartOfWeek(date, { weekStartsOn: 1 })
-  return format(ws, "RRRR-'W'II")
-}
 
 export default function Home() {
   const userId = useUserId()
@@ -59,15 +24,8 @@ export default function Home() {
   const [weekBase, setWeekBase] = useState(new Date())
   const [monthBase, setMonthBase] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()))
-  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null)
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
-  const [showGoalForm, setShowGoalForm] = useState(false)
-  const [newGoalFrom, setNewGoalFrom] = useState('')
-  const [newGoalTo, setNewGoalTo] = useState('')
-  const [newGoalTitle, setNewGoalTitle] = useState('')
-  const [newGoalLongId, setNewGoalLongId] = useState('')
-  const [view, setView] = useState<'today' | 'week' | 'review' | 'journal' | 'direction'>('today')
-  const [showCalendar, setShowCalendar] = useState(true)
+  const [view, setView] = useState<'today' | 'week'>('today')
 
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   const [qaTaskText, setQaTaskText] = useState('')
@@ -76,113 +34,16 @@ export default function Home() {
   const [qaGoalTo, setQaGoalTo] = useState(formatDate(new Date()))
   const [qaGoalLongId, setQaGoalLongId] = useState('')
 
-  const weekKey = useMemo(() => getWeekKey(weekBase), [weekBase])
-
-  const [showBig3Modal, setShowBig3Modal] = useState(false)
 
   const { syncReady, ...store } = usePlanrStore(userId)
   const weekDays = useMemo(() => getWeekDays(weekBase), [weekBase])
   const selectedEntry = store.getDay(selectedDate)
-  const selectedGoal = selectedGoalId ? store.goals.find(g => g.id === selectedGoalId) : null
   const editingGoal = editingGoalId ? store.goals.find(g => g.id === editingGoalId) ?? null : null
-  const goalRows = useMemo(() => packGoalsIntoRows(store.goals, weekDays), [store.goals, weekDays])
-  const big3SyncKey = `__big3__:${weekKey}`
-  const mantraSyncKey = `__mantra__:${weekKey}`
-  const journalSyncKey = `__journal__:${weekKey}`
-  const weekBig3 = useMemo(() => {
-    try {
-      const value = JSON.parse(store.getWeeklyReview(big3SyncKey) || '[]')
-      return Array.isArray(value) ? value as string[] : []
-    } catch { return [] }
-  }, [store.weeklyReviews, big3SyncKey])
-  const weekMantra = store.getWeeklyReview(mantraSyncKey)
-  const weeklyJournalEntries = useMemo(() => {
-    try {
-      const value = JSON.parse(store.getWeeklyReview(journalSyncKey) || '[]')
-      return Array.isArray(value) ? value as JournalEntry[] : []
-    } catch { return [] }
-  }, [store.weeklyReviews, journalSyncKey])
-
   useEffect(() => {
     if (supabase) {
       supabase.auth.getUser().then(({ data: { user } }) => setUser(user))
     }
   }, [])
-
-  function saveBig3(texts: string[]) {
-    store.updateWeeklyReview(big3SyncKey, JSON.stringify(texts))
-  }
-  function saveMantra(text: string) {
-    store.updateWeeklyReview(mantraSyncKey, text)
-  }
-
-  // Migrate meaningful browser-only data from earlier versions once, then use
-  // Supabase-backed weekly records on every device.
-  useEffect(() => {
-    if (!syncReady || typeof window === 'undefined') return
-    if (!store.getWeeklyReview(big3SyncKey)) {
-      const legacyBig3 = localStorage.getItem(`planr_week_big3_v2_${weekKey}`)
-      if (legacyBig3) store.updateWeeklyReview(big3SyncKey, legacyBig3)
-    }
-    if (!store.getWeeklyReview(mantraSyncKey)) {
-      const legacyMantra = localStorage.getItem(`planr_week_mantra_${weekKey}`)
-      if (legacyMantra) store.updateWeeklyReview(mantraSyncKey, legacyMantra)
-    }
-    if (!store.getWeeklyReview(journalSyncKey)) {
-      const legacyJournal = localStorage.getItem(`planr_weekly_review_${weekKey}_journal`)
-      if (legacyJournal) store.updateWeeklyReview(journalSyncKey, legacyJournal)
-    }
-  // The week keys and server snapshot are the only inputs; store methods are intentionally omitted.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncReady, weekKey, big3SyncKey, mantraSyncKey, journalSyncKey, store.weeklyReviews])
-
-  // Top bar stats (subtask-aware) — excludes schedule/deadline, includes linked goal tasks/subtasks.
-  const weekStats = useMemo(() => {
-    let taskTotal = 0, taskDone = 0
-    for (const d of weekDays) {
-      const ds = formatDate(d)
-      const entry = store.days.find(e => e.date === ds)
-      if (!entry) continue
-      const workTasks = entry.tasks.filter(t => t.category_id !== SCHEDULE_CAT_ID && t.category_id !== DEADLINE_CAT_ID)
-      const linkedIds = new Set(entry.meta?.linkedGoalTaskIds ?? [])
-      const linkedSubIds = new Set(entry.meta?.linkedGoalSubtaskIds ?? [])
-      const activeGoals = store.goals.filter(g => g.date_from <= ds && g.date_to >= ds)
-      const linkedTasks: Task[] = []
-      for (const g of activeGoals) {
-        for (const t of g.tasks) {
-          if (linkedIds.has(t.id)) linkedTasks.push(t)
-          for (const s of t.subtasks ?? []) {
-            if (linkedSubIds.has(s.id)) {
-              linkedTasks.push({
-                id: s.id, text: s.text, done: s.done, discarded: s.discarded,
-                day_id: t.day_id, goal_id: t.goal_id,
-                category_id: t.category_id, category_name: t.category_name, category_color: t.category_color,
-              })
-            }
-          }
-        }
-      }
-      const p = tasksProgress([...workTasks, ...linkedTasks])
-      taskTotal += p.total
-      taskDone += p.done
-    }
-    const taskRate = taskTotal > 0 ? Math.round((taskDone / taskTotal) * 100) : null
-    const goalCount = store.goals.filter(g => {
-      const ws = formatDate(weekDays[0]), we = formatDate(weekDays[6])
-      return g.date_from <= we && g.date_to >= ws
-    }).length
-    return { taskRate, goalCount }
-  }, [weekDays, store.days, store.goals])
-
-  function handleCreateGoal() {
-    if (!newGoalTitle.trim() || !newGoalFrom || !newGoalTo) return
-    store.addGoal({
-      title: newGoalTitle, date_from: newGoalFrom, date_to: newGoalTo, note: '',
-      tasks: [], categories: [], routines: [],
-      ...(newGoalLongId ? { long_goal_id: newGoalLongId } : {}),
-    })
-    setNewGoalTitle(''); setNewGoalFrom(''); setNewGoalTo(''); setNewGoalLongId(''); setShowGoalForm(false)
-  }
 
   function handleQuickAddTask() {
     if (!qaTaskText.trim()) return
@@ -204,24 +65,6 @@ export default function Home() {
     setQaGoalLongId('')
     setShowQuickAdd(false)
   }
-
-  function handleHierarchySelectGoal(id: string | null) {
-    setSelectedGoalId(id)
-    setView('week')
-    if (id) {
-      const goal = store.goals.find(g => g.id === id)
-      if (goal) {
-        const goalStart = parseISO(goal.date_from)
-        const ws = dfStartOfWeek(goalStart, { weekStartsOn: 1 })
-        setWeekBase(ws)
-      }
-    }
-  }
-
-  // Big 3 mantra sentence display
-  const big3Summary = weekBig3.filter(t => t.trim()).length > 0
-    ? weekBig3.filter(t => t.trim()).join(' · ')
-    : ''
 
   return (
     <>
@@ -275,7 +118,7 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 mr-2 bg-[var(--surface-2)] rounded-[10px] p-0.5">
-              <button onClick={() => { setView('today'); setSelectedDate(formatDate(new Date())); setSelectedGoalId(null) }}
+              <button onClick={() => { setView('today'); setSelectedDate(formatDate(new Date())) }}
                 className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
                   view === 'today' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
                 플래너
@@ -284,21 +127,6 @@ export default function Home() {
                 className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
                   view === 'week' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
                 목표·계획
-              </button>
-              <button onClick={() => setView('review')}
-                className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
-                  view === 'review' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
-                주간 회고
-              </button>
-              <button onClick={() => setView('journal')}
-                className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
-                  view === 'journal' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
-                기록
-              </button>
-              <button onClick={() => setView('direction')}
-                className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
-                  view === 'direction' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
-                About Me
               </button>
             </div>
 
@@ -309,7 +137,7 @@ export default function Home() {
                   오늘로
                 </button>
               )
-            ) : view === 'direction' ? null : (
+            ) : (
               <>
                 <button onClick={() => setWeekBase(subWeeks(weekBase, 1))}
                   className="w-8 h-8 rounded-[8px] flex items-center justify-center hover:bg-white border border-transparent hover:border-[var(--border)] transition-all">
@@ -338,63 +166,19 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Stats row */}
-        {view !== 'today' && view !== 'direction' && (
-          <div className="flex items-center gap-4 mb-5 text-xs text-[var(--text-3)]">
-            {weekStats.taskRate !== null && <span>할일 {weekStats.taskRate}%</span>}
-            {weekStats.goalCount > 0 && <span>목표 {weekStats.goalCount}개</span>}
-          </div>
-        )}
-
-        {/* 2-column layout */}
-        <div className="grid gap-5" style={{ gridTemplateColumns: view === 'direction' ? '1fr' : '280px 1fr' }}>
-
-          {/* Left sidebar */}
-          <div className={clsx('flex flex-col gap-4 min-w-0', view === 'direction' && 'hidden')}>
-            <GoalHierarchyView
-              longGoals={store.longGoals}
-              getLongGoalProgress={store.getLongGoalProgress}
-              onAddLongGoal={store.addLongGoal}
-              onDeleteLongGoal={store.deleteLongGoal}
-            />
-
-            <div className="bg-white border border-[var(--border)] rounded-[16px] p-4">
-              <button
-                onClick={() => setShowCalendar(v => !v)}
-                className="flex items-center gap-1 text-sm font-semibold w-full text-left"
-              >
-                <span>달력 보기</span>
-                <span className="text-[var(--text-3)] text-xs ml-auto">{showCalendar ? '▲' : '▼'}</span>
-              </button>
-              {showCalendar && (
-                <div className="mt-3">
-                  <RightSidebar
-                    longGoals={store.longGoals}
-                    shortGoals={store.goals}
-                    selectedDate={selectedDate}
-                    onSelectDate={date => { setSelectedDate(date); setSelectedGoalId(null) }}
-                    onAddLongGoal={store.addLongGoal}
-                    onDeleteLongGoal={store.deleteLongGoal}
-                    calendarOnly
-                  />
-                </div>
-              )}
-            </div>
-
-          </div>
-
+        <div className="grid grid-cols-1 gap-5">
           {/* Main content */}
           <div className="flex flex-col gap-4 min-w-0">
             {view === 'today' ? (
               <>
                   <TodayDashboard
-                    weekOverview={<WeekOverview days={store.days} goals={store.goals} selectedDate={selectedDate} onSelectDate={date => { setSelectedDate(date); setSelectedGoalId(null) }} />}
+                    weekOverview={<WeekOverview days={store.days} goals={store.goals} selectedDate={selectedDate} onSelectDate={date => { setSelectedDate(date) }} />}
                     date={selectedDate}
                     entry={selectedEntry}
                     categories={store.categories}
                     goals={store.goals}
                     longGoals={store.longGoals}
-                    onDateChange={date => { setSelectedDate(date); setSelectedGoalId(null) }}
+                    onDateChange={date => { setSelectedDate(date) }}
                     onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
                     onAddTask={(categoryId, text, schedule) => store.addTask(selectedDate, categoryId, text, schedule)}
                     onCarryTask={(targetDate, categoryId, text, schedule) => store.addTask(targetDate, categoryId, text, schedule)}
@@ -416,208 +200,18 @@ export default function Home() {
                     onDeleteRoutine={store.deleteRoutine}
                   />
               </>
-            ) : view === 'direction' ? (
-    <DirectionDashboard
-      routines={store.routines}
-      logs={store.logs}
-      longGoals={store.longGoals}
-      getLongGoalProgress={store.getLongGoalProgress}
-      getWeeklyReview={store.getWeeklyReview}
-      onUpdateWeeklyReview={store.updateWeeklyReview}
-      onAddRoutine={store.addRoutine}
-      onUpdateRoutine={store.updateRoutine}
-      onAddLongGoal={store.addLongGoal}
-      onUpdateLongGoal={store.updateLongGoal}
-      onDeleteLongGoal={store.deleteLongGoal}
-    />
-  ) : view === 'journal' ? (
-              <Card className="p-5">
-                <JournalView
-                  days={store.days}
-                  goals={store.goals}
-                  onUpdateDayNote={(date, noteId, title, body) => store.updateDayNote(date, noteId, title, body)}
-                  onDeleteDayNote={(date, noteId) => store.deleteDayNote(date, noteId)}
-                  onUpdateGoalNote={(goalId, noteId, text) => store.updateGoalNote(goalId, noteId, text)}
-                  onDeleteGoalNote={(goalId, noteId) => store.deleteGoalNote(goalId, noteId)}
-                  weeklyReviews={store.weeklyReviews}
-                  onUpdateWeeklyReview={store.updateWeeklyReview}
-                />
-              </Card>
-            ) : view === 'review' ? (
-              <Card className="p-5">
-                <WeeklyReview
-                  weekDays={weekDays}
-                  days={store.days}
-                  routines={store.routines}
-                  logs={store.logs}
-                  journalEntries={weeklyJournalEntries}
-                  onJournalEntriesChange={entries => store.updateWeeklyReview(journalSyncKey, JSON.stringify(entries))}
-                />
-              </Card>
             ) : (
               <>
-                {/* Weekly prompt */}
-                <WeeklyPrompt
-                  weekKey={weekKey}
-                  hasBig3={weekBig3.some(item => item.trim().length > 0)}
-                  hasJournal={weeklyJournalEntries.length > 0}
-                  onGoToBig3={() => setShowBig3Modal(true)}
-                  onGoToReview={() => setView('review')}
-                />
-
-                {/* Weekly Big 3 — Mantra Sentence */}
-                <button
-                  onClick={() => setShowBig3Modal(true)}
-                  className="bg-white border border-[var(--border)] rounded-[12px] px-4 py-3 text-left hover:border-[var(--purple)] hover:shadow-sm transition-all group w-full"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-semibold text-[var(--purple)]">이번 주 Big 3</span>
-                    <span className="text-[10px] text-[var(--text-3)] opacity-0 group-hover:opacity-100 transition-opacity">클릭하여 편집</span>
-                  </div>
-                  {weekMantra ? (
-                    <p className="text-sm text-[var(--text)] italic leading-relaxed">&ldquo;{weekMantra}&rdquo;</p>
-                  ) : big3Summary ? (
-                    <p className="text-sm text-[var(--text-2)]">{big3Summary}</p>
-                  ) : (
-                    <p className="text-sm text-[var(--text-3)] italic">이번 주의 다짐과 Big 3를 설정해보세요</p>
-                  )}
-                  {big3Summary && weekMantra && (
-                    <div className="flex gap-2 mt-1.5">
-                      {weekBig3.filter(t => t.trim()).map((t, i) => (
-                        <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--purple-bg)] text-[var(--purple-text)] font-medium truncate max-w-[140px]">
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </button>
-
-                {/* Big 3 Modal */}
-                {showBig3Modal && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowBig3Modal(false)}>
-                    <div className="bg-white rounded-[20px] shadow-xl w-full max-w-md p-6 mx-4" onClick={e => e.stopPropagation()}>
-                      <div className="flex items-center justify-between mb-5">
-                        <h2 className="text-lg font-bold">이번 주 다짐 & Big 3</h2>
-                        <button onClick={() => setShowBig3Modal(false)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--surface-2)]">
-                          <X size={18} />
-                        </button>
-                      </div>
-
-                      <div className="mb-5">
-                        <label className="block text-xs font-semibold text-[var(--text-2)] mb-2">이번 주 다짐 (한 문장)</label>
-                        <input
-                          value={weekMantra}
-                          onChange={e => saveMantra(e.target.value)}
-                          placeholder="예: 이번 주는 집중력을 높이고 건강을 챙기자"
-                          className="w-full px-3 py-2.5 rounded-[10px] text-sm bg-[var(--surface-2)] border border-transparent outline-none focus:border-[var(--purple)] focus:bg-white"
-                        />
-                      </div>
-
-                      <div className="mb-4">
-                        <label className="block text-xs font-semibold text-[var(--text-2)] mb-2">Big 3 (가장 중요한 3가지)</label>
-                        <div className="flex flex-col gap-2">
-                          {[0, 1, 2].map(i => (
-                            <div key={i} className="flex items-center gap-2">
-                              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
-                                style={{ background: 'var(--purple)' }}>
-                                {i + 1}
-                              </span>
-                              <input
-                                value={weekBig3[i] ?? ''}
-                                onChange={e => {
-                                  const next = [...weekBig3]
-                                  while (next.length <= i) next.push('')
-                                  next[i] = e.target.value
-                                  saveBig3(next)
-                                }}
-                                placeholder={`Big ${i + 1}...`}
-                                className="flex-1 px-3 py-2 rounded-[8px] text-sm bg-[var(--surface-2)] border border-transparent outline-none focus:border-[var(--purple)] focus:bg-white"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <button onClick={() => setShowBig3Modal(false)}
-                        className="w-full py-2 rounded-[10px] text-sm font-medium text-white hover:opacity-90 transition-opacity"
-                        style={{ background: 'var(--purple)' }}>
-                        완료
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Weekly grid */}
-                <div>
-                  <GoalSpanRow weekDays={weekDays} goalRows={goalRows} selectedGoalId={selectedGoalId}
-                    onEditGoal={setEditingGoalId} />
-                  <div className="mt-2 flex justify-end">
-                    <button onClick={() => setShowGoalForm(v => !v)}
-                      className="flex items-center gap-1 text-[13px] text-[var(--text-3)] hover:text-[var(--text-2)] px-2 py-1 rounded-[6px] hover:bg-white transition-all">
-                      <Plus size={11} /> 단기 목표 추가
-                    </button>
-                  </div>
-                  {showGoalForm && (
-                    <div className="mt-2 p-4 rounded-[14px] bg-white border border-[var(--border)] flex flex-col gap-2.5">
-                      <input value={newGoalTitle} onChange={e => setNewGoalTitle(e.target.value)} placeholder="목표 제목" autoFocus
-                        className="w-full px-3 py-2 rounded-[10px] text-sm bg-[var(--surface-2)] outline-none" />
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[11px] text-[var(--text-3)] mb-1 block">시작일</label>
-                          <input type="date" value={newGoalFrom} onChange={e => setNewGoalFrom(e.target.value)} className="w-full px-2 py-1.5 rounded-[8px] text-sm bg-[var(--surface-2)] outline-none" />
-                        </div>
-                        <div>
-                          <label className="text-[11px] text-[var(--text-3)] mb-1 block">종료일</label>
-                          <input type="date" value={newGoalTo} onChange={e => setNewGoalTo(e.target.value)} className="w-full px-2 py-1.5 rounded-[8px] text-sm bg-[var(--surface-2)] outline-none" />
-                        </div>
-                      </div>
-                      {store.longGoals.length > 0 && (
-                        <div>
-                          <label className="text-[11px] text-[var(--text-3)] mb-1 block">장기 목표 연결</label>
-                          <select value={newGoalLongId} onChange={e => setNewGoalLongId(e.target.value)}
-                            className="w-full px-2 py-1.5 rounded-[8px] text-sm bg-[var(--surface-2)] outline-none">
-                            <option value="">연결 없음</option>
-                            {store.longGoals.map(lg => (
-                              <option key={lg.id} value={lg.id}>{lg.title}</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-                      <div className="flex gap-2">
-                        <button onClick={handleCreateGoal} className="flex-1 py-1.5 rounded-[8px] text-sm bg-[var(--teal)] text-white font-medium">만들기</button>
-                        <button onClick={() => setShowGoalForm(false)} className="px-3 py-1.5 rounded-[8px] text-sm text-[var(--text-2)] hover:bg-[var(--border)]">취소</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Weekly input is intentionally limited to schedules and deadlines. */}
                 <Card className="p-5">
-                  {selectedGoal ? (
-                    <GoalDetail
-                      goal={selectedGoal}
-                      categories={store.categories}
-                      onUpdate={patch => store.updateGoal(selectedGoal.id, patch)}
-                      onDelete={() => { store.deleteGoal(selectedGoal.id); setSelectedGoalId(null) }}
-                      onToggleTask={taskId => store.toggleGoalTask(selectedGoal.id, taskId)}
-                      onAddTask={(catId, text) => store.addGoalTask(selectedGoal.id, catId, text)}
-                      onDeleteTask={taskId => store.deleteGoalTask(selectedGoal.id, taskId)}
-                      onUpdateTask={(taskId, patch) => store.updateGoalTask(selectedGoal.id, taskId, patch)}
-                      onAddNote={text => store.addGoalNote(selectedGoal.id, text)}
-                      onUpdateNote={(noteId, text) => store.updateGoalNote(selectedGoal.id, noteId, text)}
-                      onDeleteNote={noteId => store.deleteGoalNote(selectedGoal.id, noteId)}
-                      onReorderTasks={(catId, dId, tId) => store.reorderGoalTasks(selectedGoal.id, catId, dId, tId)}
-                    />
-                  ) : <p className="text-sm text-[var(--text-3)]">목표를 선택하면 세부 계획을 확인할 수 있습니다.</p>}
+                  <WeeklySummary weekDays={weekDays} days={store.days} routines={store.routines} logs={store.logs} />
                 </Card>
-
                 <MonthlyGoalCalendar
                   monthBase={monthBase}
                   goals={store.goals}
                   days={store.days}
                   selectedDate={selectedDate}
                   onMonthChange={setMonthBase}
-                  onSelectDate={date => { setSelectedDate(date); setSelectedGoalId(null) }}
+                  onSelectDate={date => { setSelectedDate(date) }}
                   onAddGoal={store.addGoal}
                   onUpdateGoal={store.updateGoal}
                   onEditGoal={setEditingGoalId}
@@ -632,7 +226,6 @@ export default function Home() {
         goal={editingGoal}
         onClose={() => setEditingGoalId(null)}
         onSave={store.updateGoal}
-        onOpenDetail={id => setSelectedGoalId(id)}
       />
 
       {/* Quick Add FAB */}
