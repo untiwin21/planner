@@ -199,7 +199,11 @@ function mergeDay(loc: DayEntry, rem: DayEntry): DayEntry {
   const rReview = rem.meta?.jarvisReview
   const jarvisReview = !lReview ? rReview : !rReview ? lReview
     : (rReview.updated_at ?? 0) >= (lReview.updated_at ?? 0) ? rReview : lReview
-  const meta = jarvisReview ? { ...baseMeta, jarvisReview } : baseMeta
+  const lAssistant = loc.meta?.assistantReview
+  const rAssistant = rem.meta?.assistantReview
+  const assistantReview = !lAssistant ? rAssistant : !rAssistant ? lAssistant
+    : rAssistant.updated_at >= lAssistant.updated_at ? rAssistant : lAssistant
+  const meta = { ...baseMeta, ...(jarvisReview ? { jarvisReview } : {}), ...(assistantReview ? { assistantReview } : {}) }
   return { ...baseEntry, meta, tasks, task_tombstones: taskTombstones }
 }
 
@@ -830,10 +834,12 @@ export function usePlanrStore(userId: string) {
     function onFocus() { runSync() }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onFocus)
+    window.addEventListener('planr:assistant-saved', onFocus)
     return () => {
       clearInterval(interval)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onFocus)
+      window.removeEventListener('planr:assistant-saved', onFocus)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])

@@ -109,15 +109,36 @@ export async function upsertDayEntry(userId: string, entry: DayEntry): Promise<v
   if (!supabase) return
   const db = supabase as any
   const { id, date, note, meta, tasks, task_tombstones } = entry
-  const metaWithTasks = { ...(meta ?? {}), _tasks: [...(tasks ?? []), ...(task_tombstones ?? [])] }
-  const { error } = await db.from('day_entries').upsert(
-    { id, user_id: userId, date, note, meta: metaWithTasks },
-    { onConflict: 'user_id,date' },
-  )
-  if (error) {
-    console.error('Error upserting day entry:', error.message, error)
-    throw new Error(`upsertDayEntry failed: ${error.message}`)
+  const localRecords = [...(tasks ?? []), ...(task_tombstones ?? [])]
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { data: remote, error: readError } = await db.from('day_entries').select('*').eq('user_id', userId).eq('date', date).maybeSingle()
+    if (readError) throw new Error(`upsertDayEntry read failed: ${readError.message}`)
+    if (!remote) {
+      const { error } = await db.from('day_entries').insert({ id, user_id: userId, date, note, meta: { ...meta, _tasks: localRecords } })
+      if (error?.code === '23505') continue
+      if (error) throw new Error(`upsertDayEntry failed: ${error.message}`)
+      return
+    }
+    const remoteMeta = remote.meta ?? {}
+    const records = new Map<string, Task>((remoteMeta._tasks ?? []).map((task: Task) => [task.id, task]))
+    for (const task of localRecords) {
+      const existing = records.get(task.id)
+      if (!existing || (task.updated_at ?? 0) >= (existing.updated_at ?? 0)) records.set(task.id, { ...task, day_id: remote.id })
+    }
+    const localIsNewer = (meta?.updated_at ?? 0) >= (remoteMeta.updated_at ?? 0)
+    const mergedMeta = { ...(localIsNewer ? meta : remoteMeta), _tasks: [...records.values()] }
+    for (const key of ['assistantReview', 'jarvisReview'] as const) {
+      const localReview = meta?.[key], remoteReview = remoteMeta[key]
+      const review = !localReview ? remoteReview : !remoteReview ? localReview
+        : (localReview.updated_at ?? 0) >= (remoteReview.updated_at ?? 0) ? localReview : remoteReview
+      if (review) mergedMeta[key] = review
+    }
+    const { data, error } = await db.from('day_entries').update({ meta: mergedMeta, note: localIsNewer ? note : remote.note })
+      .eq('id', remote.id).eq('user_id', userId).eq('meta', JSON.stringify(remoteMeta)).select('id')
+    if (error) throw new Error(`upsertDayEntry failed: ${error.message}`)
+    if (data?.length) return
   }
+  throw new Error('upsertDayEntry failed: concurrent edits; retry required')
 }
 
 export async function upsertTask(userId: string, task: Task, _contextId: string): Promise<void> {

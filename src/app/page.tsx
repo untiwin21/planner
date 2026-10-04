@@ -5,7 +5,8 @@ import { addWeeks, subWeeks, parseISO, startOfWeek as dfStartOfWeek, format } fr
 import { getWeekDays, formatDate, formatMonth } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
 import { usePlanrStore } from '@/hooks/usePlanrStore'
-import { DayCard } from '@/components/weekly/DayCard'
+import { WeekOverview } from '@/components/weekly/WeekOverview'
+import { PlannerAssistantBridge } from '@/components/assistant/PlannerAssistantBridge'
 import { GoalSpanRow } from '@/components/weekly/GoalSpanRow'
 import { GoalDetail } from '@/components/goals/GoalDetail'
 import { GoalHierarchyView } from '@/components/goals/GoalHierarchyView'
@@ -23,7 +24,6 @@ import { signOut } from '@/lib/auth'
 import { DataPanel } from '@/components/settings/DataPanel'
 import { MobileLayout } from '@/components/mobile/MobileLayout'
 import { TodayDashboard } from '@/components/today/TodayDashboard'
-import { WeeklyScheduleEditor } from '@/components/weekly/WeeklyScheduleEditor'
 import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
 import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
 import { DirectionDashboard } from '@/components/direction/DirectionDashboard'
@@ -225,6 +225,7 @@ export default function Home() {
 
   return (
     <>
+    <PlannerAssistantBridge userId={userId} syncReady={syncReady} />
     <div className="md:hidden">
       <MobileLayout
         days={store.days}
@@ -277,12 +278,12 @@ export default function Home() {
               <button onClick={() => { setView('today'); setSelectedDate(formatDate(new Date())); setSelectedGoalId(null) }}
                 className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
                   view === 'today' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
-                오늘
+                플래너
               </button>
               <button onClick={() => setView('week')}
                 className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
                   view === 'week' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--text-3)] hover:text-[var(--text-2)]')}>
-                주간
+                목표·계획
               </button>
               <button onClick={() => setView('review')}
                 className={clsx('px-3 h-7 rounded-[8px] text-sm font-medium transition-all',
@@ -387,6 +388,7 @@ export default function Home() {
             {view === 'today' ? (
               <>
                   <TodayDashboard
+                    weekOverview={<WeekOverview days={store.days} goals={store.goals} selectedDate={selectedDate} onSelectDate={date => { setSelectedDate(date); setSelectedGoalId(null) }} />}
                     date={selectedDate}
                     entry={selectedEntry}
                     categories={store.categories}
@@ -547,16 +549,6 @@ export default function Home() {
 
                 {/* Weekly grid */}
                 <div>
-                  <div className="grid grid-cols-7 gap-2">
-                    {weekDays.map(date => (
-                      <DayCard key={formatDate(date)} date={date}
-                        entry={store.days.find(d => d.date === formatDate(date))}
-                        goals={store.goals}
-                        isSelected={selectedDate === formatDate(date) && !selectedGoalId}
-                        onClick={() => { setSelectedDate(formatDate(date)); setSelectedGoalId(null) }}
-                      />
-                    ))}
-                  </div>
                   <GoalSpanRow weekDays={weekDays} goalRows={goalRows} selectedGoalId={selectedGoalId}
                     onEditGoal={setEditingGoalId} />
                   <div className="mt-2 flex justify-end">
@@ -616,15 +608,7 @@ export default function Home() {
                       onDeleteNote={noteId => store.deleteGoalNote(selectedGoal.id, noteId)}
                       onReorderTasks={(catId, dId, tId) => store.reorderGoalTasks(selectedGoal.id, catId, dId, tId)}
                     />
-                  ) : (
-                    <WeeklyScheduleEditor
-                      entry={selectedEntry}
-                      onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
-                      onAddTask={(catId, text, schedule) => store.addTask(selectedDate, catId, text, schedule)}
-                      onDeleteTask={taskId => store.deleteTask(selectedDate, taskId)}
-                      onUpdateTask={(taskId, patch) => store.updateTask(selectedDate, taskId, patch)}
-                    />
-                  )}
+                  ) : <p className="text-sm text-[var(--text-3)]">목표를 선택하면 세부 계획을 확인할 수 있습니다.</p>}
                 </Card>
 
                 <MonthlyGoalCalendar

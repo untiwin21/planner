@@ -14,15 +14,6 @@ interface DayCardProps {
   onClick: () => void
 }
 
-const DOT_COLORS: Record<string, string> = {
-  purple: 'bg-[var(--purple)]',
-  teal: 'bg-[var(--teal)]',
-  amber: 'bg-[var(--amber)]',
-  coral: 'bg-[var(--coral)]',
-  blue: 'bg-[var(--blue)]',
-  red: 'bg-[var(--red)]',
-}
-
 const LEVEL_EMOJI: Record<number, string> = { 1: '😞', 2: '😕', 3: '😐', 4: '🙂', 5: '😄' }
 
 export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProps) {
@@ -33,16 +24,18 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
 
   // Schedule + deadline tasks — sorted by time, then alphabetically; deadlines always visible
   const schedules = tasks
-    .filter(t => t.category_id === SCHEDULE_CAT_ID || t.category_id === DEADLINE_CAT_ID)
+    .filter(t => !t.deleted_at && !t.discarded && (t.category_id === SCHEDULE_CAT_ID || t.category_id === DEADLINE_CAT_ID))
     .sort((a, b) => {
       if (a.category_id === DEADLINE_CAT_ID && b.category_id !== DEADLINE_CAT_ID) return -1
       if (a.category_id !== DEADLINE_CAT_ID && b.category_id === DEADLINE_CAT_ID) return 1
-      if (a.time && b.time) return a.time.localeCompare(b.time)
-      if (a.time) return -1
-      if (b.time) return 1
+      const aTime = a.start_time || a.time
+      const bTime = b.start_time || b.time
+      if (aTime && bTime) return aTime.localeCompare(bTime)
+      if (aTime) return -1
+      if (bTime) return 1
       return a.text.localeCompare(b.text)
     })
-    .slice(0, 4)
+
 
   // Day-native tasks that count toward progress (everything except schedule/deadline).
   const workTasks = tasks.filter(t => !isActualOnlyTask(t) && t.category_id !== SCHEDULE_CAT_ID && t.category_id !== DEADLINE_CAT_ID)
@@ -77,14 +70,11 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
   const totalCnt = progress.total
   const pct = progress.pct
 
-  const top3Ids = meta?.top3 ?? []
-  const top3 = top3Ids.length > 0
-    ? top3Ids.map(id => allCountedTasks.find(t => t.id === id)).filter(Boolean)
-    : allCountedTasks.filter(t => !t.done && !t.discarded).slice(0, 3)
-  const cardKeywords = meta?.cardKeywords ?? []
-
   return (
     <button
+      type="button"
+      aria-pressed={isSelected}
+      aria-label={`${formatDate(date)} 일정 ${schedules.length}개`}
       onClick={onClick}
       className={clsx(
         'relative flex flex-col w-full rounded-[14px] border transition-all duration-150 text-left overflow-hidden',
@@ -98,7 +88,7 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
       {/* Row 1: day + date */}
       <div className="flex items-start justify-between px-3 pt-3 pb-2">
         <div>
-          <span className={clsx('text-[11px] font-semibold tracking-widest uppercase block',
+          <span className={clsx('text-sm font-semibold tracking-widest uppercase block',
             isSelected || today ? 'text-[var(--purple)]' : 'text-[var(--text-3)]'
           )}>{DAY_NAMES[dayIdx]}</span>
           <span className={clsx('text-[clamp(16px,2vw,22px)] font-bold leading-none tracking-tight',
@@ -109,64 +99,37 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
       </div>
 
       {/* Row 2: schedules — grows with viewport */}
-      <div className="px-3 py-2 border-t border-[var(--border)] min-h-[2.5rem] lg:min-h-[4.5rem] xl:min-h-[5.5rem] 2xl:min-h-[7rem]">
+      <div className="px-3 py-2 border-t border-[var(--border)] h-[5rem] overflow-y-auto scrollbar-thin">
         {schedules.length > 0
           ? schedules.map(t => {
               const isDeadline = t!.category_id === DEADLINE_CAT_ID
               return (
                 <div key={t!.id} className="flex items-baseline gap-1 leading-snug">
                   {isDeadline ? (
-                    <span className="text-[clamp(9px,0.9vw,11px)] font-semibold text-[var(--red)] flex-shrink-0">⚠</span>
-                  ) : t!.time ? (
-                    <span className="text-[clamp(10px,1vw,13px)] font-mono text-[var(--blue)] flex-shrink-0 tabular-nums">
-                      {t!.time}
+                    <span className="text-sm font-semibold text-[var(--red)] flex-shrink-0">⚠ {t!.start_time || t!.time || ''}</span>
+                  ) : (t!.start_time || t!.time) ? (
+                    <span className="text-xs font-mono text-[var(--blue)] flex-shrink-0 tabular-nums">
+                      {t!.start_time || t!.time}
                     </span>
                   ) : null}
                   <p className={clsx(
-                    'text-[clamp(11px,1.1vw,14px)] truncate',
+                    'text-sm break-words min-w-0',
                     isDeadline ? 'text-[var(--red)] font-bold' : 'text-[var(--text-2)]',
                   )}>
-                    {t!.text.slice(0, 18)}
+                    {t!.text}
                   </p>
                 </div>
               )
             })
-          : <p className="text-[11px] text-[var(--text-3)] italic">일정 없음</p>
+          : <p className="text-sm text-[var(--text-3)] italic">일정 없음</p>
         }
-      </div>
-
-      {/* Row 3: top 3 work tasks — grows with viewport */}
-      <div className="px-3 py-2 border-t border-[var(--border)] min-h-[3.75rem] lg:min-h-[5.5rem] xl:min-h-[7rem] 2xl:min-h-[9rem]">
-        {top3.length > 0
-          ? top3.slice(0, 3).map(t => {
-              const dot = DOT_COLORS[t!.category_color ?? 'purple']
-              return (
-                <div key={t!.id} className="flex items-start gap-1.5 mb-0.5 last:mb-0">
-                  <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px]', dot, t!.done && 'opacity-25')} />
-                  <span className={clsx('text-[clamp(10px,1vw,13px)] leading-tight line-clamp-1',
-                    t!.done ? 'line-through text-[var(--text-3)]' : 'text-[var(--text-2)]',
-                  )}>{t!.text}</span>
-                </div>
-              )
-            })
-          : cardKeywords.length === 0 && <p className="text-[11px] text-[var(--text-3)] italic">할 일 없음</p>
-        }
-        {cardKeywords.length > 0 && (
-          <div className="flex flex-wrap gap-0.5 mt-1">
-            {cardKeywords.map((kw, i) => (
-              <span key={i} className="text-[clamp(8px,0.8vw,10px)] px-1.5 py-0.5 rounded-[4px] bg-[var(--purple-bg)] text-[var(--purple-text)] font-medium truncate">
-                {kw}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Row 4: progress */}
       <div className="px-3 py-2 border-t border-[var(--border)]">
         <div className="flex justify-between mb-1">
-          <span className="text-[11px] text-[var(--text-3)] font-medium">달성률</span>
-          <span className="text-[11px] text-[var(--text-3)]">{totalCnt > 0 ? `${pct}%` : '—'}</span>
+          <span className="text-sm text-[var(--text-3)] font-medium">달성률</span>
+          <span className="text-sm text-[var(--text-3)]">{totalCnt > 0 ? `${pct}%` : '—'}</span>
         </div>
         <div className="w-full h-[3px] rounded-full bg-[var(--border)]">
           <div className="h-full rounded-full transition-all duration-500"
@@ -182,8 +145,8 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
           { label: '집중력', value: meta?.focus != null ? LEVEL_EMOJI[meta.focus] : '—' },
         ].map((item, i) => (
           <div key={i} className={clsx('flex flex-col items-center py-2 gap-0.5', i > 0 && 'border-l border-[var(--border)]')}>
-            <span className="text-[9px] text-[var(--text-3)] uppercase tracking-wide">{item.label}</span>
-            <span className="text-[clamp(9px,0.9vw,11px)] font-semibold text-[var(--text-2)]">{item.value}</span>
+            <span className="text-xs text-[var(--text-3)] uppercase tracking-wide">{item.label}</span>
+            <span className="text-sm font-semibold text-[var(--text-2)]">{item.value}</span>
           </div>
         ))}
       </div>

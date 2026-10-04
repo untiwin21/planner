@@ -7,7 +7,6 @@ import { getWeekDays, formatDate, isToday, DAY_NAMES } from '@/lib/dates'
 import { tasksProgress } from '@/lib/taskProgress'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
 import type { DayEntry, ShortGoal, Task, TaskScheduleInput } from '@/types'
-import { WeeklyScheduleEditor } from '@/components/weekly/WeeklyScheduleEditor'
 import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
 import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
 
@@ -95,37 +94,6 @@ export function MobileWeekly({
         </button>
       </div>
 
-      {/* Day pills */}
-      <div className="flex overflow-x-auto scrollbar-none px-3 gap-1.5 pb-2">
-        {weekDays.map(d => {
-          const ds = formatDate(d)
-          const dayEntry = days.find(e => e.date === ds)
-          const taskCount = dayEntry?.tasks.filter(task => !isActualOnlyTask(task)).length ?? 0
-          const isSelected = selectedDate === ds
-          const isT = isToday(d)
-          const dayIdx = d.getDay() === 0 ? 6 : d.getDay() - 1
-          return (
-            <button key={ds}
-              onClick={() => onSelectDate(ds)}
-              className={clsx(
-                'flex flex-col items-center px-3 py-2 rounded-[12px] transition-all flex-shrink-0 min-w-[46px]',
-                isSelected
-                  ? 'bg-[var(--purple)] text-white'
-                  : isT
-                    ? 'bg-[var(--purple-bg)] text-[var(--purple-text)]'
-                    : 'bg-white border border-[var(--border)] text-[var(--text-2)]',
-              )}>
-              <span className="text-[10px] font-medium">{DAY_NAMES[dayIdx]}</span>
-              <span className="text-sm font-bold mt-0.5">{d.getDate()}</span>
-              {taskCount > 0 && (
-                <div className={clsx('w-1.5 h-1.5 rounded-full mt-1',
-                  isSelected ? 'bg-white/70' : 'bg-[var(--purple)]')} />
-              )}
-            </button>
-          )
-        })}
-      </div>
-
       {/* Goal spans */}
       {goalRows.length > 0 && (
         <div className="mx-4 mb-2 flex flex-col gap-1">
@@ -185,19 +153,6 @@ export function MobileWeekly({
 
       {/* Divider */}
       <div className="border-t border-[var(--border)] mx-4 my-2" />
-
-      {/* Weekly input stays focused on schedules and deadlines. */}
-      <div className="mx-4">
-        <WeeklyScheduleEditor
-        key={selectedDate}
-        compact
-        entry={entry}
-        onToggleTask={taskId => onToggleTask(selectedDate, taskId)}
-        onAddTask={(catId, text, schedule) => onAddTask(selectedDate, catId, text, schedule)}
-        onUpdateTask={(taskId, patch) => onUpdateTask(selectedDate, taskId, patch)}
-        onDeleteTask={taskId => onDeleteTask(selectedDate, taskId)}
-        />
-      </div>
 
       <div className="mx-4 mt-4 overflow-x-auto rounded-[18px]">
         <div className="min-w-[700px]">

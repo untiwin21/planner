@@ -25,9 +25,11 @@ import { formatDate } from '@/lib/dates'
 import { isRoutineScheduledOn, isTimedRoutine, routineConfig } from '@/lib/routineSchedule'
 import { RoutineManagerDialog } from '@/components/routine/RoutineManagerDialog'
 import { DayReviewPanel } from '@/components/today/DayReviewPanel'
-import { JarvisReviewPanel } from '@/components/today/JarvisReviewPanel'
+import { WeekOverview } from '@/components/weekly/WeekOverview'
+import { AssistantReviewPanel } from '@/components/today/AssistantReviewPanel'
 
 interface Props {
+  days: DayEntry[]
   date: string
   entry: DayEntry
   categories: Category[]
@@ -149,6 +151,7 @@ export function MobileToday(props: Props) {
     goals,
     routines,
     logs,
+    days,
     onDateChange,
     onToggleTask,
     onAddTask,
@@ -285,22 +288,11 @@ export function MobileToday(props: Props) {
           <button type="button" onClick={() => onDateChange(formatDate(addDays(selectedDate, 1)))} className="h-9 w-9 rounded-full flex items-center justify-center text-[var(--text-3)] active:bg-[var(--surface-2)]" aria-label="다음 날짜"><ChevronRight size={18} /></button>
         </div>
 
-        <div className="grid grid-cols-7 gap-1 mt-3">
-          {weekDays.map((day, index) => {
-            const dayKey = formatDate(day)
-            const selected = dayKey === date
-            return (
-              <button key={dayKey} type="button" onClick={() => onDateChange(dayKey)} className="flex flex-col items-center gap-1 py-1">
-                <span className={clsx('text-[10px]', selected ? 'font-bold text-[var(--purple)]' : 'text-[var(--text-3)]')}>{WEEKDAY_SHORT[index]}</span>
-                <span className={clsx('h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold', selected ? 'bg-[var(--purple)] text-white' : 'text-[var(--text-2)]')}>{day.getDate()}</span>
-              </button>
-            )
-          })}
-        </div>
       </header>
 
       <main className="px-4 pt-4">
-        <JarvisReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} />
+        <WeekOverview days={days} goals={goals} selectedDate={date} onSelectDate={onDateChange} />
+        <AssistantReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} />
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold text-[var(--text-3)]">{face === 'tasks' ? 'TODAY TASKS' : 'MY ROUTINES'}</p>

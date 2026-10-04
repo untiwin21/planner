@@ -125,7 +125,14 @@ export interface JarvisReview {
   jarvis_id?: string
 }
 
+export interface AssistantReview {
+  content: string
+  updated_at: number
+  source: 'chatgpt' | 'manual'
+}
+
 export interface DayMeta {
+  assistantReview?: AssistantReview
   sleep: number | null
   condition: number | null
   focus: number | null

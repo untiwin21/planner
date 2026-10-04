@@ -10,8 +10,8 @@ interface Props {
 }
 
 const TABS: { id: MobileTab; label: string; Icon: React.ElementType }[] = [
-  { id: 'today',  label: '오늘',  Icon: Sun },
-  { id: 'weekly', label: '주간',  Icon: CalendarDays },
+  { id: 'today',  label: '플래너',  Icon: Sun },
+  { id: 'weekly', label: '계획', Icon: CalendarDays },
   { id: 'goals',  label: '목표',  Icon: Target },
   { id: 'review', label: '회고',  Icon: BookOpen },
 ]

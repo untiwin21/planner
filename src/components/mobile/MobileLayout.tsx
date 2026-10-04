@@ -61,6 +61,7 @@ export function MobileLayout({
         {activeTab === 'today' && (
           <MobileToday
             key={selectedDate}
+            days={days}
             date={selectedDate}
             entry={todayEntry}
             categories={categories}
