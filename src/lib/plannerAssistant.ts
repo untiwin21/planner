@@ -25,7 +25,7 @@ function assertVersion(input: Input, task: Task) {
   }
 }
 /** Each runner owns its client, account and queue; server calls cannot change browser identity. */
-export function createAssistantRunner(supabase: typeof import('./supabase').supabase, ownerId?: string, onSaved?: () => void) {
+export function createAssistantRunner(supabase: typeof import('./supabase').supabase, ownerId?: string, onSaved?: () => void, bodyCas = false) {
   async function identity() {
     if (ownerId) return ownerId
     if (!supabase) throw new Error('실제 계정 저장을 위해 Planner에 로그인해야 합니다.')
@@ -56,8 +56,12 @@ export function createAssistantRunner(supabase: typeof import('./supabase').supa
       }
       const next = await transform(current)
       if (previous) {
-        const { data, error } = await supabase!.from('day_entries').update({ meta: next.meta }).eq('user_id', userId)
-          .eq('id', previous.id).eq('meta', JSON.stringify(previous.meta)).select('id')
+        const { data, error } = bodyCas
+          ? await supabase!.rpc('planner_compare_and_swap_day', {
+            p_user_id: userId, p_day_id: previous.id, p_expected: previous.meta, p_next: next.meta,
+          })
+          : await supabase!.from('day_entries').update({ meta: next.meta }).eq('user_id', userId)
+            .eq('id', previous.id).eq('meta', JSON.stringify(previous.meta)).select('id')
         if (error) throw new Error(error.message)
         if (!data?.length) continue
       } else {

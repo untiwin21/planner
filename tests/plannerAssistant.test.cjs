@@ -95,5 +95,21 @@ const { upsertDayEntry } = load(path.resolve('src/lib/syncService.ts'), true)
   await serverRun('planner_save_task', { date: '2026-10-05', task_id: 'server-task', text: '서버 전용 항목', kind: 'schedule' })
   assert.deepEqual(rows.find(r => r.user_id === 'owner' && r.date === '2026-10-05'), before, 'injected account cannot change browser account')
   assert.equal(rows.find(r => r.user_id === 'other-owner').meta._tasks[0].id, 'server-task', 'server runner works without window')
+  let rpcCalls = 0
+  const rpcDb = { ...db, async rpc(name, args) {
+    assert.equal(name, 'planner_compare_and_swap_day')
+    assert.equal(typeof args.p_expected, 'object', 'snapshot travels as JSON body')
+    rpcCalls++
+    if (rpcCalls === 1) rows[0].meta.notes = ['concurrent note', 'x'.repeat(20000)]
+    const row = rows.find(r => r.id === args.p_day_id && r.user_id === args.p_user_id)
+    if (!row || JSON.stringify(row.meta) !== JSON.stringify(args.p_expected)) return { data: [], error: null }
+    row.meta = clone(args.p_next)
+    return { data: [{ id: row.id }], error: null }
+  } }
+  const bodyRun = createAssistantRunner(rpcDb, 'owner', undefined, true)
+  await bodyRun('planner_save_task', { date: '2026-10-05', task_id: 'large-history', text: '본문 CAS', kind: 'deadline' })
+  assert.equal(rpcCalls, 2, 'RPC CAS retries a concurrent edit')
+  assert.equal(rows[0].meta.notes[0], 'concurrent note', 'large histories and concurrent notes are preserved')
+  assert.ok(rows[0].meta._tasks.some(t => t.id === 'large-history'))
   console.log('PASS: conflict rejection, boundaries, midnight, stale edits, delete/restore, feedback, CAS retry, cross-device merge, legacy preservation, failed-save reporting')
 })().catch(error => { console.error(error); process.exitCode = 1 })

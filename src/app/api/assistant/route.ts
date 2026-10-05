@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     if (Object.keys(parsed.input).some(k => !(k in tool.properties))) throw new Error('Invalid input field')
     const { url, key, owner } = result.config!
     const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
-    const run = createAssistantRunner(client, owner)
+    const run = createAssistantRunner(client, owner, undefined, true)
     const output = await run(tool.name as AssistantToolName, parsed.input)
     return reply(output)
   } catch {
