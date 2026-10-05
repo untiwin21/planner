@@ -99,3 +99,35 @@ ChatGPT 피드백은 요청할 때 기록합니다. 예전 자비스 자동화 �
 저장되어 이후 자비스 기록에 덮어써지지 않습니다.
 
 검증: `node tests/plannerAssistant.test.cjs` 및 `npm run build`.
+
+
+## 브라우저 없는 비서 연결 (서버 API)
+
+`POST /api/assistant`는 Google 로그인이나 열린 브라우저 없이 위와 같은 도구를 실행한다.
+기본 상태는 비활성(503)이며, 인증되지 않은 요청은 401이다. 계정 ID는 서버 설정에서만
+선택되며 요청의 `user_id`/SQL/임의 도구/임의 입력 필드는 거부한다. 원본 서비스 키와
+비서 토큰은 브라우저, 저장소, 채팅, URL, 로그에 넣지 않는다.
+
+운영 Vercel 프로젝트에 다음 **서버 전용 / Production 전용** 환경변수를 설정하고 재배포한다.
+
+- `SUPABASE_SERVICE_ROLE_KEY`: 해당 Planner Supabase 프로젝트의 서버 서비스 키.
+  서버 내부에서만 사용한다. 이 키 자체는 관리자 권한이므로 클라이언트에 전달하지 않는다.
+- `PLANNER_ASSISTANT_USER_ID`: Supabase Authentication에서 확인한 Planner 소유자 계정
+  `twws137701@gmail.com`의 UUID. 계정이 다르면 설정하지 않는다.
+- `PLANNER_ASSISTANT_TOKEN_SHA256`: 별도 생성한 32바이트 이상 무작위 base64url 비서 토큰의
+  SHA-256 (64자리 hex). 서버는 원본 토큰 대신 해시만 저장한다.
+
+원본 토큰은 실행기의 보안 비밀 저장소에 `PLANNER_ASSISTANT_TOKEN`으로 보관한다.
+다른 대화와 자동 브리핑 실행기도 이 보안 설정에 접근할 수 있도록 별도로 연결해야 한다.
+코드 배포만으로 ChatGPT에 새로운 커넥터나 자격증명이 자동으로 설치되지는 않는다.
+토큰 폐기는 Vercel에서 해시를 제거하거나 교체한 후 재배포하는 방식이다.
+
+인증된 `GET /api/assistant`는 도구 목록과 준비 상태를 반환한다. 실제 데이터 연결 확인에는
+`planner_read`를 반드시 사용한다. 준비 상태만으로 DB 저장 성공을 판단하지 않는다.
+명령 본문은 `{ "tool": "planner_read", "input": { "from": "2026-10-05", "to": "2026-10-05" } }`
+형식이다. `scripts/planner-assistant.mjs`는 stdin의 JSON 명령을 같은 API로 실행하며 토큰은
+환경변수에서만 받는다. HTTP 성공 및 `saved: true`를 확인하고 다시 조회하여 검증한다.
+수정·삭제에는 기존과 같은 `expected_updated_at`을 사용한다. 새 항목 재시도에는 같은 ID를 쓴다.
+
+인증 경계 검사: `node tests/assistantApi.test.cjs`. 기존 저장 로직 검사:
+`node tests/plannerAssistant.test.cjs`. 배포 전 `npm run build`.

@@ -46,7 +46,7 @@ function load(file, realSync = false) {
   cache[key] = module.exports
   return module.exports
 }
-const { runAssistantTool: run } = load(path.resolve('src/lib/plannerAssistant.ts'))
+const { runAssistantTool: run, createAssistantRunner } = load(path.resolve('src/lib/plannerAssistant.ts'))
 const { findScheduleConflicts: conflicts, validDate } = load(path.resolve('src/lib/scheduleConflicts.ts'))
 const { upsertDayEntry } = load(path.resolve('src/lib/syncService.ts'), true)
 ;(async () => {
@@ -88,5 +88,12 @@ const { upsertDayEntry } = load(path.resolve('src/lib/syncService.ts'), true)
   assert.equal(row.meta._tasks.length, 2, 'legacy tasks remain on migration')
   failure = 'network unavailable'
   await assert.rejects(run('planner_save_feedback', { date: '2026-10-05', content: '실패', expected_updated_at: rows[0].meta.assistantReview.updated_at }), /network unavailable/)
+  failure = null
+  const before = clone(rows.find(r => r.user_id === 'owner' && r.date === '2026-10-05'))
+  const serverRun = createAssistantRunner(db, 'other-owner')
+  delete global.window
+  await serverRun('planner_save_task', { date: '2026-10-05', task_id: 'server-task', text: '서버 전용 항목', kind: 'schedule' })
+  assert.deepEqual(rows.find(r => r.user_id === 'owner' && r.date === '2026-10-05'), before, 'injected account cannot change browser account')
+  assert.equal(rows.find(r => r.user_id === 'other-owner').meta._tasks[0].id, 'server-task', 'server runner works without window')
   console.log('PASS: conflict rejection, boundaries, midnight, stale edits, delete/restore, feedback, CAS retry, cross-device merge, legacy preservation, failed-save reporting')
 })().catch(error => { console.error(error); process.exitCode = 1 })

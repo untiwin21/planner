@@ -27,3 +27,14 @@ Next.js + Vercel + Supabase Auth/RLS. 사용자 지시에 따라 기존 `main`/V
 `node tests/plannerAssistant.test.cjs`로 충돌·시각 경계·자정 넘어감·동시 수정·삭제/복원·피드백·
 이전 스키마 보존·저장 실패를 검사한다. 배포 전 `npm run build`를 실행한다.
 기존 사용자 데이터나 인증을 테스트용으로 변경하지 않는다.
+
+
+## 서버 비서 연결
+
+- 서버 비서 인증 설정이 제공되면 Google 브라우저 로그인 대신 `POST /api/assistant`를 사용할 수 있다.
+- 토큰은 보안 실행 환경의 `PLANNER_ASSISTANT_TOKEN`에서만 읽으며 채팅/로그/URL/커밋에 출력하지 않는다.
+- `scripts/planner-assistant.mjs`는 stdin JSON 명령을 실행한다. 먼저 `planner_read`로 조회한다.
+- 503은 서버 인증 미설정, 401은 인증 실패이다. 설정·배포만으로 연결 완료라고 보고하지 않는다.
+- 실제 `planner_read`와 저장 후 조회로 확인한다. 브리핑 실행기에도 같은 연결이 제공돼야 한다.
+- 서버 API는 지정 계정에만 고정되며 임의 user_id나 SQL을 받지 않는다.
+- 서버 API 변경 시 `node tests/assistantApi.test.cjs`도 실행한다.

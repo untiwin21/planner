@@ -3,7 +3,7 @@ import { supabase } from './supabase'
 import type { DayEntry, Routine, RoutineLog, ShortGoal, LongGoal, Task, WeeklyReview } from '@/types'
 
 // FETCH ALL — called on app load
-export async function fetchAll(userId: string): Promise<{
+export async function fetchAll(userId: string, client = supabase): Promise<{
   days: DayEntry[]
   routines: Routine[]
   logs: RoutineLog[]
@@ -11,9 +11,9 @@ export async function fetchAll(userId: string): Promise<{
   longGoals: LongGoal[]
   weeklyReviews: Record<string, string>
 }> {
-  if (!supabase) return { days: [], routines: [], logs: [], goals: [], longGoals: [], weeklyReviews: {} }
+  if (!client) return { days: [], routines: [], logs: [], goals: [], longGoals: [], weeklyReviews: {} }
   try {
-    const db = supabase as any
+    const db = client as any
     const [
       { data: dayEntriesData, error: dayEntriesError },
       { data: tasksData, error: tasksError },
