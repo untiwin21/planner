@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const ts = require('typescript')
 const path = require('node:path')
 const cache = {}
-let rows = [], legacy = [], failure = null, race = null
+let rows = [], legacy = [], routines = [], failure = null, race = null
 const clone = value => JSON.parse(JSON.stringify(value))
 const db = { auth: { getUser: async () => ({ data: { user: { id: 'owner' } } }) }, from(table) {
   let mode = 'read', payload, filters = []
@@ -14,9 +14,13 @@ const db = { auth: { getUser: async () => ({ data: { user: { id: 'owner' } } }) 
     then(resolve, reject) {
       return Promise.resolve().then(() => {
         if (failure) return { data: null, error: { message: failure } }
-        let data = table === 'tasks' ? legacy : rows
+        let data = table === 'tasks' ? legacy : table === 'routines' ? routines : rows
         const match = row => filters.every(([k, v]) => k === 'meta' ? JSON.stringify(row.meta) === v : row[k] === v)
         if (mode === 'insert') {
+          if (table === 'routines') {
+            if (routines.some(row => row.id === payload.id)) return { data: null, error: { code: '23505' } }
+            routines.push(clone(payload)); return { data: [], error: null }
+          }
           if (rows.some(row => row.user_id === payload.user_id && row.date === payload.date)) return { data: null, error: { code: '23505' } }
           rows.push(clone(payload)); return { data: [], error: null }
         }
@@ -50,6 +54,17 @@ const { runAssistantTool: run, createAssistantRunner } = load(path.resolve('src/
 const { findScheduleConflicts: conflicts, validDate } = load(path.resolve('src/lib/scheduleConflicts.ts'))
 const { upsertDayEntry } = load(path.resolve('src/lib/syncService.ts'), true)
 ;(async () => {
+  const morning = { routine_id: 'morning', name: '모닝루틴', start_time: '06:30', duration_min: 30, period: 'morning', description: '양치 → 머리 감기 → 외출복 환복 → 거실 스트레칭 & 명상' }
+  await assert.rejects(run('planner_add_routine', { ...morning, duration_min: -1 }), /소요시간/)
+  await assert.rejects(run('planner_add_routine', { ...morning, days_of_week: [7] }), /요일/)
+  assert.equal(routines.length, 0)
+  const savedRoutine = await run('planner_add_routine', morning)
+  assert.equal(savedRoutine.saved, true)
+  assert.equal(routines[0].user_id, 'owner')
+  assert.deepEqual(routines[0].config.days_of_week, [0, 1, 2, 3, 4, 5, 6])
+  assert.equal(routines[0].config.duration_min, 30)
+  await assert.rejects(run('planner_add_routine', morning), /이미 등록/)
+  assert.equal(routines.length, 1, 'retry never duplicates or overwrites an existing routine')
   assert.equal(validDate('2026-02-30'), false)
   assert.equal(validDate('2026-10-04'), true)
   await run('planner_save_task', { date: '2026-10-05', task_id: 'a', text: '면접 A', kind: 'schedule', start_time: '10:00', end_time: '11:00' })

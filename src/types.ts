@@ -64,6 +64,8 @@ export interface Task {
   category_color: BadgeColor
   /** Schedule subtype used for calendar color mapping. Legacy schedule tasks default to personal. */
   schedule_type?: ScheduleType
+  /** Explicit override for the important-events weekly card. */
+  important?: boolean
   /** Legacy single start-time field kept for existing data. */
   time?: string
   /** Start/end are local wall-clock values in HH:mm format. */
