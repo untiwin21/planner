@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { mergeDayMeta, localNoteIsNewer } from './dayMetaSync'
 import { supabase } from './supabase'
 import type { DayEntry, Routine, RoutineLog, ShortGoal, LongGoal, Task, WeeklyReview } from '@/types'
 
@@ -125,17 +126,18 @@ export async function upsertDayEntry(userId: string, entry: DayEntry): Promise<v
       const existing = records.get(task.id)
       if (!existing || (task.updated_at ?? 0) >= (existing.updated_at ?? 0)) records.set(task.id, { ...task, day_id: remote.id })
     }
-    const localIsNewer = (meta?.updated_at ?? 0) >= (remoteMeta.updated_at ?? 0)
-    const mergedMeta = { ...(localIsNewer ? meta : remoteMeta), _tasks: [...records.values()] }
-    for (const key of ['assistantReview', 'jarvisReview'] as const) {
-      const localReview = meta?.[key], remoteReview = remoteMeta[key]
-      const review = !localReview ? remoteReview : !remoteReview ? localReview
-        : (localReview.updated_at ?? 0) >= (remoteReview.updated_at ?? 0) ? localReview : remoteReview
-      if (review) mergedMeta[key] = review
-    }
-    const { data, error } = await db.from('day_entries').update({ meta: mergedMeta, note: localIsNewer ? note : remote.note })
-      .eq('id', remote.id).eq('user_id', userId).eq('meta', JSON.stringify(remoteMeta)).select('id')
-    if (error) throw new Error(`upsertDayEntry failed: ${error.message}`)
+    const mergedMeta = { ...mergeDayMeta(meta, remoteMeta), _tasks: [...records.values()] }
+    const { data: sessionData } = await db.auth.getSession()
+    const token = sessionData.session?.access_token
+    if (!token) throw new Error('upsertDayEntry failed: sign-in required')
+    const response = await fetch('/api/sync/day', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ id: remote.id, expected: remoteMeta, next: mergedMeta,
+        note: localNoteIsNewer(meta, remoteMeta) ? note : remote.note, expectedNote: remote.note }),
+    })
+    if (!response.ok) throw new Error(`upsertDayEntry failed: sync returned ${response.status}`)
+    const { saved } = await response.json()
+    const data = saved ? [remote.id] : []
     if (data?.length) return
   }
   throw new Error('upsertDayEntry failed: concurrent edits; retry required')

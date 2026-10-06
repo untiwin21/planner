@@ -154,6 +154,7 @@ export interface DayMeta {
   // Last-write-wins timestamp (ms epoch) for non-task meta fields (sleep/condition/focus/top3/note links etc.)
   // Per-task fields use Task.updated_at directly; this covers everything else in the day entry.
   updated_at?: number
+  field_updated_at?: Record<string, number> // Independent metadata and routine entry clocks.
 }
 
 export interface DayEntry {

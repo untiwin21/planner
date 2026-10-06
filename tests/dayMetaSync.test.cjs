@@ -1,0 +1,25 @@
+const assert = require('node:assert/strict'), fs = require('node:fs'), ts = require('typescript')
+const m = {exports:{}}
+new Function('exports','module', ts.transpileModule(fs.readFileSync('src/lib/dayMetaSync.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(m.exports,m)
+const {stampDayMeta:stamp,mergeDayMeta:merge}=m.exports
+const base={sleep:null,condition:null,focus:null,top3:[],updated_at:100}
+const laptop=stamp(base,{...base,sleep:450,routineTimes:{morning:'06:30'}},200)
+const pc=stamp(base,{...base,condition:4,routineTimes:{exercise:'18:00'}},300)
+const both=merge(laptop,pc)
+assert.equal(both.sleep,450); assert.equal(both.condition,4)
+assert.deepEqual(both.routineTimes,{morning:'06:30',exercise:'18:00'})
+assert.deepEqual(merge(pc,laptop),both,'merge converges regardless of device order')
+const erased=stamp(both,{...both,sleep:null,routineTimes:{exercise:'18:00'}},400)
+const stale=stamp(laptop,{...laptop,focus:5},500)
+const next=merge(erased,stale)
+assert.equal(next.sleep,null,'explicit clearing survives stale device edits')
+assert.equal(next.routineTimes.morning,undefined,'routine removal tombstone survives')
+assert.equal(next.condition,4); assert.equal(next.focus,5)
+assert.deepEqual(merge(both,both),both,'repeated sync is stable')
+const legacy={...base,sleep:480,updated_at:150}
+assert.equal(merge(legacy,laptop).sleep,450,'legacy snapshot remains compatible')
+const actualA=stamp(base,{...base,routineActual:{a:{start:'08:00',end:'08:30'}}},200)
+const actualB=stamp(base,{...base,routineActual:{b:{start:'09:00',end:'09:30'}}},300)
+assert.equal(Object.keys(merge(actualA,actualB).routineActual).length,2)
+assert.equal(merge({...pc,assistantReview:{updated_at:600,text:'new'}},laptop).assistantReview.text,'new')
+console.log('PASS: two-device sleep/condition/timeline merge, clears, legacy, feedback, convergence')

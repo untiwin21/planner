@@ -5,7 +5,7 @@ const path = require('node:path')
 const cache = {}
 let rows = [], legacy = [], routines = [], failure = null, race = null
 const clone = value => JSON.parse(JSON.stringify(value))
-const db = { auth: { getUser: async () => ({ data: { user: { id: 'owner' } } }) }, from(table) {
+const db = { auth: { getSession: async () => ({data:{session:{access_token:'test-session'}}}), getUser: async () => ({ data: { user: { id: 'owner' } } }) }, from(table) {
   let mode = 'read', payload, filters = []
   const q = {
     select() { return q }, eq(k, v) { filters.push([k, v]); return q }, is(k, v) { filters.push([k, v]); return q },
@@ -33,6 +33,16 @@ const db = { auth: { getUser: async () => ({ data: { user: { id: 'owner' } } }) 
   }
   return q
 } }
+global.fetch = async (url, options) => {
+  assert.equal(url, '/api/sync/day')
+  const body = JSON.parse(options.body)
+  if (race) { const action = race; race = null; action() }
+  if (failure) return {ok:false,status:500}
+  const row = rows.find(r => r.id === body.id && r.user_id === 'owner')
+  const saved = !!row && JSON.stringify(row.meta) === JSON.stringify(body.expected)
+  if (saved) { row.meta = clone(body.next); row.note = body.note }
+  return {ok:true,json:async()=>({saved})}
+}
 global.window = { dispatchEvent() {} }
 const snapshot = async () => ({ days: rows.map(row => { const { _tasks = [], ...meta } = row.meta; return { ...row, meta, tasks: _tasks.filter(t => !t.deleted_at), task_tombstones: _tasks.filter(t => t.deleted_at), categories: [] } }), goals: [], routines: [], logs: [], longGoals: [], weeklyReviews: {} })
 function load(file, realSync = false) {

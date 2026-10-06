@@ -1,6 +1,7 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { DayEntry, ShortGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, Category, Task, TaskHistoryKind, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod, TaskScheduleInput } from '@/types'
+import { mergeDayMeta, stampDayMeta, localNoteIsNewer } from '@/lib/dayMetaSync'
 import { tasksProgress } from '@/lib/taskProgress'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
@@ -190,21 +191,8 @@ function mergeDay(loc: DayEntry, rem: DayEntry): DayEntry {
   )
   const tasks = records.filter(task => !task.deleted_at)
   const taskTombstones = records.filter(task => !!task.deleted_at)
-  const lTime = loc.meta?.updated_at ?? 0
-  const rTime = rem.meta?.updated_at ?? 0
-  const baseMeta = rTime >= lTime ? rem.meta : loc.meta
-  const baseEntry = rTime >= lTime ? rem : loc
-  // JARVIS writes jarvisReview without bumping meta.updated_at, so it is merged on its own timestamp.
-  const lReview = loc.meta?.jarvisReview
-  const rReview = rem.meta?.jarvisReview
-  const jarvisReview = !lReview ? rReview : !rReview ? lReview
-    : (rReview.updated_at ?? 0) >= (lReview.updated_at ?? 0) ? rReview : lReview
-  const lAssistant = loc.meta?.assistantReview
-  const rAssistant = rem.meta?.assistantReview
-  const assistantReview = !lAssistant ? rAssistant : !rAssistant ? lAssistant
-    : rAssistant.updated_at >= lAssistant.updated_at ? rAssistant : lAssistant
-  const meta = { ...baseMeta, ...(jarvisReview ? { jarvisReview } : {}), ...(assistantReview ? { assistantReview } : {}) }
-  return { ...baseEntry, meta, tasks, task_tombstones: taskTombstones }
+  return { ...rem, note: localNoteIsNewer(loc.meta, rem.meta) ? loc.note : rem.note,
+    meta: mergeDayMeta(loc.meta, rem.meta), tasks, task_tombstones: taskTombstones }
 }
 
 function daySyncSignature(entry: DayEntry): string {
@@ -910,7 +898,7 @@ export function usePlanrStore(userId: string) {
   function upsertDay(entry: DayEntry, opts: { bumpMeta?: boolean } = {}) {
     const bump = opts.bumpMeta ?? true
     const finalEntry = bump
-      ? { ...entry, meta: { ...entry.meta, updated_at: now() } }
+      ? { ...entry, meta: stampDayMeta(getDay(entry.date).meta, entry.meta, Math.max(now(), (getDay(entry.date).meta.updated_at ?? 0) + 1), getDay(entry.date).note !== entry.note) }
       : entry
     setDays(prev => {
       const idx = prev.findIndex(d => d.date === finalEntry.date)
@@ -1448,7 +1436,7 @@ export function usePlanrStore(userId: string) {
       // slots with the new order. This keeps repeated reorders deterministic.
       let categoryCursor = 0
       const nextTasks = d.tasks.map(task => task.category_id === categoryId ? reordered[categoryCursor++] : task)
-      updatedEntry = { ...d, tasks: nextTasks, meta: { ...d.meta, updated_at: now() } }
+      updatedEntry = { ...d, tasks: nextTasks }
       return prev.map(day => day.date === date ? updatedEntry! : day)
     })
     if (userId && updatedEntry) {
