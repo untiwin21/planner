@@ -50,7 +50,7 @@ export function MobileWeekly({
       </div>
 
       <div className="mx-4 mt-3 rounded-[18px] border border-[var(--border)] bg-white p-4">
-        <WeeklySummary weekDays={weekDays} days={days} routines={routines} logs={logs} />
+        <WeeklySummary weekDays={weekDays} goals={goals} days={days} routines={routines} logs={logs} />
       </div>
 
       <div className="mx-4 mt-4 overflow-x-auto rounded-[18px]">

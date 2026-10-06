@@ -203,7 +203,7 @@ export default function Home() {
             ) : (
               <>
                 <Card className="p-5">
-                  <WeeklySummary weekDays={weekDays} days={store.days} routines={store.routines} logs={store.logs} />
+                  <WeeklySummary weekDays={weekDays} goals={store.goals} days={store.days} routines={store.routines} logs={store.logs} />
                 </Card>
                 <MonthlyGoalCalendar
                   monthBase={monthBase}
