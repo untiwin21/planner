@@ -5,6 +5,7 @@ import { CalendarClock, Check, Flag, Plus, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
 import type { DayEntry, ScheduleType, Task, TaskScheduleInput } from '@/types'
 import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
+import { isImportantSchedule } from '@/lib/importantSchedule'
 
 interface Props {
   entry: DayEntry
@@ -117,6 +118,11 @@ export function WeeklyScheduleEditor({ entry, onAddTask, onUpdateTask, onDeleteT
           />
         )}
         {!schedule && !task.start_time && <span className="shrink-0 text-[10px] font-semibold text-[var(--red-text)]">시간 미정</span>}
+        <label className="flex shrink-0 items-center gap-1 text-xs text-[var(--text-2)]">
+          <input type="checkbox" aria-label={`${task.text} 중요 일정`} checked={isImportantSchedule(task)}
+            onChange={event => onUpdateTask(task.id, { important: event.target.checked })} />
+          중요
+        </label>
         <input
           aria-label={`${task.text} 내용`}
           value={task.text}

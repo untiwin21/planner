@@ -5,6 +5,7 @@ import { tasksProgress } from '@/lib/taskProgress'
 import type { DayEntry, ShortGoal, Task } from '@/types'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
+import { isImportantSchedule } from '@/lib/importantSchedule'
 
 interface DayCardProps {
   date: Date
@@ -22,9 +23,9 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
   const tasks = entry?.tasks ?? []
   const meta = entry?.meta
 
-  // Schedule + deadline tasks — sorted by time, then alphabetically; deadlines always visible
+  // Important commitments only; the full day view still shows all schedules.
   const schedules = tasks
-    .filter(t => !t.deleted_at && !t.discarded && (t.category_id === SCHEDULE_CAT_ID || t.category_id === DEADLINE_CAT_ID))
+    .filter(isImportantSchedule)
     .sort((a, b) => {
       if (a.category_id === DEADLINE_CAT_ID && b.category_id !== DEADLINE_CAT_ID) return -1
       if (a.category_id !== DEADLINE_CAT_ID && b.category_id === DEADLINE_CAT_ID) return 1
@@ -74,7 +75,7 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
     <button
       type="button"
       aria-pressed={isSelected}
-      aria-label={`${formatDate(date)} 일정 ${schedules.length}개`}
+      aria-label={`${formatDate(date)} 중요 일정 ${schedules.length}개`}
       onClick={onClick}
       className={clsx(
         'relative flex flex-col w-full rounded-[14px] border transition-all duration-150 text-left overflow-hidden',
@@ -121,7 +122,7 @@ export function DayCard({ date, entry, goals, isSelected, onClick }: DayCardProp
                 </div>
               )
             })
-          : <p className="text-sm text-[var(--text-3)] italic">일정 없음</p>
+          : <p className="text-sm text-[var(--text-3)] italic">중요 일정 없음</p>
         }
       </div>
 
