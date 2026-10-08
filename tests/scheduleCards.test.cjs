@@ -83,3 +83,9 @@ assert.deepEqual(fourWeekCards(history,'2026-10-08').map(c=>c.id),['today'])
 assert.ok(history.some(c=>c.id==='yesterday'),'display filtering preserves history and prerequisite sources')
 const pastWindow = {...uncertain[0], details:{timing:'window'},from:'2026-10-05',to:'2026-10-07',goal:undefined}
 assert.deepEqual(uncertainFourWeekCards([pastWindow],'2026-10-08'),[])
+
+const {calendarWeekLabel} = load(path.resolve('src/lib/scheduleCards.ts'))
+assert.equal(calendarWeekLabel('2026-10-05'),'10월 2주차')
+assert.equal(calendarWeekLabel('2026-10-12'),'10월 3주차')
+assert.equal(calendarWeekLabel('2026-10-26'),'10월 5주차')
+assert.equal(calendarWeekLabel('2026-11-02'),'11월 2주차')
