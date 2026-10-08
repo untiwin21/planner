@@ -52,6 +52,9 @@ export interface TaskHistoryEvent {
 }
 
 export interface ScheduleDetails {
+  /** Unknown dates stay outside the dated planner; windows are not appointments. */
+  timing?: 'exact' | 'window' | 'undated'
+  date_label?: string
   /** A deadline is a completion cutoff, never an occupied time interval. */
   kind?: 'event' | 'deadline'
   due_time?: string

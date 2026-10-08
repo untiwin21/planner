@@ -22,6 +22,8 @@ interface Props {
   onUpdateGoal: (goalId: string, patch: Partial<ShortGoal>) => void
 }
 
+import { isStandaloneScheduleCard } from '@/lib/scheduleCards'
+
 export function MobileWeekly({
   selectedDate, days, goals, routines, logs,
   onSelectDate,
@@ -56,7 +58,7 @@ export function MobileWeekly({
       </div>
 
       <div className="mx-4 mt-3 rounded-[18px] border border-[var(--border)] bg-white p-4">
-        <WeeklySummary weekDays={weekDays} goals={goals} days={days} routines={routines} logs={logs} />
+        <WeeklySummary weekDays={weekDays} goals={goals.filter(g => !isStandaloneScheduleCard(g))} days={days} routines={routines} logs={logs} />
       </div>
 
 

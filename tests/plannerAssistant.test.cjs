@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const ts = require('typescript')
 const path = require('node:path')
 const cache = {}
-let rows = [], legacy = [], routines = [], failure = null, race = null
+let rows = [], legacy = [], routines = [], goals = [], failure = null, race = null
 const clone = value => JSON.parse(JSON.stringify(value))
 const db = { auth: { getSession: async () => ({data:{session:{access_token:'test-session'}}}), getUser: async () => ({ data: { user: { id: 'owner' } } }) }, from(table) {
   let mode = 'read', payload, filters = []
@@ -14,9 +14,10 @@ const db = { auth: { getSession: async () => ({data:{session:{access_token:'test
     then(resolve, reject) {
       return Promise.resolve().then(() => {
         if (failure) return { data: null, error: { message: failure } }
-        let data = table === 'tasks' ? legacy : table === 'routines' ? routines : rows
-        const match = row => filters.every(([k, v]) => k === 'meta' ? JSON.stringify(row.meta) === v : row[k] === v)
+        let data = table === 'tasks' ? legacy : table === 'routines' ? routines : table === 'short_goals' ? goals : rows
+        const match = row => filters.every(([k, v]) => ['meta','categories'].includes(k) ? JSON.stringify(row[k]) === v : row[k] === v)
         if (mode === 'insert') {
+          if (table === 'short_goals') { goals.push(clone(payload)); return {data:[],error:null} }
           if (table === 'routines') {
             if (routines.some(row => row.id === payload.id)) return { data: null, error: { code: '23505' } }
             routines.push(clone(payload)); return { data: [], error: null }
@@ -44,7 +45,7 @@ global.fetch = async (url, options) => {
   return {ok:true,json:async()=>({saved})}
 }
 global.window = { dispatchEvent() {} }
-const snapshot = async () => ({ days: rows.map(row => { const { _tasks = [], ...meta } = row.meta; return { ...row, meta, tasks: _tasks.filter(t => !t.deleted_at), task_tombstones: _tasks.filter(t => t.deleted_at), categories: [] } }), goals: [], routines: [], logs: [], longGoals: [], weeklyReviews: {} })
+const snapshot = async () => ({ days: rows.map(row => { const { _tasks = [], ...meta } = row.meta; return { ...row, meta, tasks: _tasks.filter(t => !t.deleted_at), task_tombstones: _tasks.filter(t => t.deleted_at), categories: [] } }), goals: clone(goals), routines: [], logs: [], longGoals: [], weeklyReviews: {} })
 function load(file, realSync = false) {
   const key = file + realSync
   if (cache[key]) return cache[key]
@@ -156,5 +157,18 @@ const { upsertDayEntry } = load(path.resolve('src/lib/syncService.ts'), true)
   assert.ok(cutoffRead.schedule_card_policy.deadline.includes('60분'))
   assert.equal(cutoffRead.days[0].tasks[0].schedule_details.due_time,'23:59')
   await assert.rejects(run('planner_save_task',{date:'2026-10-16',task_id:'bad-kind',text:'잘못된 마감',kind:'schedule',schedule_details:{kind:'deadline'}}),/일치/)
+  const pendingCard = {card_id:'pending',title:'후속 면접',schedule_details:{timing:'undated',visibility:'public',result:'unknown'}}
+  assert.equal((await run('planner_add_schedule_card',pendingCard)).saved,true)
+  assert.equal((await run('planner_add_schedule_card',pendingCard)).existing,true)
+  assert.equal(goals.length,1,'idempotent creation does not duplicate cards')
+  assert.equal(goals[0].user_id,'owner')
+  await assert.rejects(run('planner_add_schedule_card',{...pendingCard,date_from:'2026-10-08'}),/미정/)
+  await assert.rejects(run('planner_set_card_result',{card_id:'pending',result:'failed',expected_categories:[]}),/변경된/)
+  const expected = clone(goals[0].categories)
+  assert.equal((await run('planner_set_card_result',{card_id:'pending',result:'failed',expected_categories:expected})).saved,true)
+  const pendingRead = await run('planner_read',{from:'2026-01-01',to:'2026-01-02'})
+  assert.equal(pendingRead.goals[0].id,'pending','undated cards remain readable outside internal anchor range')
+  assert.equal(pendingRead.schedule_cards.find(c=>c.id==='pending').discardedBy,'pending')
+  await assert.rejects(serverRun('planner_set_card_result',{card_id:'pending',result:'passed',expected_categories:goals[0].categories}),/찾을 수/)
   console.log('PASS: conflict rejection, boundaries, midnight, stale edits, delete/restore, feedback, CAS retry, cross-device merge, legacy preservation, failed-save reporting')
 })().catch(error => { console.error(error); process.exitCode = 1 })

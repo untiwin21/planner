@@ -39,6 +39,8 @@ interface Props {
   updateGoal: (goalId: string, patch: Partial<ShortGoal>) => void
 }
 
+import { isStandaloneScheduleCard } from '@/lib/scheduleCards'
+
 export function MobileLayout({
   days, goals, longGoals, categories, routines, logs,
   getDay, toggleTask, addTask, updateTask, deleteTask, updateMeta,
@@ -63,7 +65,7 @@ export function MobileLayout({
             date={selectedDate}
             entry={todayEntry}
             categories={categories}
-            goals={goals}
+            goals={goals.filter(g => !isStandaloneScheduleCard(g))}
             longGoals={longGoals}
             routines={routines}
             logs={logs}

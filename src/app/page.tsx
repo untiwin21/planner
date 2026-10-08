@@ -18,6 +18,8 @@ import { TodayDashboard } from '@/components/today/TodayDashboard'
 import { FourWeekScheduleCards } from '@/components/weekly/FourWeekScheduleCards'
 import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
 
+import { isStandaloneScheduleCard } from '@/lib/scheduleCards'
+
 export default function Home() {
   const userId = useUserId()
   const [user, setUser] = useState<any>(null)
@@ -35,6 +37,7 @@ export default function Home() {
 
 
   const { syncReady, ...store } = usePlanrStore(userId)
+  const planGoals = store.goals.filter(g => !isStandaloneScheduleCard(g))
   const weekDays = useMemo(() => getWeekDays(weekBase), [weekBase])
   const selectedEntry = store.getDay(selectedDate)
   const editingGoal = editingGoalId ? store.goals.find(g => g.id === editingGoalId) ?? null : null
@@ -171,11 +174,11 @@ export default function Home() {
             {view === 'today' ? (
               <>
                   <TodayDashboard
-                    weekOverview={<WeekOverview days={store.days} goals={store.goals} selectedDate={selectedDate} onSelectDate={date => { setSelectedDate(date) }} />}
+                    weekOverview={<WeekOverview days={store.days} goals={planGoals} selectedDate={selectedDate} onSelectDate={date => { setSelectedDate(date) }} />}
                     date={selectedDate}
                     entry={selectedEntry}
                     categories={store.categories}
-                    goals={store.goals}
+                    goals={planGoals}
                     longGoals={store.longGoals}
                     onDateChange={date => { setSelectedDate(date) }}
                     onToggleTask={taskId => store.toggleTask(selectedDate, taskId)}
@@ -212,7 +215,7 @@ export default function Home() {
                   onEditGoal={setEditingGoalId}
                 />
                 <Card className="p-5">
-                  <WeeklySummary weekDays={weekDays} goals={store.goals} days={store.days} routines={store.routines} logs={store.logs} />
+                  <WeeklySummary weekDays={weekDays} goals={planGoals} days={store.days} routines={store.routines} logs={store.logs} />
                 </Card>
               </>
             )}

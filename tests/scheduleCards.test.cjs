@@ -44,3 +44,20 @@ assert.equal(cutoffCards[1].from,'2026-10-20','plan deadline appears at its end 
 assert.deepEqual(fourWeekCards(cutoffCards,'2026-10-21'),[],'expired plan is not shown as ongoing deadline')
 assert.throws(()=>validateScheduleDetails({kind:'deadline',due_time:'25:00'}))
 console.log('PASS: 28-day boundaries, ongoing plans, hidden records, pass vs completion, missing dependencies, unsafe links, unknown dates')
+
+const chainGoals = [
+ {id:'root',title:'root',date_from:'2026-10-08',date_to:'2026-10-08',categories:[{id:'__schedule_details__',details:{timing:'undated',result:'failed'}}]},
+ {id:'leaf',title:'leaf',date_from:'2026-10-08',date_to:'2026-10-08',categories:[{id:'__schedule_details__',details:{timing:'window',dependencies:[{id:'middle',requirement:'passed'}],result:'passed'}}]},
+ {id:'middle',title:'middle',date_from:'2026-10-08',date_to:'2026-10-08',categories:[{id:'__schedule_details__',details:{timing:'undated',dependencies:[{id:'root',requirement:'passed'}]}}]},
+ {id:'unrelated',title:'unrelated',date_from:'2026-10-08',date_to:'2026-10-08',categories:[]},
+]
+const failedChain = scheduleCards([],chainGoals)
+assert.equal(failedChain.find(c=>c.id==='leaf').discardedBy,'root','failure reaches descendants regardless of ordering')
+assert.deepEqual(fourWeekCards(failedChain,'2026-10-08').map(c=>c.id),['unrelated'])
+assert.equal(dependencyState({details:{dependencies:[{id:'leaf',requirement:'passed'}]}},failedChain)[0].satisfied,false,'archived passed stage cannot satisfy next stage')
+chainGoals[0].categories[0].details.result='unknown'
+const restored = scheduleCards([],chainGoals)
+assert.equal(restored.find(c=>c.id==='leaf').discardedBy,undefined,'correcting result restores descendants')
+assert.ok(!fourWeekCards(restored,'2026-10-08').some(c=>c.id==='middle'),'undated cards never become appointments')
+assert.throws(()=>validateScheduleDetails({timing:'guessed'}))
+console.log('PASS: recursive failure, restoration, undated exclusion, archived prerequisite')

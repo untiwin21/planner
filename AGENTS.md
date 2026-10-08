@@ -60,3 +60,14 @@ Next.js + Vercel + Supabase Auth/RLS. 사용자 지시에 따라 기존 `main`/V
 - deadline은 시간 구간/60분 활동이 아니다. `kind=deadline`, `fixed=false`, 선택 마감시각은 `schedule_details.due_time`, 시간 미정이면 날짜만 저장한다. 준비 작업은 별도 task로 만든다.
 - 단기계획의 마감 카드는 종료일 date_to에 표시한다. 기존 시작일/종료일을 보존한다.
 - 목표·계획의 화면 순서는 4주 일정 카드 → 이번 주 요약이다. 오늘 회고 Keep/Problem/Try는 ChatGPT 피드백 바로 아래다.
+
+
+## 조건부 채용 일정과 날짜 미정 카드 (2026-10-08)
+
+- 채용 대상을 조사할 때 Notion 2026/2026 하반기 취업 준비/서류 DB에서 진행상황이 서류 불합격, 서류, 공란인 회사는 제외한다. 이번 대상: 포스코, 두산에너빌리티, LG전자, LIG넥스원, LG CNS, LS엠트론. 각 카드 상세의 Notion 원문과 공식 안내를 우선 확인한다.
+- 확정 시험/면접은 Task, 제출 마감은 deadline. 공지된 월/주/기간은 planner_add_schedule_card의 timing=window, 원문 표현은 date_label에 저장한다. 개인 면접일은 추정하지 않는다.
+- 발표 전 후속 전형/마감은 timing=undated로 date_from/date_to 없이 등록한다. DB 내부 날짜는 스키마 호환용이며 실제 일정이 아니다. 미정/기간 카드는 일반 목표와 오늘 할 일, 주간 통계에서 분리한다.
+- 각 회사 단계는 dependencies=[{id:선행카드ID,requirement:passed}]로 연결한다. 포스코는 PAT I/PAT II 모두 충족해야 한다. 출석/응시 완료는 합격이 아니다.
+- planner_read.schedule_cards의 discardedBy는 불합격이 전파된 원본 카드 ID다. 결과 failed를 저장하면 모든 후속 단계가 재귀적으로 일정에서 제외되고 폐기 기록에 보관된다. 결과 정정은 복구한다. 미확인/누락된 선행 일정은 임의로 불합격 처리하지 않는다.
+- Task 결과는 planner_save_task와 expected_updated_at, 기간/미정 카드 결과는 planner_set_card_result와 최신 goals.categories를 expected_categories로 사용한다. 채팅에서 불합격을 알려주면 해당 단계 결과를 먼저 저장하고 이후 전형의 제외 여부를 실제 다시 조회한다.
+- Notion과 Planner의 지속 자동 감시는 별도로 구성한 경우에만 동작한다. 노션의 상태가 바뀌었다는 확인 없이 탈락을 추정하거나 지속 감시 중이라고 말하지 않는다.

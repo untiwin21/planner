@@ -31,6 +31,8 @@ export function FourWeekScheduleCards({ days, goals, onUpdateTask, onUpdateGoal,
   useEffect(() => { const timer = setInterval(() => setToday(koreaToday()), 60000); return () => clearInterval(timer) }, [])
   const cards = useMemo(() => scheduleCards(days, goals), [days, goals])
   const visible = fourWeekCards(cards, today)
+  const undated = cards.filter(c => c.details.timing === 'undated' && !c.discardedBy)
+  const archived = cards.filter(c => c.discardedBy)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const selected = cards.find(card => card.id === selectedId)
@@ -50,10 +52,12 @@ export function FourWeekScheduleCards({ days, goals, onUpdateTask, onUpdateGoal,
       const week = visible.filter(c => (c.from < today ? today : c.from) >= from && (c.from < today ? today : c.from) <= to)
       return <div key={from}><div className="mb-2 flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">{i + 1}주차</h3><span className="text-sm text-[var(--text-3)]">{dateLabel(from)} ~ {dateLabel(to)}</span></div>
         {week.length ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{week.map(card => <button key={card.id} aria-label={`${card.title} · ${card.kind === 'deadline' ? '데드라인' : card.visibility === 'public' ? '공식 일정' : '개인 일정'} · ${card.from}`} type="button" onClick={() => setSelectedId(card.id)} className={`min-h-28 rounded-xl border p-4 text-left transition hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${card.kind === 'deadline' ? deadlineStyle : card.visibility === 'public' ? publicStyle : privateStyle}`}>
-          <span className="block break-words text-base font-bold">{card.title}</span><span className="mt-2 block text-sm">{dateLabel(card.from)}{card.to !== card.from && ` ~ ${dateLabel(card.to)}`}{card.kind === 'deadline' && ` ${card.details.due_time || ''}까지`}</span>
+          <span className="block break-words text-base font-bold">{card.title}</span><span className="mt-2 block text-sm">{card.details.timing === 'undated' ? '일정 미정' : card.details.timing === 'window' ? (card.details.date_label ?? `${dateLabel(card.from)} ~ ${dateLabel(card.to)}`) + ' · 예정' : dateLabel(card.from)}{!card.details.timing && card.to !== card.from && ` ~ ${dateLabel(card.to)}`}{card.kind === 'deadline' && ` ${card.details.due_time || ''}까지`}</span>
         </button>)}</div> : <p className="rounded-xl bg-[var(--surface-2)] px-4 py-3 text-sm text-[var(--text-3)]">등록된 일정이 없습니다.</p>}
       </div>
     })}</div>
+    {!!undated.length && <div className="mt-6"><h3 className="mb-2 text-sm font-semibold">일정 미정</h3><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{undated.map(card => <button key={card.id} type="button" onClick={() => setSelectedId(card.id)} className={`rounded-xl border p-4 text-left ${card.kind === 'deadline' ? deadlineStyle : card.visibility === 'public' ? publicStyle : privateStyle}`}><span className="block text-base font-bold">{card.title}</span><span className="mt-2 block text-sm">일정 미정</span></button>)}</div></div>}
+    {!!archived.length && <details className="mt-5 rounded-xl border p-3"><summary className="cursor-pointer text-sm">불합격으로 폐기된 전형 ({archived.length})</summary><ul className="mt-2 space-y-2">{archived.map(card => <li key={card.id}><button type="button" onClick={() => setSelectedId(card.id)} className="text-left text-sm underline">{card.title}</button><span className="ml-2 text-sm text-gray-500">{cards.find(c => c.id === card.discardedBy)?.title} 불합격</span></li>)}</ul></details>}
     {selected && <ScheduleDetail key={selected.id} card={selected} cards={cards} onSave={details => save(selected, details)} onClose={() => setSelectedId(null)} onSelectDate={() => { onSelectDate(selected.from); setSelectedId(null) }} onEditGoal={selected.goal && onEditGoal ? () => { onEditGoal(selected.id); setSelectedId(null) } : undefined} />}
     {creating && <CreateSchedule today={today} onClose={() => setCreating(false)} onAdd={onAddGoal} onAddTask={onAddTask} />}
   </section>
@@ -86,7 +90,7 @@ function ScheduleDetail({ card, cards, onSave, onClose, onSelectDate, onEditGoal
   const [condition, setCondition] = useState('합격 확인 후')
   const time = card.task?.start_time ?? card.task?.time
   return <Dialog title={card.title} onClose={onClose}><div className="space-y-4 text-sm">
-    <p className="text-base">{details.kind === 'deadline' ? `${dateLabel(card.goal?.date_to ?? card.to)} ${details.due_time || ''}까지 완료` : <>{dateLabel(card.from)}{card.to !== card.from && ` ~ ${dateLabel(card.to)}`} · {time ? `${time}${card.task?.end_time ? `–${card.task.end_time}` : ' (종료 미정)'}` : '시간 미정'}</>}</p>
+    <p className="text-base">{details.kind === 'deadline' ? card.details.timing === 'undated' ? '마감일 미정' : `${dateLabel(card.goal?.date_to ?? card.to)} ${details.due_time || ''}까지 완료` : <>{card.details.timing === 'undated' ? '일정 미정' : card.details.timing === 'window' ? (card.details.date_label ?? `${dateLabel(card.from)} ~ ${dateLabel(card.to)}`) + ' · 예정' : dateLabel(card.from)}{!card.details.timing && card.to !== card.from && ` ~ ${dateLabel(card.to)}`} · {time ? `${time}${card.task?.end_time ? `–${card.task.end_time}` : ' (종료 미정)'}` : '시간 미정'}</>}</p>
     <label className="block">일정 유형<select className={inputStyle} value={details.kind === 'deadline' ? 'deadline' : details.visibility} onChange={e => setDetails({ ...details, kind: e.target.value === 'deadline' ? 'deadline' : 'event', ...(e.target.value === 'deadline' ? {} : { visibility: e.target.value as 'public' | 'private' }) })}><option value="deadline">데드라인 · 기한까지 완료</option><option value="public">Public · 공식 일정</option><option value="private">Private · 개인 일정</option></select></label>
     {details.kind === 'deadline' && <label className="block">마감 시각 (선택)<input type="time" className={inputStyle} value={details.due_time ?? ''} onChange={e => setDetails({ ...details, due_time: e.target.value })} /></label>}
     <label className="block">상세 내용<textarea rows={4} className={inputStyle} value={details.description ?? card.goal?.note ?? ''} onChange={e => setDetails({ ...details, description: e.target.value })} /></label>
@@ -94,6 +98,8 @@ function ScheduleDetail({ card, cards, onSave, onClose, onSelectDate, onEditGoal
     {!!card.task?.subtasks?.length && <ul className="space-y-1">{card.task.subtasks.filter(t => !t.discarded).map(t => <li key={t.id}>{t.done ? '완료' : '할 일'} · {t.text}</li>)}</ul>}
     <label className="block">원문·안내 링크<input type="url" className={inputStyle} value={details.source_url ?? ''} onChange={e => setDetails({ ...details, source_url: e.target.value })} /></label>
     {/^https?:\/\//.test(details.source_url ?? '') && <a href={details.source_url} target="_blank" rel="noopener noreferrer" className="inline-block text-blue-700 underline">안내 원문 열기</a>}
+    {card.discardedBy && <p className="rounded-lg bg-red-50 p-3 text-red-800">선행 전형 불합격으로 일정에서 제외됐습니다. 기록은 보관되며 결과를 정정하면 다시 표시됩니다.</p>}
+    <p className="text-gray-500">불합격으로 저장하면 연결된 모든 후속 전형은 일정에서 자동 제외되고 폐기 기록에 보관됩니다. 응시 완료는 합격을 뜻하지 않습니다.</p>
     <label className="block">전형 결과<select className={inputStyle} value={details.result ?? 'unknown'} onChange={e => setDetails({ ...details, result: e.target.value as ScheduleDetails['result'] })}><option value="unknown">결과 미확인</option><option value="passed">합격 확인</option><option value="failed">불합격 확인</option></select></label>
     <div><h3 className="font-semibold">먼저 충족해야 할 일정</h3><ul className="mt-2 space-y-2">{dependencies.map(dep => <li key={dep.id} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 p-2"><span>{dep.title} · {dep.requirement === 'passed' ? '합격 필요' : '완료 필요'} · {dep.satisfied ? '충족' : dep.failed ? '진행 불가' : '확인 대기'}</span><button type="button" aria-label={`${dep.title} 연결 해제`} onClick={() => setDetails({ ...details, dependencies: details.dependencies?.filter(d => d.id !== dep.id) })}>해제</button></li>)}</ul>
       {!dependencies.length && <p className="mt-1 text-gray-500">연결된 선행 일정이 없습니다.</p>}

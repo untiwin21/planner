@@ -11,12 +11,16 @@ export interface ScheduleCard {
   kind: 'event' | 'deadline'
   visibility: 'public' | 'private'
   details: ScheduleDetails
+  discardedBy?: string
   task?: Task
   goal?: ShortGoal
 }
 export const DETAILS_MARKER = '__schedule_details__'
+export function isStandaloneScheduleCard(goal: ShortGoal) {
+  return !!goal.categories?.find(c => c.id === DETAILS_MARKER)?.details?.timing
+}
 export function scheduleCards(days: DayEntry[], goals: ShortGoal[]): ScheduleCard[] {
-  return [
+  const cards: ScheduleCard[] = [
     ...days.flatMap(day => day.tasks.filter(t => !t.deleted_at && !t.discarded && !t.actual_only && [SCHEDULE_CAT_ID, DEADLINE_CAT_ID].includes(t.category_id)).map(task => ({
       id: task.id, title: task.text, kind: task.category_id === DEADLINE_CAT_ID ? 'deadline' : 'event', from: day.date, to: day.date,
       visibility: task.schedule_details?.visibility ?? (task.schedule_type === 'external' ? 'public' : 'private'),
@@ -28,16 +32,30 @@ export function scheduleCards(days: DayEntry[], goals: ShortGoal[]): ScheduleCar
         visibility: details.visibility ?? (shortGoalCategory(goal) === 'external' ? 'public' : 'private'), details, goal } as ScheduleCard
     }),
   ].sort((a, b) => a.from.localeCompare(b.from) || (a.task?.start_time ?? a.task?.time ?? '99:99').localeCompare(b.task?.start_time ?? b.task?.time ?? '99:99') || a.id.localeCompare(b.id))
+  // Fixed-point traversal propagates failure through every later stage, including
+  // completed prerequisites. Missing sources and unknown outcomes never mean failure.
+  const unavailable = new Map<string, string>()
+  for (const card of cards) if (card.details.result === 'failed') unavailable.set(card.id, card.id)
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const card of cards) {
+      if (unavailable.has(card.id)) continue
+      const failed = card.details.dependencies?.find(dep => unavailable.has(dep.id))
+      if (failed) { unavailable.set(card.id, unavailable.get(failed.id)!); changed = true }
+    }
+  }
+  return cards.map(card => ({ ...card, discardedBy: unavailable.get(card.id) }))
 }
 export function fourWeekCards(cards: ScheduleCard[], from: string) {
   const to = shiftDate(from, 27)
-  return cards.filter(card => card.from <= to && card.to >= from)
+  return cards.filter(card => !card.discardedBy && card.details.timing !== 'undated' && card.from <= to && card.to >= from)
 }
 export function dependencyState(card: ScheduleCard, all: ScheduleCard[]) {
   return (card.details.dependencies ?? []).map(dep => {
     const source = all.find(c => c.id === dep.id)
-    const satisfied = dep.requirement === 'passed' ? source?.details.result === 'passed' : !!source?.task?.done
+    const satisfied = !source?.discardedBy && (dep.requirement === 'passed' ? source?.details.result === 'passed' : !!source?.task?.done)
     return { ...dep, title: source?.title ?? '선행 일정 확인 필요', satisfied,
-      failed: dep.requirement === 'passed' && source?.details.result === 'failed' }
+      failed: !!source?.discardedBy || source?.details.result === 'failed' }
   })
 }
