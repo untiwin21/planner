@@ -16,7 +16,7 @@ const cards = scheduleCards([
   day('2026-10-08', [task('exam', {done: true, schedule_details: {visibility: 'public', result: 'unknown'}}), task('deleted', {deleted_at: 1}), task('discarded', {discarded: true}), task('actual', {actual_only: true})]),
   day('2026-11-04', [task('last')]), day('2026-11-05', [task('outside')]),
 ], [{id:'ongoing',title:'ongoing',date_from:'2026-10-01',date_to:'2026-10-09',categories:[]}])
-assert.deepEqual(fourWeekCards(cards, '2026-10-08').map(c => c.id), ['ongoing','prior','exam'])
+assert.deepEqual(fourWeekCards(cards, '2026-10-08').map(c => c.id), ['ongoing','exam'])
 assert.equal(cards.find(c=>c.id==='exam').visibility, 'public')
 const interview = { details: {dependencies:[{id:'exam',requirement:'passed'}]} }
 assert.equal(dependencyState(interview,cards)[0].satisfied, false, 'attendance/completion must not imply passing')
@@ -41,7 +41,7 @@ const cutoffCards = scheduleCards([day('2026-10-16',[deadline])],[{id:'plan-cuto
 assert.equal(cutoffCards[0].kind,'deadline')
 assert.equal(cutoffCards[0].details.due_time,'10:00','legacy due time preserved')
 assert.equal(cutoffCards[1].from,'2026-10-20','plan deadline appears at its end date')
-assert.deepEqual(fourWeekCards(cutoffCards,'2026-10-26'),[],'expired plan is not shown as ongoing deadline')
+assert.deepEqual(fourWeekCards(cutoffCards,'2026-10-21'),[],'expired plan is not shown as ongoing deadline')
 assert.throws(()=>validateScheduleDetails({kind:'deadline',due_time:'25:00'}))
 console.log('PASS: 28-day boundaries, ongoing plans, hidden records, pass vs completion, missing dependencies, unsafe links, unknown dates')
 
@@ -77,3 +77,9 @@ const uncertain = scheduleCards([], [
 assert.deepEqual(fourWeekCards(uncertain,'2026-10-08'),[])
 assert.deepEqual(uncertainFourWeekCards(uncertain,'2026-10-08').map(c=>c.id),['range','rough-deadline'])
 console.log('PASS: Monday-Sunday weeks, fourth Sunday cutoff, uncertain range overlap, undated placeholders excluded')
+
+const history = scheduleCards([day('2026-10-07',[task('yesterday')]),day('2026-10-08',[task('today')])],[])
+assert.deepEqual(fourWeekCards(history,'2026-10-08').map(c=>c.id),['today'])
+assert.ok(history.some(c=>c.id==='yesterday'),'display filtering preserves history and prerequisite sources')
+const pastWindow = {...uncertain[0], details:{timing:'window'},from:'2026-10-05',to:'2026-10-07',goal:undefined}
+assert.deepEqual(uncertainFourWeekCards([pastWindow],'2026-10-08'),[])
