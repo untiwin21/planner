@@ -12,6 +12,24 @@
 - 작업 삭제 tombstone과 최신 수정 시각 병합으로 오래된 기기의 데이터 부활 방지
 - Supabase가 없는 로컬 환경에서는 브라우저 저장소로 동작
 
+## 일정 카드의 의미 (모든 AI 비서 채팅 공통)
+
+목표·계획 화면은 한국시간 오늘부터 28일의 카드가 먼저, 이번 주 요약이 아래에 표시됩니다. 카드 본문에는 이름과 날짜만 표시하며 유형은 색깔로 구분합니다.
+
+| 유형 | 의미 | 색상 | 저장 |
+| --- | --- | --- | --- |
+| Public | 수업·시험·면접·회의처럼 공식적으로 정해진 일정 | 분홍 | `category_id=schedule`, `schedule_details.visibility=public` |
+| Private | 개인이 계획한 활동·약속·계획 | 하늘~파랑 | `category_id=schedule`, `schedule_details.visibility=private` |
+| 데드라인 | 과제 제출·단기계획 등 **이 기한까지 완료할 일** | 빨강 | `category_id=deadline`, 선택 마감 시각은 `schedule_details.due_time` |
+
+- 데드라인은 60분짜리 일정이 아닙니다. `fixed=false`이며 시작/종료/예상시간을 배정하거나 타임라인 용량·일정 겹침에 포함하지 않습니다. 준비 작업은 별도 할 일로 관리합니다.
+- 단기계획(`ShortGoal`)은 기존 기간을 보존합니다. 카드 상세에서 데드라인으로 지정하면 종료일(`date_to`)을 마감일로 표시합니다. 이 유형은 `categories`의 `__schedule_details__` 항목에 `details.kind=deadline`으로 저장합니다.
+- 공식 과제도 **제출 기한**이면 데드라인입니다. 공식/개인 분류보다 마감의 의미가 우선합니다. 10시부터 11시까지 시험은 Public, 23:59까지 과제 제출은 데드라인입니다. 시각이 없는 마감은 날짜만 저장하고 임의로 23:59를 만들지 않습니다.
+- Public/Private은 일정 성격이며 파일 공개·공유 권한을 바꾸지 않습니다.
+- 응시 완료와 합격은 다릅니다. 조건부 면접은 합격 통지와 개인별 안내 확인 전까지 확정 일정으로 만들지 않습니다.
+- AI는 실제 `planner_read`를 먼저 호출하고 응답의 `schedule_card_policy`와 저장 도구 스키마를 확인합니다. 수정 시 최신 `expected_updated_at`을 사용하고 저장 후 재조회합니다.
+- 사용자 회고 Keep·Problem·Try는 ChatGPT 피드백 바로 아래에 위치합니다.
+
 ## 스택
 - **Next.js 15** + **React 19** + **TypeScript**
 - **Tailwind CSS v4**

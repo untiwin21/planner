@@ -96,6 +96,7 @@ export function MobileLayout({
             goals={goals}
             onSelectDate={d => { setSelectedDate(d); setActiveTab('today') }}
             onAddGoal={addGoal}
+            onAddTask={addTask}
             onUpdateGoal={updateGoal}
             onUpdateTask={updateTask}
           />

@@ -1,5 +1,5 @@
 import type { Task } from '@/types'
-import { SCHEDULE_CAT_ID } from '@/types'
+import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 
 export const DEFAULT_DAY_START = '05:00'
 export const DEFAULT_DAY_END = '29:00'
@@ -33,10 +33,12 @@ export function formatDuration(totalMinutes: number): string {
 }
 
 export function getTaskStart(task: Task): number | null {
+  if (task.category_id === DEADLINE_CAT_ID) return null
   return timeToMinutes(task.start_time ?? task.time)
 }
 
 export function getTaskDuration(task: Task): number {
+  if (task.category_id === DEADLINE_CAT_ID) return 0
   const explicit = Number(task.duration_min)
   if (Number.isFinite(explicit) && explicit > 0) return explicit
   const start = getTaskStart(task)
@@ -53,6 +55,7 @@ export function getTaskEnd(task: Task): number | null {
 }
 
 export function isFixedTask(task: Task): boolean {
+  if (task.category_id === DEADLINE_CAT_ID) return false
   return task.fixed === true || task.category_id === SCHEDULE_CAT_ID
 }
 
