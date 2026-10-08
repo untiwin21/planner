@@ -8,6 +8,7 @@ export interface ScheduleCard {
   title: string
   from: string
   to: string
+  kind: 'event' | 'deadline'
   visibility: 'public' | 'private'
   details: ScheduleDetails
   task?: Task
@@ -17,13 +18,13 @@ export const DETAILS_MARKER = '__schedule_details__'
 export function scheduleCards(days: DayEntry[], goals: ShortGoal[]): ScheduleCard[] {
   return [
     ...days.flatMap(day => day.tasks.filter(t => !t.deleted_at && !t.discarded && !t.actual_only && [SCHEDULE_CAT_ID, DEADLINE_CAT_ID].includes(t.category_id)).map(task => ({
-      id: task.id, title: task.text, from: day.date, to: day.date,
+      id: task.id, title: task.text, kind: task.category_id === DEADLINE_CAT_ID ? 'deadline' : 'event', from: day.date, to: day.date,
       visibility: task.schedule_details?.visibility ?? (task.schedule_type === 'external' ? 'public' : 'private'),
-      details: task.schedule_details ?? {}, task,
+      details: { ...task.schedule_details, ...(task.category_id === DEADLINE_CAT_ID && !task.schedule_details?.due_time && (task.start_time || task.time) ? { due_time: task.start_time || task.time } : {}) }, task,
     } as ScheduleCard))),
     ...goals.map(goal => {
       const details: ScheduleDetails = goal.categories?.find(c => c.id === DETAILS_MARKER)?.details ?? {}
-      return { id: goal.id, title: goal.title, from: goal.date_from, to: goal.date_to,
+      return { id: goal.id, title: goal.title, kind: details.kind ?? 'event', from: details.kind === 'deadline' ? goal.date_to : goal.date_from, to: goal.date_to,
         visibility: details.visibility ?? (shortGoalCategory(goal) === 'external' ? 'public' : 'private'), details, goal } as ScheduleCard
     }),
   ].sort((a, b) => a.from.localeCompare(b.from) || (a.task?.start_time ?? a.task?.time ?? '99:99').localeCompare(b.task?.start_time ?? b.task?.time ?? '99:99') || a.id.localeCompare(b.id))

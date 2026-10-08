@@ -1,10 +1,12 @@
 import type { ScheduleDetails } from '@/types'
-import { validDate } from './scheduleConflicts'
+import { validDate, validTime } from './scheduleConflicts'
 export function validateScheduleDetails(value: unknown): ScheduleDetails {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('일정 상세는 객체여야 합니다.')
   const v = value as Record<string, unknown>
-  const allowed = ['visibility', 'description', 'preparation', 'source_url', 'checked_at', 'result', 'dependencies', 'next_steps']
+  const allowed = ['kind', 'due_time', 'visibility', 'description', 'preparation', 'source_url', 'checked_at', 'result', 'dependencies', 'next_steps']
   if (Object.keys(v).some(k => !allowed.includes(k))) throw new Error('지원하지 않는 일정 상세 항목입니다.')
+  if (v.kind !== undefined && !['event', 'deadline'].includes(String(v.kind))) throw new Error('일정 유형이 올바르지 않습니다.')
+  if (v.due_time !== undefined && v.due_time !== '' && !validTime(v.due_time)) throw new Error('마감 시각은 HH:mm이어야 합니다.')
   if (v.visibility !== undefined && !['public', 'private'].includes(String(v.visibility))) throw new Error('일정 분류가 올바르지 않습니다.')
   if (v.result !== undefined && !['unknown', 'passed', 'failed'].includes(String(v.result))) throw new Error('전형 결과가 올바르지 않습니다.')
   for (const k of ['description', 'source_url', 'checked_at']) if (v[k] !== undefined && (typeof v[k] !== 'string' || (v[k] as string).length > 20000)) throw new Error('일정 상세 문자열이 올바르지 않습니다.')

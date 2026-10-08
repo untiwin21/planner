@@ -3,7 +3,7 @@ import { useState, useMemo } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { addWeeks, subWeeks } from 'date-fns'
 import { getWeekDays, formatDate } from '@/lib/dates'
-import type { DayEntry, ShortGoal, Routine, RoutineLog, Task } from '@/types'
+import type { DayEntry, ShortGoal, Routine, RoutineLog, Task, TaskScheduleInput } from '@/types'
 import { FourWeekScheduleCards } from '@/components/weekly/FourWeekScheduleCards'
 import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
 
@@ -17,6 +17,7 @@ interface Props {
   goals: ShortGoal[]
   onSelectDate: (date: string) => void
   onAddGoal: (g: Omit<ShortGoal, 'id'>) => void
+  onAddTask: (date: string, categoryId: string, text: string, schedule?: string | TaskScheduleInput) => void
   onUpdateTask: (date: string, id: string, patch: Partial<Task>) => void
   onUpdateGoal: (goalId: string, patch: Partial<ShortGoal>) => void
 }
@@ -25,7 +26,7 @@ export function MobileWeekly({
   selectedDate, days, goals, routines, logs,
   onSelectDate,
   onAddGoal,
-  onUpdateGoal, onUpdateTask,
+  onUpdateGoal, onUpdateTask, onAddTask,
 }: Props) {
   const [weekBase, setWeekBase] = useState(new Date())
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
@@ -49,14 +50,15 @@ export function MobileWeekly({
         </button>
       </div>
 
+      <div className="mx-4 mt-4">
+        <FourWeekScheduleCards days={days} goals={goals} onSelectDate={onSelectDate}
+          onAddGoal={onAddGoal} onAddTask={onAddTask} onUpdateGoal={onUpdateGoal} onUpdateTask={onUpdateTask} onEditGoal={setEditingGoalId} />
+      </div>
+
       <div className="mx-4 mt-3 rounded-[18px] border border-[var(--border)] bg-white p-4">
         <WeeklySummary weekDays={weekDays} goals={goals} days={days} routines={routines} logs={logs} />
       </div>
 
-      <div className="mx-4 mt-4">
-        <FourWeekScheduleCards days={days} goals={goals} onSelectDate={onSelectDate}
-          onAddGoal={onAddGoal} onUpdateGoal={onUpdateGoal} onUpdateTask={onUpdateTask} onEditGoal={setEditingGoalId} />
-      </div>
 
       <ShortGoalEditModal
         goal={editingGoal}

@@ -293,6 +293,7 @@ export function MobileToday(props: Props) {
       <main className="px-4 pt-4">
         <WeekOverview days={days} goals={goals} selectedDate={date} onSelectDate={onDateChange} />
         <AssistantReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} />
+        <DayReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} compact />
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold text-[var(--text-3)]">{face === 'tasks' ? 'TODAY TASKS' : 'MY ROUTINES'}</p>
@@ -454,7 +455,6 @@ export function MobileToday(props: Props) {
           </div>
         )}
 
-        <DayReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} compact />
       </main>
 
       {showRoutineManager && (

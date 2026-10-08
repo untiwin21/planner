@@ -52,6 +52,9 @@ export interface TaskHistoryEvent {
 }
 
 export interface ScheduleDetails {
+  /** A deadline is a completion cutoff, never an occupied time interval. */
+  kind?: 'event' | 'deadline'
+  due_time?: string
   visibility?: 'public' | 'private'
   description?: string
   preparation?: string[]
@@ -272,6 +275,7 @@ export interface WeeklyReview {
 }
 
 export interface TaskScheduleInput {
+  schedule_details?: ScheduleDetails
   start_time?: string
   end_time?: string
   duration_min?: number

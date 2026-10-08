@@ -201,18 +201,19 @@ export default function Home() {
               </>
             ) : (
               <>
-                <Card className="p-5">
-                  <WeeklySummary weekDays={weekDays} goals={store.goals} days={store.days} routines={store.routines} logs={store.logs} />
-                </Card>
                 <FourWeekScheduleCards
                   goals={store.goals}
                   days={store.days}
                   onSelectDate={date => { setSelectedDate(date); setView('today') }}
                   onAddGoal={store.addGoal}
+                  onAddTask={store.addTask}
                   onUpdateGoal={store.updateGoal}
                   onUpdateTask={store.updateTask}
                   onEditGoal={setEditingGoalId}
                 />
+                <Card className="p-5">
+                  <WeeklySummary weekDays={weekDays} goals={store.goals} days={store.days} routines={store.routines} logs={store.logs} />
+                </Card>
               </>
             )}
           </div>

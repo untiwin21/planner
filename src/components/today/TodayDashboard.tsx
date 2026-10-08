@@ -1393,6 +1393,7 @@ export function TodayDashboard({
       {weekOverview}
 
       <AssistantReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} />
+      <DayReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} compact={compact} />
 
       <div className="grid grid-cols-2 gap-2">
         <button type="button" onClick={() => setShowWellness(true)} title="클릭하여 기록" className="rounded-[14px] bg-white border border-[var(--border)] px-3 py-2 text-left hover:border-[var(--purple)] transition-colors flex items-center gap-2">
@@ -2053,7 +2054,6 @@ export function TodayDashboard({
         </div>
       </div>
 
-      <DayReviewPanel date={date} meta={entry.meta} onMetaChange={onMetaChange} compact={compact} />
 
       {taskEditor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setTaskEditor(null)}>
