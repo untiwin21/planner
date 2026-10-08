@@ -18,7 +18,7 @@
 
 | 유형 | 의미 | 색상 | 저장 |
 | --- | --- | --- | --- |
-| Public | 수업·시험·면접·회의처럼 공식적으로 정해진 일정 | 분홍 | `category_id=schedule`, `schedule_details.visibility=public` |
+| Public | 수업·시험·면접·회의처럼 공식적으로 정해진 일정 | 초록~연두 | `category_id=schedule`, `schedule_details.visibility=public` |
 | Private | 개인이 계획한 활동·약속·계획 | 하늘~파랑 | `category_id=schedule`, `schedule_details.visibility=private` |
 | 데드라인 | 과제 제출·단기계획 등 **이 기한까지 완료할 일** | 빨강 | `category_id=deadline`, 선택 마감 시각은 `schedule_details.due_time` |
 

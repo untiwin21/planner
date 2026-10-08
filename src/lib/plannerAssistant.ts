@@ -92,7 +92,7 @@ export function createAssistantRunner(supabase: typeof import('./supabase').supa
       const days = all.days.filter(day => day.date >= from && day.date <= to).sort((a, b) => a.date.localeCompare(b.date))
       const conflicts = findScheduleConflicts(all.days).filter(pair => (pair.first.date >= from && pair.first.date <= to) || (pair.second.date >= from && pair.second.date <= to))
       return { timezone: 'Asia/Seoul', from, to, days, conflicts, categories,
-        schedule_card_policy: { public: '공식 일정: 정해진 시간에 참석·응시하는 활동, 분홍', private: '개인 일정: 개인이 계획한 활동, 하늘·파랑', deadline: '과제·단기계획을 해당 기한까지 완료하는 마감점, 빨강. 시간 구간·기본 60분을 점유하지 않음', deadline_storage: 'Task.category_id=deadline; 선택 마감시각은 schedule_details.due_time. 단기계획은 schedule_details.kind=deadline이면 date_to를 마감일로 표시', attendance_is_not_pass: true },
+        schedule_card_policy: { public: '공식 일정: 정해진 시간에 참석·응시하는 활동, 초록~연두', private: '개인 일정: 개인이 계획한 활동, 하늘·파랑', deadline: '과제·단기계획을 해당 기한까지 완료하는 마감점, 빨강. 시간 구간·기본 60분을 점유하지 않음', deadline_storage: 'Task.category_id=deadline; 선택 마감시각은 schedule_details.due_time. 단기계획은 schedule_details.kind=deadline이면 date_to를 마감일로 표시', attendance_is_not_pass: true },
         incomplete_times: days.flatMap(day => day.tasks.filter(t => !t.done && !t.discarded && t.category_id === SCHEDULE_CAT_ID && (!(t.start_time || t.time) || (!t.end_time && !t.duration_min))).map(t => ({ date: day.date, id: t.id, text: t.text }))),
         goals: all.goals.filter(goal => goal.date_from <= to && goal.date_to >= from), routines: all.routines, routine_logs: all.logs.filter(log => log.date >= from && log.date <= to) }
     }

@@ -55,7 +55,7 @@ Next.js + Vercel + Supabase Auth/RLS. 사용자 지시에 따라 기존 `main`/V
 ## 일정 카드 분류와 화면 순서 (2026-10-08)
 
 - 상세 규칙은 README.md의 “일정 카드의 의미”를 따른다. 모든 비서 채팅에서 `planner_read.schedule_card_policy`를 먼저 확인한다.
-- Public=공식 일정(분홍), Private=개인 일정(하늘~파랑), 데드라인=해당 기한까지 완료할 일(빨강). 카드 본문은 이름과 날짜만, 유형 글자는 반복하지 않는다.
+- Public=공식 일정(초록~연두), Private=개인 일정(하늘~파랑), 데드라인=해당 기한까지 완료할 일(빨강). 카드 본문은 이름과 날짜만, 유형 글자는 반복하지 않는다.
 - 과제 제출·내가 세운 단기계획 마감은 deadline이다. 공식 과제라도 제출 기한이면 Public 시간형 일정 대신 deadline으로 등록한다.
 - deadline은 시간 구간/60분 활동이 아니다. `kind=deadline`, `fixed=false`, 선택 마감시각은 `schedule_details.due_time`, 시간 미정이면 날짜만 저장한다. 준비 작업은 별도 task로 만든다.
 - 단기계획의 마감 카드는 종료일 date_to에 표시한다. 기존 시작일/종료일을 보존한다.

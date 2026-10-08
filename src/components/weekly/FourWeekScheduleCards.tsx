@@ -20,7 +20,7 @@ interface Props {
   onSelectDate: (date: string) => void
   onEditGoal?: (id: string) => void
 }
-const publicStyle = 'border-pink-300 bg-gradient-to-br from-pink-50 to-pink-100 text-pink-900'
+const publicStyle = 'border-green-300 bg-gradient-to-br from-green-50 to-lime-100 text-green-900'
 const deadlineStyle = 'border-red-400 bg-gradient-to-br from-red-100 to-red-200 text-red-950'
 const privateStyle = 'border-sky-300 bg-gradient-to-br from-sky-50 to-blue-100 text-blue-900'
 const inputStyle = 'mt-1 w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm'
@@ -42,7 +42,7 @@ export function FourWeekScheduleCards({ days, goals, onUpdateTask, onUpdateGoal,
   return <section className="rounded-[18px] border border-[var(--border)] bg-white p-4 md:p-5">
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
       <div><h2 className="text-lg font-bold">앞으로 4주 일정</h2><p className="mt-1 text-sm text-[var(--text-3)]">{dateLabel(today)} ~ {dateLabel(shiftDate(today, 27))}</p></div>
-      <div className="flex flex-wrap items-center gap-3 text-sm"><span className="rounded-lg border border-red-400 bg-red-100 px-3 py-1 text-red-900">데드라인</span><span className="rounded-lg border border-pink-300 bg-pink-50 px-3 py-1 text-pink-900">공식 일정</span><span className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1 text-blue-800">개인 일정</span><button type="button" onClick={() => setCreating(true)} className="flex items-center gap-1 rounded-lg bg-[var(--purple)] px-3 py-2 text-white"><Plus size={16} />일정 추가</button></div>
+      <div className="flex flex-wrap items-center gap-3 text-sm"><span className="rounded-lg border border-red-400 bg-red-100 px-3 py-1 text-red-900">데드라인</span><span className="rounded-lg border border-green-300 bg-gradient-to-br from-green-50 to-lime-100 px-3 py-1 text-green-900">공식 일정</span><span className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1 text-blue-800">개인 일정</span><button type="button" onClick={() => setCreating(true)} className="flex items-center gap-1 rounded-lg bg-[var(--purple)] px-3 py-2 text-white"><Plus size={16} />일정 추가</button></div>
     </div>
     <div className="space-y-6">{Array.from({ length: 4 }, (_, i) => {
       const from = shiftDate(today, i * 7), to = shiftDate(from, 6)
