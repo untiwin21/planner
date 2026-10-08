@@ -71,3 +71,5 @@ Next.js + Vercel + Supabase Auth/RLS. 사용자 지시에 따라 기존 `main`/V
 - planner_read.schedule_cards의 discardedBy는 불합격이 전파된 원본 카드 ID다. 결과 failed를 저장하면 모든 후속 단계가 재귀적으로 일정에서 제외되고 폐기 기록에 보관된다. 결과 정정은 복구한다. 미확인/누락된 선행 일정은 임의로 불합격 처리하지 않는다.
 - Task 결과는 planner_save_task와 expected_updated_at, 기간/미정 카드 결과는 planner_set_card_result와 최신 goals.categories를 expected_categories로 사용한다. 채팅에서 불합격을 알려주면 해당 단계 결과를 먼저 저장하고 이후 전형의 제외 여부를 실제 다시 조회한다.
 - Notion과 Planner의 지속 자동 감시는 별도로 구성한 경우에만 동작한다. 노션의 상태가 바뀌었다는 확인 없이 탈락을 추정하거나 지속 감시 중이라고 말하지 않는다.
+
+- 2026-10-08 추가: 1주차는 한국시간 이번 주 월~일, 4주차 종료까지 표시한다. timing=window 예정 기간은 주차 카드 대신 일정 미정 탭에 대략 일정과 함께 표시한다. 범위가 4주와 겹쳐야 하며 timing=undated의 보관용 날짜를 실제 예정 날짜로 취급하지 않는다. 4주 이후는 제외한다.

@@ -47,9 +47,31 @@ export function scheduleCards(days: DayEntry[], goals: ShortGoal[]): ScheduleCar
   }
   return cards.map(card => ({ ...card, discardedBy: unavailable.get(card.id) }))
 }
-export function fourWeekCards(cards: ScheduleCard[], from: string) {
-  const to = shiftDate(from, 27)
-  return cards.filter(card => !card.discardedBy && card.details.timing !== 'undated' && card.from <= to && card.to >= from)
+export function scheduleWeekStart(today: string) {
+  const weekday = new Date(today + 'T12:00:00Z').getUTCDay()
+  return shiftDate(today, -((weekday + 6) % 7))
+}
+function approximateWindow(card: ScheduleCard) {
+  // Month/week labels can be more precise than legacy month-wide storage bounds.
+  const matches = [...(card.details.date_label ?? '').matchAll(/(\d{1,2})월\s*(\d)주차/g)]
+  if (matches.length) {
+    const year = card.from.slice(0, 4)
+    const starts = matches.map(m => shiftDate(scheduleWeekStart(`${year}-${m[1].padStart(2, '0')}-01`), (Number(m[2]) - 1) * 7))
+    return { from: starts[0], to: shiftDate(starts[starts.length - 1], 6) }
+  }
+  return { from: card.goal?.date_from ?? card.from, to: card.to }
+}
+export function fourWeekCards(cards: ScheduleCard[], today: string) {
+  const from = scheduleWeekStart(today), to = shiftDate(from, 27)
+  return cards.filter(card => !card.discardedBy && !['undated', 'window'].includes(card.details.timing ?? '') && card.from <= to && card.to >= from)
+}
+export function uncertainFourWeekCards(cards: ScheduleCard[], today: string) {
+  const from = scheduleWeekStart(today), to = shiftDate(from, 27)
+  return cards.filter(card => {
+    if (card.discardedBy || card.details.timing !== 'window') return false
+    const range = approximateWindow(card)
+    return range.from <= to && range.to >= from
+  })
 }
 export function dependencyState(card: ScheduleCard, all: ScheduleCard[]) {
   return (card.details.dependencies ?? []).map(dep => {

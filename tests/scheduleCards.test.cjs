@@ -6,7 +6,7 @@ function load(file) {
   new Function('require', 'module', 'exports', code)(name => name.startsWith('@/') ? load(path.resolve('src', name.slice(2) + '.ts')) : name.startsWith('.') ? load(path.resolve(path.dirname(file), name + '.ts')) : require(name), module, module.exports)
   return module.exports
 }
-const { scheduleCards, fourWeekCards, dependencyState } = load(path.resolve('src/lib/scheduleCards.ts'))
+const { scheduleCards, fourWeekCards, scheduleWeekStart, uncertainFourWeekCards, dependencyState } = load(path.resolve('src/lib/scheduleCards.ts'))
 const { withShortGoalCategory } = load(path.resolve('src/lib/planCategory.ts'))
 const { validateScheduleDetails } = load(path.resolve('src/lib/scheduleDetails.ts'))
 const day = (date, tasks) => ({ date, tasks })
@@ -16,7 +16,7 @@ const cards = scheduleCards([
   day('2026-10-08', [task('exam', {done: true, schedule_details: {visibility: 'public', result: 'unknown'}}), task('deleted', {deleted_at: 1}), task('discarded', {discarded: true}), task('actual', {actual_only: true})]),
   day('2026-11-04', [task('last')]), day('2026-11-05', [task('outside')]),
 ], [{id:'ongoing',title:'ongoing',date_from:'2026-10-01',date_to:'2026-10-09',categories:[]}])
-assert.deepEqual(fourWeekCards(cards, '2026-10-08').map(c => c.id), ['ongoing','exam','last'])
+assert.deepEqual(fourWeekCards(cards, '2026-10-08').map(c => c.id), ['ongoing','prior','exam'])
 assert.equal(cards.find(c=>c.id==='exam').visibility, 'public')
 const interview = { details: {dependencies:[{id:'exam',requirement:'passed'}]} }
 assert.equal(dependencyState(interview,cards)[0].satisfied, false, 'attendance/completion must not imply passing')
@@ -41,7 +41,7 @@ const cutoffCards = scheduleCards([day('2026-10-16',[deadline])],[{id:'plan-cuto
 assert.equal(cutoffCards[0].kind,'deadline')
 assert.equal(cutoffCards[0].details.due_time,'10:00','legacy due time preserved')
 assert.equal(cutoffCards[1].from,'2026-10-20','plan deadline appears at its end date')
-assert.deepEqual(fourWeekCards(cutoffCards,'2026-10-21'),[],'expired plan is not shown as ongoing deadline')
+assert.deepEqual(fourWeekCards(cutoffCards,'2026-10-26'),[],'expired plan is not shown as ongoing deadline')
 assert.throws(()=>validateScheduleDetails({kind:'deadline',due_time:'25:00'}))
 console.log('PASS: 28-day boundaries, ongoing plans, hidden records, pass vs completion, missing dependencies, unsafe links, unknown dates')
 
@@ -61,3 +61,19 @@ assert.equal(restored.find(c=>c.id==='leaf').discardedBy,undefined,'correcting r
 assert.ok(!fourWeekCards(restored,'2026-10-08').some(c=>c.id==='middle'),'undated cards never become appointments')
 assert.throws(()=>validateScheduleDetails({timing:'guessed'}))
 console.log('PASS: recursive failure, restoration, undated exclusion, archived prerequisite')
+
+assert.equal(scheduleWeekStart('2026-10-08'),'2026-10-05')
+assert.equal(scheduleWeekStart('2026-10-11'),'2026-10-05')
+assert.equal(scheduleWeekStart('2026-10-12'),'2026-10-12')
+const boundary = scheduleCards([day('2026-11-01',[task('sunday')]),day('2026-11-02',[task('fifth-week')])],[])
+assert.deepEqual(fourWeekCards(boundary,'2026-10-08').map(c=>c.id),['sunday'])
+const uncertain = scheduleCards([], [
+ {id:'range',title:'면접',date_from:'2026-10-01',date_to:'2026-11-30',categories:[{id:'__schedule_details__',details:{timing:'window',date_label:'10월 4주차~11월 2주차'}}]},
+ {id:'late-label',title:'결과',date_from:'2026-11-01',date_to:'2026-11-30',categories:[{id:'__schedule_details__',details:{timing:'window',date_label:'11월 4주차'}}]},
+ {id:'late',title:'후속',date_from:'2026-11-02',date_to:'2026-11-30',categories:[{id:'__schedule_details__',details:{timing:'window'}}]},
+ {id:'no-range',title:'날짜 미공개',date_from:'2026-10-08',date_to:'2026-10-08',categories:[{id:'__schedule_details__',details:{timing:'undated'}}]},
+ {id:'rough-deadline',title:'마감 예정',date_from:'2026-10-20',date_to:'2026-11-05',categories:[{id:'__schedule_details__',details:{timing:'window',kind:'deadline'}}]},
+])
+assert.deepEqual(fourWeekCards(uncertain,'2026-10-08'),[])
+assert.deepEqual(uncertainFourWeekCards(uncertain,'2026-10-08').map(c=>c.id),['range','rough-deadline'])
+console.log('PASS: Monday-Sunday weeks, fourth Sunday cutoff, uncertain range overlap, undated placeholders excluded')
