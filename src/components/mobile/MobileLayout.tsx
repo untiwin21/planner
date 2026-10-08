@@ -94,9 +94,10 @@ export function MobileLayout({
             selectedDate={selectedDate}
             days={days}
             goals={goals}
-            onSelectDate={d => { setSelectedDate(d) }}
+            onSelectDate={d => { setSelectedDate(d); setActiveTab('today') }}
             onAddGoal={addGoal}
             onUpdateGoal={updateGoal}
+            onUpdateTask={updateTask}
           />
         )}
       </div>

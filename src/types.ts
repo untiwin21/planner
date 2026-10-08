@@ -51,6 +51,17 @@ export interface TaskHistoryEvent {
   note?: string
 }
 
+export interface ScheduleDetails {
+  visibility?: 'public' | 'private'
+  description?: string
+  preparation?: string[]
+  source_url?: string
+  checked_at?: string
+  result?: 'unknown' | 'passed' | 'failed'
+  dependencies?: { id: string; requirement: 'completed' | 'passed' }[]
+  next_steps?: { title: string; condition: string; date?: string }[]
+}
+
 export interface Task {
   id: string
   day_id: string
@@ -66,6 +77,7 @@ export interface Task {
   schedule_type?: ScheduleType
   /** Explicit override for the important-events weekly card. */
   important?: boolean
+  schedule_details?: ScheduleDetails
   /** Legacy single start-time field kept for existing data. */
   time?: string
   /** Start/end are local wall-clock values in HH:mm format. */

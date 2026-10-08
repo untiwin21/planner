@@ -1,0 +1,33 @@
+const assert = require('node:assert/strict')
+const fs = require('fs'), path = require('path'), ts = require('typescript')
+function load(file) {
+  const module = { exports: {} }
+  const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  new Function('require', 'module', 'exports', code)(name => name.startsWith('@/') ? load(path.resolve('src', name.slice(2) + '.ts')) : name.startsWith('.') ? load(path.resolve(path.dirname(file), name + '.ts')) : require(name), module, module.exports)
+  return module.exports
+}
+const { scheduleCards, fourWeekCards, dependencyState } = load(path.resolve('src/lib/scheduleCards.ts'))
+const { withShortGoalCategory } = load(path.resolve('src/lib/planCategory.ts'))
+const { validateScheduleDetails } = load(path.resolve('src/lib/scheduleDetails.ts'))
+const day = (date, tasks) => ({ date, tasks })
+const task = (id, patch = {}) => ({ id, text: id, category_id: 'schedule', ...patch })
+const cards = scheduleCards([
+  day('2026-10-07', [task('prior', {done: true})]),
+  day('2026-10-08', [task('exam', {done: true, schedule_details: {visibility: 'public', result: 'unknown'}}), task('deleted', {deleted_at: 1}), task('discarded', {discarded: true}), task('actual', {actual_only: true})]),
+  day('2026-11-04', [task('last')]), day('2026-11-05', [task('outside')]),
+], [{id:'ongoing',title:'ongoing',date_from:'2026-10-01',date_to:'2026-10-09',categories:[]}])
+assert.deepEqual(fourWeekCards(cards, '2026-10-08').map(c => c.id), ['ongoing','exam','last'])
+assert.equal(cards.find(c=>c.id==='exam').visibility, 'public')
+const interview = { details: {dependencies:[{id:'exam',requirement:'passed'}]} }
+assert.equal(dependencyState(interview,cards)[0].satisfied, false, 'attendance/completion must not imply passing')
+cards.find(c=>c.id==='exam').details.result='passed'
+assert.equal(dependencyState(interview,cards)[0].satisfied, true)
+cards.find(c=>c.id==='exam').details.result='failed'
+assert.equal(dependencyState(interview,cards)[0].failed, true)
+assert.equal(dependencyState({details:{dependencies:[{id:'missing',requirement:'passed'}]}},cards)[0].satisfied, false)
+assert.throws(()=>validateScheduleDetails({source_url:'javascript:alert(1)'}))
+assert.throws(()=>validateScheduleDetails({next_steps:[{title:'면접',condition:'합격 후',date:'2026-02-30'}]}))
+assert.deepEqual(validateScheduleDetails({next_steps:[{title:'면접',condition:'합격 후'}]}).next_steps[0],{title:'면접',condition:'합격 후'})
+assert.equal(withShortGoalCategory([{id:'__schedule_details__',details:{visibility:'public',description:'keep'}}],'personal')[0].details.visibility,'private')
+assert.equal(withShortGoalCategory([{id:'__schedule_details__',details:{visibility:'public',description:'keep'}}],'personal')[0].details.description,'keep')
+console.log('PASS: 28-day boundaries, ongoing plans, hidden records, pass vs completion, missing dependencies, unsafe links, unknown dates')
