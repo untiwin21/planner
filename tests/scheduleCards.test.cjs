@@ -7,6 +7,7 @@ function load(file) {
   return module.exports
 }
 const { scheduleCards, fourWeekCards, dependencyState } = load(path.resolve('src/lib/scheduleCards.ts'))
+const { withShortGoalCategory } = load(path.resolve('src/lib/planCategory.ts'))
 const { validateScheduleDetails } = load(path.resolve('src/lib/scheduleDetails.ts'))
 const day = (date, tasks) => ({ date, tasks })
 const task = (id, patch = {}) => ({ id, text: id, category_id: 'schedule', ...patch })
@@ -27,4 +28,6 @@ assert.equal(dependencyState({details:{dependencies:[{id:'missing',requirement:'
 assert.throws(()=>validateScheduleDetails({source_url:'javascript:alert(1)'}))
 assert.throws(()=>validateScheduleDetails({next_steps:[{title:'면접',condition:'합격 후',date:'2026-02-30'}]}))
 assert.deepEqual(validateScheduleDetails({next_steps:[{title:'면접',condition:'합격 후'}]}).next_steps[0],{title:'면접',condition:'합격 후'})
+assert.equal(withShortGoalCategory([{id:'__schedule_details__',details:{visibility:'public',description:'keep'}}],'personal')[0].details.visibility,'private')
+assert.equal(withShortGoalCategory([{id:'__schedule_details__',details:{visibility:'public',description:'keep'}}],'personal')[0].details.description,'keep')
 console.log('PASS: 28-day boundaries, ongoing plans, hidden records, pass vs completion, missing dependencies, unsafe links, unknown dates')

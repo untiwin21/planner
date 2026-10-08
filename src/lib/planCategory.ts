@@ -40,7 +40,7 @@ export function shortGoalCategory(goal: Pick<ShortGoal, 'categories'>): Schedule
 
 export function withShortGoalCategory(categories: any[] | undefined, type: ScheduleType): any[] {
   return [
-    ...(categories ?? []).filter((item: any) => item?.id !== PLAN_CATEGORY_MARKER_ID),
+    ...(categories ?? []).filter((item: any) => item?.id !== PLAN_CATEGORY_MARKER_ID).map((item: any) => item?.id === '__schedule_details__' ? { ...item, details: { ...item.details, visibility: type === 'external' ? 'public' : 'private' } } : item),
     { id: PLAN_CATEGORY_MARKER_ID, type },
   ]
 }
