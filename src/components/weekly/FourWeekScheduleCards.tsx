@@ -34,7 +34,7 @@ export function FourWeekScheduleCards({ days, goals, onUpdateTask, onUpdateGoal,
   const weekStart = scheduleWeekStart(today)
   const undated = uncertainFourWeekCards(cards, today)
   const [tab, setTab] = useState<'weeks' | 'uncertain'>('weeks')
-  const archived = cards.filter(c => c.discardedBy)
+  const archived = cards.filter(c => c.discardedBy && c.to >= today)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const selected = cards.find(card => card.id === selectedId)

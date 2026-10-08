@@ -63,14 +63,14 @@ function approximateWindow(card: ScheduleCard) {
 }
 export function fourWeekCards(cards: ScheduleCard[], today: string) {
   const from = scheduleWeekStart(today), to = shiftDate(from, 27)
-  return cards.filter(card => !card.discardedBy && !['undated', 'window'].includes(card.details.timing ?? '') && card.from <= to && card.to >= from)
+  return cards.filter(card => !card.discardedBy && !['undated', 'window'].includes(card.details.timing ?? '') && card.from <= to && card.to >= today)
 }
 export function uncertainFourWeekCards(cards: ScheduleCard[], today: string) {
   const from = scheduleWeekStart(today), to = shiftDate(from, 27)
   return cards.filter(card => {
     if (card.discardedBy || card.details.timing !== 'window') return false
     const range = approximateWindow(card)
-    return range.from <= to && range.to >= from
+    return range.from <= to && range.to >= today
   })
 }
 export function dependencyState(card: ScheduleCard, all: ScheduleCard[]) {
