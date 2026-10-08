@@ -3,8 +3,9 @@ import { validDate, validTime } from './scheduleConflicts'
 export function validateScheduleDetails(value: unknown): ScheduleDetails {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('일정 상세는 객체여야 합니다.')
   const v = value as Record<string, unknown>
-  const allowed = ['timing', 'date_label', 'kind', 'due_time', 'visibility', 'description', 'preparation', 'source_url', 'checked_at', 'result', 'dependencies', 'next_steps']
+  const allowed = ['hide_from_goal_cards', 'timing', 'date_label', 'kind', 'due_time', 'visibility', 'description', 'preparation', 'source_url', 'checked_at', 'result', 'dependencies', 'next_steps']
   if (Object.keys(v).some(k => !allowed.includes(k))) throw new Error('지원하지 않는 일정 상세 항목입니다.')
+  if (v.hide_from_goal_cards !== undefined && typeof v.hide_from_goal_cards !== 'boolean') throw new Error('목표 일정 카드 숨김 여부는 boolean이어야 합니다.')
   if (v.timing !== undefined && !['exact', 'window', 'undated'].includes(String(v.timing))) throw new Error('일정 확정 상태가 올바르지 않습니다.')
   if (v.date_label !== undefined && (typeof v.date_label !== 'string' || v.date_label.length > 200)) throw new Error('일정 기간 표현이 올바르지 않습니다.')
   if (v.kind !== undefined && !['event', 'deadline'].includes(String(v.kind))) throw new Error('일정 유형이 올바르지 않습니다.')

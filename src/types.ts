@@ -52,6 +52,8 @@ export interface TaskHistoryEvent {
 }
 
 export interface ScheduleDetails {
+  /** Hide only from the goals/plans schedule cards; retain daily/weekly timeline. */
+  hide_from_goal_cards?: boolean
   /** Unknown dates stay outside the dated planner; windows are not appointments. */
   timing?: 'exact' | 'window' | 'undated'
   date_label?: string
