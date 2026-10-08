@@ -37,6 +37,7 @@ import { formatDate, formatSleepMin } from '@/lib/dates'
 import {
   formatDuration,
   getTaskDuration,
+  getDeadlineMarkerMinute,
   getTaskEnd,
   getTaskStart,
   isFixedTask,
@@ -419,6 +420,18 @@ export function TodayDashboard({
       }
     }
     return items.sort((a, b) => a.start - b.start || Number(b.fixed) - Number(a.fixed))
+  }, [entry.tasks])
+
+  const deadlineMarkers = useMemo(() => {
+    const groups = new Map<number, Task[]>()
+    for (const task of entry.tasks) {
+      const raw = getDeadlineMarkerMinute(task)
+      if (raw === null) continue
+      const minute = normalizeTimelineMinute(raw)
+      if (minute < TIMELINE_START || minute >= TIMELINE_END) continue
+      groups.set(minute, [...(groups.get(minute) ?? []), task])
+    }
+    return [...groups].sort(([a], [b]) => a - b)
   }, [entry.tasks])
 
   const actualBlocks = useMemo<ActualTimelineItem[]>(() => {
@@ -1470,6 +1483,16 @@ export function TodayDashboard({
                 </div>
               )}
 
+              {deadlineMarkers.map(([minute, tasks]) => {
+                const label = `${minutesToTime(minute)} 마감 · ${tasks.map(task => task.text).join(' · ')}`
+                const complete = tasks.every(task => task.done)
+                return <div key={`deadline:${minute}`} role="note" aria-label={label} title={label}
+                  className={clsx('absolute left-0 right-1/2 z-20 border-t-2 border-red-400', complete && 'opacity-50')}
+                  style={{ top: timelinePosition(minute) }}>
+                  <span className={clsx('absolute left-1 right-1 -translate-y-1/2 truncate rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-900', complete && 'line-through')}>{label}</span>
+                </div>
+              })}
+
               {routineTimelineGroups.map(group => {
                 const top = timelinePosition(group.start)
                 const height = timelineBlockHeight(group.start, group.end)
@@ -1607,7 +1630,7 @@ export function TodayDashboard({
                 )
               })}
 
-              {chronological.length === 0 && actualBlocks.length === 0 && routineTimelineGroups.length === 0 && routineActualGroups.length === 0 && !draggedTaskId && (
+              {chronological.length === 0 && deadlineMarkers.length === 0 && actualBlocks.length === 0 && routineTimelineGroups.length === 0 && routineActualGroups.length === 0 && !draggedTaskId && (
                 <div className="absolute inset-x-3 top-16 rounded-[12px] border border-dashed border-[var(--border-strong)] py-5 flex flex-col items-center text-center pointer-events-none">
                   <CalendarClock size={20} className="text-[var(--text-3)] mb-1.5" />
                   <span className="text-xs font-medium">할 일을 이 시간축으로 끌어오세요.</span>

@@ -32,6 +32,12 @@ export function formatDuration(totalMinutes: number): string {
   return `${hours}시간 ${rest}분`
 }
 
+/** A cutoff can be drawn as a point while reserving zero activity minutes. */
+export function getDeadlineMarkerMinute(task: Task): number | null {
+  if (task.category_id !== DEADLINE_CAT_ID || task.deleted_at || task.discarded || task.actual_only) return null
+  return timeToMinutes(task.schedule_details?.due_time ?? task.start_time ?? task.time)
+}
+
 export function getTaskStart(task: Task): number | null {
   if (task.category_id === DEADLINE_CAT_ID) return null
   return timeToMinutes(task.start_time ?? task.time)
