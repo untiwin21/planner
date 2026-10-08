@@ -3,8 +3,8 @@ import { useState, useMemo } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { addWeeks, subWeeks } from 'date-fns'
 import { getWeekDays, formatDate } from '@/lib/dates'
-import type { DayEntry, ShortGoal, Routine, RoutineLog } from '@/types'
-import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
+import type { DayEntry, ShortGoal, Routine, RoutineLog, Task } from '@/types'
+import { FourWeekScheduleCards } from '@/components/weekly/FourWeekScheduleCards'
 import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
 
 import { WeeklySummary } from '@/components/review/WeeklySummary'
@@ -17,6 +17,7 @@ interface Props {
   goals: ShortGoal[]
   onSelectDate: (date: string) => void
   onAddGoal: (g: Omit<ShortGoal, 'id'>) => void
+  onUpdateTask: (date: string, id: string, patch: Partial<Task>) => void
   onUpdateGoal: (goalId: string, patch: Partial<ShortGoal>) => void
 }
 
@@ -24,10 +25,9 @@ export function MobileWeekly({
   selectedDate, days, goals, routines, logs,
   onSelectDate,
   onAddGoal,
-  onUpdateGoal,
+  onUpdateGoal, onUpdateTask,
 }: Props) {
   const [weekBase, setWeekBase] = useState(new Date())
-  const [monthBase, setMonthBase] = useState(new Date())
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
   const weekDays = useMemo(() => getWeekDays(weekBase), [weekBase])
   const editingGoal = editingGoalId ? goals.find(goal => goal.id === editingGoalId) ?? null : null
@@ -53,20 +53,9 @@ export function MobileWeekly({
         <WeeklySummary weekDays={weekDays} goals={goals} days={days} routines={routines} logs={logs} />
       </div>
 
-      <div className="mx-4 mt-4 overflow-x-auto rounded-[18px]">
-        <div className="min-w-[700px]">
-          <MonthlyGoalCalendar
-            monthBase={monthBase}
-            goals={goals}
-            days={days}
-            selectedDate={selectedDate}
-            onMonthChange={setMonthBase}
-            onSelectDate={onSelectDate}
-            onAddGoal={onAddGoal}
-            onUpdateGoal={onUpdateGoal}
-            onEditGoal={setEditingGoalId}
-          />
-        </div>
+      <div className="mx-4 mt-4">
+        <FourWeekScheduleCards days={days} goals={goals} onSelectDate={onSelectDate}
+          onAddGoal={onAddGoal} onUpdateGoal={onUpdateGoal} onUpdateTask={onUpdateTask} onEditGoal={setEditingGoalId} />
       </div>
 
       <ShortGoalEditModal

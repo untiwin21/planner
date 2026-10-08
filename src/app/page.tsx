@@ -15,14 +15,13 @@ import { signOut } from '@/lib/auth'
 import { DataPanel } from '@/components/settings/DataPanel'
 import { MobileLayout } from '@/components/mobile/MobileLayout'
 import { TodayDashboard } from '@/components/today/TodayDashboard'
-import { MonthlyGoalCalendar } from '@/components/weekly/MonthlyGoalCalendar'
+import { FourWeekScheduleCards } from '@/components/weekly/FourWeekScheduleCards'
 import { ShortGoalEditModal } from '@/components/weekly/ShortGoalEditModal'
 
 export default function Home() {
   const userId = useUserId()
   const [user, setUser] = useState<any>(null)
   const [weekBase, setWeekBase] = useState(new Date())
-  const [monthBase, setMonthBase] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()))
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
   const [view, setView] = useState<'today' | 'week'>('today')
@@ -205,15 +204,13 @@ export default function Home() {
                 <Card className="p-5">
                   <WeeklySummary weekDays={weekDays} goals={store.goals} days={store.days} routines={store.routines} logs={store.logs} />
                 </Card>
-                <MonthlyGoalCalendar
-                  monthBase={monthBase}
+                <FourWeekScheduleCards
                   goals={store.goals}
                   days={store.days}
-                  selectedDate={selectedDate}
-                  onMonthChange={setMonthBase}
-                  onSelectDate={date => { setSelectedDate(date) }}
+                  onSelectDate={date => { setSelectedDate(date); setView('today') }}
                   onAddGoal={store.addGoal}
                   onUpdateGoal={store.updateGoal}
+                  onUpdateTask={store.updateTask}
                   onEditGoal={setEditingGoalId}
                 />
               </>
