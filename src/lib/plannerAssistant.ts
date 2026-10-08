@@ -4,12 +4,12 @@ import { fetchAll } from './syncService'
 import { scheduleCards, DETAILS_MARKER } from './scheduleCards'
 import { withShortGoalCategory } from './planCategory'
 import { findScheduleConflicts, koreaToday, shiftDate, validDate, validTime } from './scheduleConflicts'
-import type { DayEntry, DayMeta, Task } from '@/types'
+import type { DayEntry, DayMeta, Task, ScheduleDetails } from '@/types'
 import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 
 type Input = Record<string, unknown>
 type Row = { id: string; date: string; user_id: string; note: string; meta: DayMeta & { _tasks?: Task[] } }
-export const assistantToolNames = ['planner_read', 'planner_add_routine', 'planner_add_schedule_card', 'planner_set_card_result', 'planner_save_task', 'planner_delete_task', 'planner_restore_task', 'planner_save_feedback'] as const
+export const assistantToolNames = ['planner_read', 'planner_add_routine', 'planner_add_schedule_card', 'planner_set_card_result', 'planner_update_card_details', 'planner_save_task', 'planner_delete_task', 'planner_restore_task', 'planner_save_feedback'] as const
 export type AssistantToolName = typeof assistantToolNames[number]
 function text(value: unknown, field: string, max = 1000): string {
   if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`${field} 값이 필요합니다 (최대 ${max}자).`)
@@ -95,9 +95,26 @@ export function createAssistantRunner(supabase: typeof import('./supabase').supa
       const conflicts = findScheduleConflicts(all.days).filter(pair => (pair.first.date >= from && pair.first.date <= to) || (pair.second.date >= from && pair.second.date <= to))
       return { timezone: 'Asia/Seoul', from, to, days, conflicts, categories,
         schedule_cards: scheduleCards(all.days, all.goals).map(({ task, goal, ...card }) => ({ ...card, updated_at: task?.updated_at ?? goal?.updated_at ?? 0 })),
-        schedule_card_policy: { week_range: '목표·계획 카드에서만 오늘 이전 종료 항목을 숨김(주간 플래너·기록은 유지). 한국시간 이번 주 월요일~4주차 일요일. timing=window는 이 범위와 겹치는 예정 기간만 일정 미정 탭에 date_label과 함께 표시. timing=undated는 기간 근거가 없어 제외. 4주 이후는 제외하며 기록 보존', public: '공식 일정: 정해진 시간에 참석·응시하는 활동, 초록~연두', private: '개인 일정: 개인이 계획한 활동, 하늘·파랑', deadline: '과제·단기계획을 해당 기한까지 완료하는 마감점, 빨강. 시간 구간·기본 60분을 점유하지 않음', deadline_storage: 'Task.category_id=deadline; 선택 마감시각은 schedule_details.due_time. 단기계획은 schedule_details.kind=deadline이면 date_to를 마감일로 표시', attendance_is_not_pass: true, conditional_cards: 'timing=window는 공지된 예정 기간, undated는 실제 날짜 미정. 불합격과 연결된 모든 후속 카드는 discardedBy로 표시되어 일정에서 제외되며 결과 정정 시 복구됨'  },
+        schedule_card_policy: { week_range: '목표·계획 카드에서만 오늘 이전 종료 항목을 숨김(주간 플래너·기록은 유지). 한국시간 이번 주 월요일~4주차 일요일. timing=window는 이 범위와 겹치는 예정 기간만 하단 일정 미정 영역에 date_label과 함께 표시. timing=undated는 기간 근거가 없어 제외. 4주 이후는 제외하며 기록 보존', public: '공식 일정: 정해진 시간에 참석·응시하는 활동, 초록~연두', private: '개인 일정: 개인이 계획한 활동, 하늘·파랑', deadline: '과제·단기계획을 해당 기한까지 완료하는 마감점, 빨강. 시간 구간·기본 60분을 점유하지 않음', deadline_storage: 'Task.category_id=deadline; 선택 마감시각은 schedule_details.due_time. 단기계획은 schedule_details.kind=deadline이면 date_to를 마감일로 표시', attendance_is_not_pass: true, conditional_cards: 'timing=window는 공지된 예정 기간, undated는 실제 날짜 미정. 불합격과 연결된 모든 후속 카드는 discardedBy로 표시되어 일정에서 제외되며 결과 정정 시 복구됨'  },
         incomplete_times: days.flatMap(day => day.tasks.filter(t => !t.done && !t.discarded && t.category_id === SCHEDULE_CAT_ID && (!(t.start_time || t.time) || (!t.end_time && !t.duration_min))).map(t => ({ date: day.date, id: t.id, text: t.text }))),
         goals: all.goals.filter(goal => goal.categories?.some(c => c.id === DETAILS_MARKER && c.details?.timing === 'undated') || (goal.date_from <= to && goal.date_to >= from)), routines: all.routines, routine_logs: all.logs.filter(log => log.date >= from && log.date <= to) }
+    }
+    if (name === 'planner_update_card_details') {
+      const id = text(input.card_id, 'card_id', 200)
+      const patch = validateScheduleDetails(input.schedule_details)
+      if (patch.dependencies?.some(dep => dep.id === id)) throw new Error('자기 자신을 선행 일정으로 연결할 수 없습니다.')
+      const { data: card, error } = await supabase!.from('short_goals').select('*').eq('user_id', userId).eq('id', id).maybeSingle()
+      if (error) throw new Error(error.message)
+      if (!card) throw new Error('일정 카드를 찾을 수 없습니다.')
+      if (!Array.isArray(input.expected_categories) || JSON.stringify(input.expected_categories) !== JSON.stringify(card.categories)) throw new Error('다른 곳에서 변경된 카드입니다. planner_read로 다시 조회하세요.')
+      const previous = card.categories.find((c: { id: string }) => c.id === DETAILS_MARKER)
+      if (!previous) throw new Error('일정 상세를 찾을 수 없습니다.')
+      const categories = card.categories.map((c: { id: string; details?: ScheduleDetails }) => c.id === DETAILS_MARKER ? { ...c, details: { ...c.details, ...patch } } : c)
+      const { data: saved, error: saveError } = await supabase!.from('short_goals').update({ categories, updated_at: Date.now() }).eq('user_id', userId).eq('id', id).eq('categories', JSON.stringify(card.categories)).select('id')
+      if (saveError) throw new Error(saveError.message)
+      if (!saved?.length) throw new Error('동시에 변경된 카드입니다. 다시 조회하세요.')
+      onSaved?.()
+      return { saved: true, id }
     }
     if (name === 'planner_set_card_result') {
       const id = text(input.card_id, 'card_id', 200)
@@ -239,6 +256,8 @@ export const runAssistantTool = createAssistantRunner(supabase, undefined, () =>
 })
 
 export const assistantTools = [
+  { name: 'planner_update_card_details', description: '기존 일정 카드의 상세·날짜 확정 분류를 부분 갱신합니다. 기존 결과·연동 메타데이터는 보존합니다. planner_read에서 실제 읽은 categories 전체를 expected_categories로 전달하세요. 날짜가 명시된 일정은 timing=exact, 대략적 기간은 window입니다.', readOnly: false,
+    properties: { card_id: { type: 'string' }, schedule_details: { type: 'object' }, expected_categories: { type: 'array', items: { type: 'object' } } }, required: ['card_id', 'schedule_details', 'expected_categories'] },
   { name: 'planner_set_card_result', description: '기간형·미정 일정 카드의 전형 결과를 저장합니다. 먼저 planner_read.goals의 해당 categories 전체를 expected_categories로 전달하세요. 불합격은 연결된 후속 일정 전체를 자동 제외하며, 결과 정정 시 복구됩니다. Task형은 planner_save_task로 수정합니다.', readOnly: false,
     properties: { card_id: { type: 'string' }, result: { type: 'string', enum: ['unknown', 'passed', 'failed'] }, expected_categories: { type: 'array', items: { type: 'object' } } }, required: ['card_id', 'result', 'expected_categories'] },
   { name: 'planner_add_schedule_card', description: '기간형 또는 날짜 미정의 조건부 후속 일정 카드를 등록합니다. 날짜가 없으면 timing=undated, date_from/date_to를 생략하세요. timing=window는 실제 예약이 아닌 예정 기간입니다. 먼저 planner_read로 중복을 확인하세요. 동일 ID의 재시도는 기존 카드를 변경하지 않습니다.', readOnly: false,

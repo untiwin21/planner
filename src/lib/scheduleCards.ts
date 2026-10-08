@@ -81,3 +81,10 @@ export function dependencyState(card: ScheduleCard, all: ScheduleCard[]) {
       failed: !!source?.discardedBy || source?.details.result === 'failed' }
   })
 }
+
+export function calendarWeekLabel(monday: string) {
+  const majorityDate = shiftDate(monday, 3)
+  const first = majorityDate.slice(0, 7) + '-01'
+  const week = Math.round((Date.parse(monday) - Date.parse(scheduleWeekStart(first))) / 604800000) + 1
+  return `${Number(majorityDate.slice(5, 7))}월 ${week}주차`
+}
