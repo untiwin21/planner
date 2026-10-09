@@ -1,38 +1,30 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { onAuthStateChange, signInWithGoogle } from '@/lib/auth'
+import { signInWithGoogle } from '@/lib/auth'
+import { watchAuthSession } from '@/lib/authSession'
 import { UserContext } from '@/context/UserContext'
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<any>(null)
+  const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [authError, setAuthError] = useState(false)
 
   useEffect(() => {
-    async function getSession() {
-      if (!supabase) {
-        setLoading(false)
-        return
-      }
-      const { data: { session } } = await supabase.auth.getSession()
-      setSession(session)
+    if (!supabase) {
       setLoading(false)
+      return
     }
-
-    getSession()
-
-    const authListener = onAuthStateChange((_userId) => {
-        // For simplicity, we'll just refetch the session.
-        // A more robust implementation might handle different auth events.
-        supabase?.auth.getSession().then(({ data: { session } }) => {
-            setSession(session)
-        })
+    return watchAuthSession(supabase, nextSession => {
+      setSession(nextSession)
+      setAuthError(false)
+      setLoading(false)
+    }, () => {
+      setAuthError(true)
+      setLoading(false)
     })
-
-    return () => {
-      authListener?.data.subscription.unsubscribe()
-    }
   }, [])
 
   if (loading) {
@@ -40,6 +32,18 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg, #F8F9FA)' }}>
         <p>Loading...</p>
       </div>
+    )
+  }
+
+  if (authError) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-6">
+        <section role="alert" className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-white p-8 text-center">
+          <h1 className="text-xl font-bold">로그인 연결을 확인하지 못했어요</h1>
+          <p className="mt-3 text-sm leading-relaxed text-[var(--text-3)]">인터넷 연결을 확인한 뒤 다시 시도해주세요.</p>
+          <button onClick={() => window.location.reload()} className="mt-6 rounded-lg bg-[var(--purple)] px-5 py-2.5 font-medium text-white">다시 시도</button>
+        </section>
+      </main>
     )
   }
 
