@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { MessageSquareText } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
@@ -24,6 +24,33 @@ interface Props {
 
 function draftOf(review?: DayReview): Record<ReviewField, string> {
   return { keep: review?.keep ?? '', problem: review?.problem ?? '', try: review?.try ?? '' }
+}
+
+function ReviewTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return
+    function fitContent() {
+      if (!element || element.clientWidth === 0) return
+      element.style.height = 'auto'
+      const styles = getComputedStyle(element)
+      const border = parseFloat(styles.borderTopWidth) + parseFloat(styles.borderBottomWidth)
+      element.style.height = `${element.scrollHeight + border}px`
+    }
+    fitContent()
+    let width = element.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (element.clientWidth === width) return
+      width = element.clientWidth
+      fitContent()
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [props.value, props.rows])
+
+  return <Textarea {...props} ref={ref} style={{ ...props.style, overflow: 'hidden', transitionProperty: 'color, background-color, border-color, box-shadow' }} />
 }
 
 export function DayReviewPanel({ date, meta, onMetaChange, compact = false }: Props) {
@@ -59,19 +86,19 @@ export function DayReviewPanel({ date, meta, onMetaChange, compact = false }: Pr
 
       <div className={clsx('grid gap-3', compact ? 'grid-cols-1' : 'lg:grid-cols-3')}>
         {FIELDS.map(field => (
-          <label key={field.key} className="block">
+          <label key={field.key} className="block min-w-0 rounded-[14px] border border-[var(--border)] p-3">
             <span className="mb-1 flex items-center gap-2">
               <span className={clsx('rounded-full px-2 py-0.5 text-[10px] font-bold', field.tone)}>{field.label}</span>
               <span className="text-[11px] text-[var(--text-3)]">{field.hint}</span>
             </span>
-            <Textarea
+            <ReviewTextarea
               rows={compact ? 2 : 3}
               value={draft[field.key]}
               onFocus={() => { editing.current = true }}
               onChange={event => setDraft(prev => ({ ...prev, [field.key]: event.target.value }))}
               onBlur={commit}
               placeholder={field.hint}
-              className="text-sm"
+              className="text-sm !bg-transparent leading-7"
             />
           </label>
         ))}
