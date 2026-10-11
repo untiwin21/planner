@@ -1653,15 +1653,13 @@ export function TodayDashboard({
                 </>
               )}
             </div>
-            {onAddRoutine && onUpdateRoutine && onSetRoutineStatus && onDeleteRoutine && (
-              <button type="button" onClick={() => setShowRoutineManager(true)} className="flex shrink-0 items-center gap-1.5 rounded-[8px] px-2 py-1.5 text-xs font-semibold text-[var(--text-2)] hover:bg-[var(--surface-2)]"><Settings2 size={13} /> 루틴 관리</button>
-            )}
+            {/* Routine templates are curated by the assistant; daily execution stays editable. */}
           </div>
           <div className="px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-2)]/45">
             <div className={clsx('grid gap-1.5', compact ? 'grid-cols-[auto_auto_1fr_60px_auto]' : 'grid-cols-[auto_auto_1fr_64px_auto]')}>
               <div role="tablist" aria-label="추가할 종류" className="flex h-8 items-center rounded-[9px] border border-[var(--border)] bg-white p-0.5 text-xs font-semibold">
                 <button type="button" role="tab" aria-selected={addMode === 'task'} onClick={() => switchAddMode('task')} className={clsx('h-full rounded-[7px] px-2', addMode === 'task' ? 'bg-[var(--purple)] text-white' : 'text-[var(--text-3)] hover:text-[var(--text)]')}>할 일</button>
-                <button type="button" role="tab" aria-selected={addMode === 'routine'} disabled={!onAddRoutine} onClick={() => switchAddMode('routine')} className={clsx('h-full rounded-[7px] px-2 disabled:opacity-40', addMode === 'routine' ? 'bg-[var(--amber)] text-white' : 'text-[var(--text-3)] hover:text-[var(--text)]')}>루틴</button>
+                {/* Routine creation is handled by the assistant rather than the daily task form. */}
               </div>
               {addMode === 'routine' ? (
                 <label className="h-8 px-2 rounded-[9px] bg-white border border-[var(--border)] flex items-center gap-1 text-[11px] text-[var(--text-3)]" title="루틴 시각 (비우면 시간 미지정)">
@@ -1764,7 +1762,7 @@ export function TodayDashboard({
                   <section>
                     <div className="flex items-center gap-2 px-1 mb-1">
                       <Flame size={13} className="text-[var(--amber)]" />
-                      <h4 className="text-xs font-bold text-[var(--text-2)]">루틴</h4>
+                      <h4 className="text-xs font-bold text-[var(--text-2)]">매일 반복</h4>
                       <span className="text-[10px] text-[var(--text-3)]">{activeRoutines.length}개</span>
                     </div>
                     {currentRoutineGroup && (
@@ -1775,13 +1773,13 @@ export function TodayDashboard({
                       </button>
                     )}
                     <div className="flex flex-col gap-1.5">
-                      {ROUTINE_PERIOD_ORDER.map(period => {
-                        const periodRoutines = activeRoutines.filter(routine => (routine.period ?? 'anytime') === period)
+                      {Array.from(new Set(activeRoutines.map(routine => routineConfig(routine).bundle?.trim() || ROUTINE_PERIOD_LABELS[routine.period ?? 'anytime']))).map(bundle => {
+                        const periodRoutines = activeRoutines.filter(routine => (routineConfig(routine).bundle?.trim() || ROUTINE_PERIOD_LABELS[routine.period ?? 'anytime']) === bundle)
                         if (periodRoutines.length === 0) return null
                         return (
-                          <div key={period}>
+                          <div key={bundle}>
                             <div className="mb-0.5 flex items-center gap-2 px-1">
-                              <span className="text-[10px] font-semibold text-[var(--text-3)]">{ROUTINE_PERIOD_LABELS[period]}</span>
+                              <span className="text-[10px] font-semibold text-[var(--text-3)]">{bundle}</span>
                               <div className="h-px flex-1 bg-[var(--border)]" />
                             </div>
                             <div className="flex flex-col">
