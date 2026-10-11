@@ -26,6 +26,9 @@ export interface FocusSessionRecord {
   ended_at: string
   duration_min: number
   source: 'stopwatch' | 'manual'
+  /** Child attribution; stored once on the parent so totals never double-count. */
+  subtask_id?: string
+  subtask_text?: string
 }
 
 export type TaskHistoryKind =

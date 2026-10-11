@@ -23,6 +23,8 @@ type FocusTask = Task & {
 interface ActiveFocusSession {
   date: string
   taskId: string
+  subtaskId?: string
+  parentText?: string
   text: string
   categoryName: string
   expectedMinutes: number
@@ -37,6 +39,7 @@ interface ActiveFocusSession {
 
 interface TaskHost {
   task: FocusTask
+  subtask?: SubTask
   host: HTMLElement
 }
 
@@ -154,7 +157,11 @@ function ensureTaskHosts(panel: HTMLElement, tasks: FocusTask[]) {
     removeLegacyHosts(panel)
     return tasks.flatMap(task => {
       const host = slots.get(task.id)
-      return host ? [{ task, host }] : []
+      const children = (task.subtasks ?? []).flatMap(subtask => {
+        const childHost = panel.querySelector<HTMLElement>(`[data-subtask-execution-slot="${CSS.escape(subtask.id)}"][data-parent-task-id="${CSS.escape(task.id)}"]`)
+        return childHost ? [{ task, subtask, host: childHost }] : []
+      })
+      return [...(host ? [{ task, host }] : []), ...children]
     })
   }
 
@@ -233,8 +240,12 @@ function snapshotSignature(snapshot: ExecutionSnapshot | null) {
   if (!snapshot) return 'empty'
   return JSON.stringify({
     date: snapshot.date,
-    tasks: snapshot.taskHosts.map(({ task, host }) => ({
+    tasks: snapshot.taskHosts.map(({ task, subtask, host }) => ({
       id: task.id,
+      subtaskId: subtask?.id,
+      subtaskText: subtask?.text,
+      subtaskDone: subtask?.done,
+      subtaskDuration: subtask?.duration_min,
       connected: host.isConnected,
       text: task.text,
       done: task.done,
@@ -256,17 +267,21 @@ function snapshotSignature(snapshot: ExecutionSnapshot | null) {
   })
 }
 
-function TaskExecution({ task, date, disabled, onStart }: {
+function TaskExecution({ task, subtask, date, disabled, onStart }: {
   task: FocusTask
+  subtask?: SubTask
   date: string
   disabled: boolean
-  onStart: (task: FocusTask, date: string) => void
+  onStart: (task: FocusTask, date: string, subtask?: SubTask) => void
 }) {
-  const expected = Math.max(1, getTaskDuration(task))
-  const actual = taskActualMinutes(task)
+  const expected = Math.max(1, subtask ? subtask.duration_min ?? 30 : getTaskDuration(task))
+  const childSessions = subtask ? (task.actual_sessions ?? []).filter(item => item.subtask_id === subtask.id) : []
+  const actual = subtask
+    ? childSessions.length ? childSessions.reduce((sum, item) => sum + item.duration_min, 0) : subtaskActualMinutes(subtask)
+    : taskActualMinutes(task)
   const ratio = actual === null ? null : Math.round((actual / expected) * 100)
 
-  if (task.discarded) return null
+  if (task.discarded || subtask?.discarded) return null
 
   // Inline, one-line: actual/estimate chip (only once something is recorded) + a small stopwatch button.
   return (
@@ -279,12 +294,12 @@ function TaskExecution({ task, date, disabled, onStart }: {
           <Clock3 size={9} />{formatMinutes(actual)}
         </span>
       )}
-      {!task.done && (
+      {!(subtask ? subtask.done : task.done) && (
         <button
           type="button"
           disabled={disabled}
-          onClick={() => onStart(task, date)}
-          aria-label={`${task.text} 스톱워치 시작`}
+          onClick={() => onStart(task, date, subtask)}
+          aria-label={`${subtask?.text ?? task.text} 스톱워치 시작`}
           className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--purple-bg)] text-[var(--purple)] transition-colors hover:bg-[var(--purple)] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
           title="스톱워치 — 이 할 일에만 집중하며 실제 시간을 잽니다"
         >
@@ -497,15 +512,17 @@ export function TaskExecutionLayer() {
     return () => window.removeEventListener('keydown', onKeyDown)
   })
 
-  function startSession(task: FocusTask, date: string) {
+  function startSession(task: FocusTask, date: string, subtask?: SubTask) {
     if (session) return
     const startedAt = Date.now()
     const next: ActiveFocusSession = {
       date,
       taskId: task.id,
-      text: task.text,
+      subtaskId: subtask?.id,
+      parentText: subtask ? task.text : undefined,
+      text: subtask?.text ?? task.text,
       categoryName: task.category_name,
-      expectedMinutes: Math.max(1, getTaskDuration(task)),
+      expectedMinutes: Math.max(1, subtask ? subtask.duration_min ?? 30 : getTaskDuration(task)),
       firstStartedAt: startedAt,
       segmentStartedAt: startedAt,
       accumulatedMs: 0,
@@ -547,6 +564,9 @@ export function TaskExecutionLayer() {
       if (taskIndex < 0) throw new Error('측정 중인 할 일을 찾을 수 없습니다.')
 
       const task = entry.tasks[taskIndex] as FocusTask
+      if (session.subtaskId && !task.subtasks?.some(item => item.id === session.subtaskId)) {
+        throw new Error('측정 중인 하위 할 일이 삭제되었습니다. 기록을 저장하려면 먼저 복원해주세요.')
+      }
       const previousMinutes = taskActualMinutes(task) ?? 0
       const totalMinutes = previousMinutes + activeMinutes
       const newSessions: FocusSessionRecord[] = finishedSegments.map(segment => ({
@@ -555,6 +575,7 @@ export function TaskExecutionLayer() {
         ended_at: new Date(segment.endedAt).toISOString(),
         duration_min: Math.max(0, segment.endedAt - segment.startedAt) / 60_000,
         source: 'stopwatch',
+        ...(session.subtaskId ? { subtask_id: session.subtaskId, subtask_text: session.text } : {}),
       }))
       const sessions: FocusSessionRecord[] = [...(task.actual_sessions ?? []), ...newSessions]
       const firstSession = sessions[0]
@@ -572,7 +593,7 @@ export function TaskExecutionLayer() {
           sessions: sessions.length,
           added_sessions: newSessions.map(item => ({ started_at: item.started_at, ended_at: item.ended_at, duration_min: item.duration_min })),
         },
-        note: `Focus Mode에서 ${Math.round(activeMinutes)}분 기록`,
+        note: `${session.subtaskId ? `하위 할 일 “${session.text}” · ` : ''}Focus Mode에서 ${Math.round(activeMinutes)}분 기록`,
       }
       const updatedTask: FocusTask = {
         ...task,
@@ -606,7 +627,7 @@ export function TaskExecutionLayer() {
       }))
     } catch (error) {
       console.error('[Planr] focus stopwatch local save failed:', error)
-      window.alert('집중 시간을 브라우저에 저장하지 못했습니다. 저장 공간 또는 브라우저 상태를 확인한 뒤 다시 시도해주세요.')
+      window.alert(error instanceof Error ? error.message : '집중 시간을 저장하지 못했습니다. 다시 시도해주세요.')
     } finally {
       setSaving(false)
     }
@@ -623,11 +644,11 @@ export function TaskExecutionLayer() {
 
   return (
     <>
-      {snapshot?.taskHosts.map(({ task, host }) => host.isConnected
+      {snapshot?.taskHosts.map(({ task, subtask, host }) => host.isConnected
         ? createPortal(
-            <TaskExecution task={task} date={snapshot.date} disabled={Boolean(session)} onStart={startSession} />,
+            <TaskExecution task={task} subtask={subtask} date={snapshot.date} disabled={Boolean(session)} onStart={startSession} />,
             host,
-            task.id,
+            subtask ? `${task.id}:${subtask.id}` : task.id,
           )
         : null)}
 
@@ -645,7 +666,7 @@ export function TaskExecutionLayer() {
                 <div className="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-[var(--border)] pt-4 text-xs font-semibold text-[var(--text-3)]">
                   <span className="inline-flex items-center gap-1.5"><Clock3 size={13} /> 예상 {formatMinutes(session.expectedMinutes)}</span>
                   <span className="hidden h-4 w-px bg-[var(--border)] sm:block" />
-                  <span className="text-[var(--purple-text)]">{session.categoryName}</span>
+                  <span className="text-[var(--purple-text)]">{session.categoryName}{session.parentText ? ` · ${session.parentText}` : ''}</span>
                 </div>
               </section>
 

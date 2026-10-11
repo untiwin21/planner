@@ -475,7 +475,8 @@ export function TodayDashboard({
     const appendSession = (task: Task, session: FocusSessionRecord) => {
       const range = focusSessionTimelineRange(session, date)
       if (!range) return
-      pushRange({ task, session, rawStart: range.start, rawEnd: range.end })
+      const subtask = session.subtask_id ? task.subtasks?.find(item => item.id === session.subtask_id) ?? { id: session.subtask_id, text: session.subtask_text ?? '하위 할 일', done: false } : undefined
+      pushRange({ task, subtask, session, rawStart: range.start, rawEnd: range.end })
     }
     for (const task of entry.tasks) {
       if ((task.actual_sessions ?? []).length > 0) {
@@ -941,7 +942,7 @@ export function TodayDashboard({
     setActualEditor({
       taskId: task.id,
       sessionId: session.id,
-      text: task.text,
+      text: session.subtask_text ? `${task.text} · ${session.subtask_text}` : task.text,
       start: minutesToTime(start),
       end: minutesToTime(end),
       categoryId: task.category_id,
@@ -1219,7 +1220,7 @@ export function TodayDashboard({
 
   function toggleSubtaskWithActualEditor(task: Task, subtask: SubTask) {
     updateSubtask(task, subtask.id, { done: !subtask.done })
-    if (subtask.done || subtask.discarded || !canEditActual) return
+    if (subtask.done || subtask.discarded || !canEditActual || task.actual_sessions?.some(session => session.subtask_id === subtask.id)) return
     const start = timeToMinutes(subtask.start_time)
     const normalizedStart = start === null ? undefined : start < TIMELINE_START ? start + 24 * 60 : start
     const plannedEnd = normalizedStart === undefined ? undefined : normalizedStart + (subtask.duration_min ?? 30)
@@ -2033,6 +2034,7 @@ export function TodayDashboard({
                                   <button type="button" aria-label={`${subtask.text} 타임라인에 배치`} draggable={!subtask.done && !subtask.discarded} onDragStart={event => { setDraggedTaskId(subToken); event.dataTransfer.setData('text/plain', subToken); event.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { setDraggedTaskId(null); setDragPreviewMinute(null) }} onPointerDown={event => { if (subtask.done || subtask.discarded || !event.isPrimary) return; pointerTaskIdRef.current = subToken; setDraggedTaskId(subToken); event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={event => { if (pointerTaskIdRef.current !== subToken) return; event.preventDefault(); const drop = timelineDropAtPoint(event.clientX, event.clientY); setDragPreviewMinute(drop?.minute ?? null); if (drop) setDragTargetSide(drop.side) }} onPointerUp={event => finishPointerDrag(event.clientX, event.clientY)} onPointerCancel={() => finishPointerDrag(-1, -1)} className={clsx('flex h-5 w-3.5 shrink-0 touch-none items-center justify-center text-[var(--text-3)] opacity-30 group-hover/sub:opacity-80', !subtask.done && !subtask.discarded ? 'cursor-grab' : 'cursor-not-allowed !opacity-10')}><GripVertical size={11} /></button>
                                   <button type="button" disabled={subtask.discarded} aria-label={subtask.done ? '하위 할 일 완료 취소' : '하위 할 일 완료'} onClick={() => toggleSubtaskWithActualEditor(task, subtask)} className={clsx('flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border', subtask.done ? 'border-[var(--teal)] bg-[var(--teal)] text-white' : 'border-[var(--border-strong)]', subtask.discarded && 'cursor-not-allowed')} >{subtask.done && <Check size={8} strokeWidth={3} />}</button>
                                   <input key={`${subtask.id}:${subtask.updated_at ?? 0}`} defaultValue={subtask.text} disabled={subtask.discarded} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} onBlur={event => { const text = event.target.value.trim(); if (text && text !== subtask.text) updateSubtask(task, subtask.id, { text }) }} className={clsx('min-w-0 flex-1 bg-transparent text-xs outline-none focus:border-b focus:border-[var(--purple)]', (subtask.done || subtask.discarded) && 'line-through text-[var(--text-3)]')} />
+                                  <span data-subtask-execution-slot={subtask.id} data-parent-task-id={task.id} className="contents" />
                                   {subtask.start_time && <span className="shrink-0 font-mono text-[10px] text-[var(--purple)]">{subtask.start_time}</span>}
                                   <label className="flex shrink-0 items-center text-[10px] text-[var(--text-3)]"><input aria-label="하위 할 일 예상 시간(분)" inputMode="numeric" disabled={subtask.discarded} key={`${subtask.id}:duration:${subtask.duration_min ?? 30}`} defaultValue={subtask.duration_min ?? 30} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} onBlur={event => { const value = Number.parseInt(event.target.value, 10); if (value > 0 && value !== subtask.duration_min) updateSubtask(task, subtask.id, { duration_min: value }) }} className="w-7 bg-transparent text-right text-[10px] tabular-nums outline-none focus:bg-white" />분</label>
                                   <button type="button" onClick={() => updateSubtask(task, subtask.id, subtask.discarded ? { discarded: false } : { discarded: true, done: false, start_time: undefined, end_time: undefined })} aria-label={subtask.discarded ? '하위 할 일 폐기 취소' : '하위 할 일 폐기'} title={subtask.discarded ? '폐기 취소' : '폐기'} className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[var(--text-3)] opacity-0 group-hover/sub:opacity-100 focus:opacity-100 hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]">{subtask.discarded ? <Undo2 size={10} /> : <Ban size={10} />}</button>
