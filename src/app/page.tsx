@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { ChevronLeft, ChevronRight, Plus, X, LogOut } from 'lucide-react'
 import { addWeeks, subWeeks, parseISO } from 'date-fns'
 import { getWeekDays, formatDate, formatMonth } from '@/lib/dates'
@@ -37,6 +37,46 @@ export default function Home() {
 
 
   const { syncReady, ...store } = usePlanrStore(userId)
+  // Initialize the assistant-curated routines only after server synchronization has completed.
+  // Never overwrite an existing routine; each bundle is provisioned at most once.
+  const seededRoutines = useRef(false)
+  useEffect(() => {
+    if (!syncReady || !userId || seededRoutines.current) return
+    seededRoutines.current = true
+    const definitions: Array<{ bundle: string; period: 'morning' | 'evening'; color: 'amber' | 'blue'; entries: Array<[string, string | undefined, number | undefined]> }> = [
+      { bundle: '모닝 루틴', period: 'morning', color: 'amber', entries: [
+        ['기상 후 양치, 세수', '06:30', 10],
+        ['스픽', '06:40', 15],
+        ['독서', '06:55', 30],
+        ['플랜', '07:25', 15],
+        ['아침식사', '07:40', 15],
+        ['코딩', '07:55', 60],
+        ['헬스 & 샤워', '08:55', 75],
+      ] },
+      { bundle: '나이트 루틴', period: 'evening', color: 'blue', entries: [
+        ['오늘 하루 피드백', undefined, undefined],
+        ['PC · 폰 OFF', undefined, undefined],
+        ['태블릿 넷플릭스 콘텐츠 1개', undefined, undefined],
+        ['독서', undefined, undefined],
+        ['스트레칭', undefined, undefined],
+      ] },
+    ]
+    for (const definition of definitions) {
+      const existing = new Set(store.routines.filter(r => r.config?.bundle === definition.bundle).map(r => r.name))
+      for (const [name, time, duration] of definition.entries) {
+        if (existing.has(name)) continue
+        store.addRoutine(name, time, definition.period, {
+          bundle: definition.bundle, days_of_week: [0, 1, 2, 3, 4, 5, 6],
+          kind: duration ? 'timed' : 'check', duration_min: duration,
+          cue_type: time ? 'time' : 'event', stage: 'maintenance',
+          category_color: definition.color,
+        })
+      }
+    }
+  // This is an initial one-time provision, not an effect of daily completion changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncReady, userId])
+
   const planGoals = store.goals.filter(g => !isStandaloneScheduleCard(g))
   const weekDays = useMemo(() => getWeekDays(weekBase), [weekBase])
   const selectedEntry = store.getDay(selectedDate)
