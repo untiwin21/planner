@@ -587,12 +587,11 @@ export function usePlanrStore(userId: string) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
-  // ── Periodic sync (every 60s while visible) + focus/visibility triggers ──────────────────
+  // ── Daily-capped background refresh on focus/visibility; no polling ──────────────────
   // Cross-device done-state updates flow because per-task updated_at picks the newer
   // copy. In-flight local writes are protected via the pendingWrites guard, so the
   // window where remote could be stale-vs-local is closed.
-  // Focus/visibility triggers run sync immediately when user returns to the tab,
-  // so switching devices and coming back doesn't require waiting up to 30s.
+  // Focus/visibility refreshes are limited to once per Korea-local day.
   useEffect(() => {
     if (!userId) return
     let syncing = false
@@ -816,20 +815,28 @@ export function usePlanrStore(userId: string) {
         syncing = false
       }
     }
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') void runSync()
-    }, 60000)
-    // Sync immediately when user returns to the tab (no waiting up to 30s)
-    function onVisible() { if (document.visibilityState === 'visible') runSync() }
-    function onFocus() { runSync() }
+    // Background refresh is capped at one successful attempt per Korea-local day,
+    // shared across tabs for the signed-in user. Ordinary edits still persist instantly.
+    const backgroundKey = `planr_background_sync_${userId}`
+    async function dailyRefresh() {
+      if (document.visibilityState !== 'visible' || syncing || pendingWrites.current > 0) return
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date())
+      if (localStorage.getItem(backgroundKey) === today) return
+      // Mark before starting so repeated focus/visibility events don't fan out.
+      localStorage.setItem(backgroundKey, today)
+      await runSync()
+    }
+    function onVisible() { void dailyRefresh() }
+    function onAssistantSaved() { void runSync() }
     document.addEventListener('visibilitychange', onVisible)
-    window.addEventListener('focus', onFocus)
-    window.addEventListener('planr:assistant-saved', onFocus)
+    window.addEventListener('focus', onVisible)
+    window.addEventListener('planr:assistant-saved', onAssistantSaved)
     return () => {
-      clearInterval(interval)
       document.removeEventListener('visibilitychange', onVisible)
-      window.removeEventListener('focus', onFocus)
-      window.removeEventListener('planr:assistant-saved', onFocus)
+      window.removeEventListener('focus', onVisible)
+      window.removeEventListener('planr:assistant-saved', onAssistantSaved)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
