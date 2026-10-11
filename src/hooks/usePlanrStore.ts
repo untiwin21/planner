@@ -587,7 +587,7 @@ export function usePlanrStore(userId: string) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
-  // ── Periodic sync (every 15s) + focus/visibility triggers ──────────────────
+  // ── Periodic sync (every 60s while visible) + focus/visibility triggers ──────────────────
   // Cross-device done-state updates flow because per-task updated_at picks the newer
   // copy. In-flight local writes are protected via the pendingWrites guard, so the
   // window where remote could be stale-vs-local is closed.
@@ -816,7 +816,9 @@ export function usePlanrStore(userId: string) {
         syncing = false
       }
     }
-    const interval = setInterval(runSync, 15000)
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') void runSync()
+    }, 60000)
     // Sync immediately when user returns to the tab (no waiting up to 30s)
     function onVisible() { if (document.visibilityState === 'visible') runSync() }
     function onFocus() { runSync() }
