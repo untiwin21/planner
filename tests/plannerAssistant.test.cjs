@@ -3,19 +3,23 @@ const fs = require('node:fs')
 const ts = require('typescript')
 const path = require('node:path')
 const cache = {}
-let rows = [], legacy = [], routines = [], goals = [], failure = null, race = null
+let rows = [], legacy = [], routines = [], goals = [], failure = null, race = null, queryLog = [], syncCalls = 0
 const clone = value => JSON.parse(JSON.stringify(value))
 const db = { auth: { getSession: async () => ({data:{session:{access_token:'test-session'}}}), getUser: async () => ({ data: { user: { id: 'owner' } } }) }, from(table) {
-  let mode = 'read', payload, filters = []
+  let mode = 'read', payload, filters = [], selection, offset = 0, end = Infinity
   const q = {
-    select() { return q }, eq(k, v) { filters.push([k, v]); return q }, is(k, v) { filters.push([k, v]); return q },
+    select(value) { selection = value; return q }, eq(k, v) { filters.push(row => ['meta','categories'].includes(k) ? JSON.stringify(row[k]) === v : row[k] === v); return q }, is(k, v) { return q.eq(k,v) },
+    gte(k,v) { filters.push(row => row[k] >= v); return q }, lte(k,v) { filters.push(row => row[k] <= v); return q },
+    in(k,v) { filters.push(row => v.includes(row[k])); return q }, order() { return q }, range(a,b) { offset=a; end=b; return q },
+    contains(k,v) { filters.push(row => row[k]?._tasks?.some(t => t.id === v._tasks[0].id)); return q },
     insert(value) { mode = 'insert'; payload = value; return q }, update(value) { mode = 'update'; payload = value; return q },
     maybeSingle() { return q.then(result => ({ ...result, data: result.data?.[0] ?? null })) },
     then(resolve, reject) {
       return Promise.resolve().then(() => {
+        queryLog.push({table, mode, selection})
         if (failure) return { data: null, error: { message: failure } }
-        let data = table === 'tasks' ? legacy : table === 'routines' ? routines : table === 'short_goals' ? goals : rows
-        const match = row => filters.every(([k, v]) => ['meta','categories'].includes(k) ? JSON.stringify(row[k]) === v : row[k] === v)
+        let data = table === 'tasks' ? legacy : table === 'routines' ? routines : table === 'short_goals' ? goals : table === 'day_entries' ? rows : []
+        const match = row => filters.every(test => test(row))
         if (mode === 'insert') {
           if (table === 'short_goals') { goals.push(clone(payload)); return {data:[],error:null} }
           if (table === 'routines') {
@@ -28,13 +32,15 @@ const db = { auth: { getSession: async () => ({data:{session:{access_token:'test
         if (mode === 'update' && race) { const action = race; race = null; action() }
         const found = data.filter(match)
         if (mode === 'update') found.forEach(row => Object.assign(row, clone(payload)))
-        return { data: clone(found), error: null }
+        const projected = selection?.includes('records:meta->_tasks') ? found.map(({id,date,meta})=>({id,date,records:meta._tasks??null})) : found
+        return { data: clone(projected.slice(offset, end + 1)), error: null }
       }).then(resolve, reject)
     }
   }
   return q
 } }
 global.fetch = async (url, options) => {
+  syncCalls++
   assert.equal(url, '/api/sync/day')
   const body = JSON.parse(options.body)
   if (race) { const action = race; race = null; action() }
@@ -53,7 +59,6 @@ function load(file, realSync = false) {
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
   const req = name => {
     if (name === './supabase') return { supabase: db }
-    if (name === './syncService' && !realSync) return { fetchAll: snapshot }
     const target = name.startsWith('@/') ? path.resolve('src', name.slice(2) + '.ts') : path.resolve(path.dirname(file), name + '.ts')
     return load(target, realSync)
   }
@@ -175,5 +180,18 @@ const { upsertDayEntry } = load(path.resolve('src/lib/syncService.ts'), true)
   assert.equal(goals[0].categories.find(c=>c.id==='__schedule_details__').details.result,'failed','hidden outcome is preserved')
   assert.equal(goals[0].categories.find(c=>c.id==='__schedule_details__').details.timing,'exact')
   await assert.rejects(serverRun('planner_set_card_result',{card_id:'pending',result:'passed',expected_categories:goals[0].categories}),/찾을 수/)
+  queryLog = []
+  await run('planner_save_task',{date:'2026-10-16',task_id:'efficient-deadline',text:'기한',kind:'deadline'})
+  assert.deepEqual([...new Set(queryLog.map(q=>q.table))],['day_entries'],'deadline saves never download unrelated tables')
+  assert.equal(queryLog.filter(q=>q.selection?.includes('records:')).length,0,'non-occupying tasks need no conflict query')
+  queryLog = []
+  await run('planner_save_task',{date:'2026-10-16',task_id:'efficient-event',text:'행사',kind:'schedule',start_time:'09:00',end_time:'10:00'})
+  assert.deepEqual([...new Set(queryLog.map(q=>q.table))],['day_entries'],'timed saves query only daily schedule records')
+  assert.equal(queryLog.filter(q=>q.selection?.includes('records:')).length,1)
+  const entry = (await snapshot()).days.find(day=>day.date==='2026-10-16')
+  await upsertDayEntry('owner',entry)
+  const priorCalls = syncCalls
+  await upsertDayEntry('owner',(await snapshot()).days.find(day=>day.date===entry.date))
+  assert.equal(syncCalls,priorCalls,'unchanged daily snapshots never invoke Vercel CAS')
   console.log('PASS: conflict rejection, boundaries, midnight, stale edits, delete/restore, feedback, CAS retry, cross-device merge, legacy preservation, failed-save reporting')
 })().catch(error => { console.error(error); process.exitCode = 1 })

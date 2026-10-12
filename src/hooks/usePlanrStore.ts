@@ -1,5 +1,7 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { sameJson } from '@/lib/syncEfficiency'
+import { koreaToday } from '@/lib/scheduleConflicts'
 import type { DayEntry, ShortGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, Category, Task, TaskHistoryKind, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod, TaskScheduleInput } from '@/types'
 import { mergeDayMeta, stampDayMeta, localNoteIsNewer } from '@/lib/dayMetaSync'
 import { tasksProgress } from '@/lib/taskProgress'
@@ -9,7 +11,6 @@ import { minutesToTime } from '@/lib/plannerTime'
 import {
   fetchAll,
   upsertDayEntry,
-  upsertTask,
   deleteTask as deleteTaskSync,
   upsertRoutine,
   deleteRoutine as deleteRoutineSync,
@@ -352,20 +353,12 @@ export function usePlanrStore(userId: string) {
 
   useEffect(() => {
     if (!userId) { setSyncReady(true); return }
+    let cancelled = false
+    setSyncReady(false)
     async function sync() {
       try {
-        try {
-          const { supabase: sb } = await import('@/lib/supabase')
-          if (sb) {
-            const db = sb as any
-            const { error: testErr } = await db.from('short_goals').select('tasks').limit(1)
-            if (testErr && (testErr.code === '42703' || testErr.message?.includes('column'))) {
-              console.error('[Planr] ❌ short_goals.tasks 컬럼이 없습니다!')
-            }
-          }
-        } catch { /* ignore */ }
-
         const remoteData = await fetchAll(userId)
+        if (cancelled) return
 
         // ── Days merge: LWW per-task, dirty days keep local entirely ──────────
         function mergeDaysList(local: DayEntry[], remote: DayEntry[]): DayEntry[] {
@@ -541,9 +534,12 @@ export function usePlanrStore(userId: string) {
           const remoteLongGoalIds = new Set(remoteData.longGoals.map(item => item.id))
           const daysForBackfill = mergedDays.length > 0 ? mergedDays : mergeDaysList(daysRef.current, remoteData.days)
           const goalsForBackfill = mergedGoals.length > 0 ? mergedGoals : mergeGoalsList(goalsRef.current, remoteData.goals)
+          const remoteDays = new Map(remoteData.days.map(day => [day.date, day]))
+          const remoteGoals = new Map(remoteData.goals.map(goal => [goal.id, goal]))
+          const dayContent = (day: DayEntry) => ({ note: day.note, meta: day.meta, tasks: day.tasks, tombstones: day.task_tombstones ?? [] })
           const results = await Promise.allSettled([
-            ...daysForBackfill.map(d => upsertDayEntry(userId, d)),
-            ...goalsForBackfill.map(g => upsertShortGoal(userId, g)),
+            ...daysForBackfill.filter(day => !remoteDays.has(day.date) || !sameJson(dayContent(day), dayContent(remoteDays.get(day.date)!))).map(d => upsertDayEntry(userId, d)),
+            ...goalsForBackfill.filter(goal => !sameJson(goal, remoteGoals.get(goal.id))).map(g => upsertShortGoal(userId, g)),
             ...routinesRef.current.filter(item => !remoteRoutineIds.has(item.id)).map(item => upsertRoutine(userId, item)),
             ...logsRef.current.filter(item => !remoteLogKeys.has(routineLogKey(item))).map(item => upsertRoutineLog(userId, item)),
             ...longGoalsRef.current.filter(item => !remoteLongGoalIds.has(item.id)).map(item => upsertLongGoal(userId, item)),
@@ -563,6 +559,7 @@ export function usePlanrStore(userId: string) {
         // refs reflect the merged state. Without the defer, refs may still hold the
         // pre-merge state and `goal.find(...)` could miss entities or use stale done states.
         setTimeout(() => {
+          if (cancelled) return
           for (const goalId of Array.from(dirtyGoalIds.current)) {
             const goal = goalsRef.current.find(g => g.id === goalId)
             if (goal) trackWrite(upsertShortGoal(userId, goal), () => clearGoalDirty(goalId), `goal:${goalId}`)
@@ -577,13 +574,15 @@ export function usePlanrStore(userId: string) {
         }, 0)
 
         save(STORAGE_KEYS.lastSync, new Date().toISOString())
+        localStorage.setItem(`planr_background_sync_${userId}`, koreaToday())
       } catch (e) {
         console.error('Sync failed, falling back to local data', e)
       } finally {
-        setSyncReady(true)
+        if (!cancelled) setSyncReady(true)
       }
     }
     sync()
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
@@ -593,13 +592,13 @@ export function usePlanrStore(userId: string) {
   // window where remote could be stale-vs-local is closed.
   // Focus/visibility refreshes are limited to once per Korea-local day.
   useEffect(() => {
-    if (!userId) return
+    if (!userId || !syncReady) return
     let syncing = false
     async function runSync() {
-      if (syncing) return
+      if (syncing) return false
       syncing = true
       try {
-        if (pendingWrites.current > 0) return
+        if (pendingWrites.current > 0) return false
 
         // Retry any entities that failed to write previously (dirty flag still set).
         // Without this, a single failed write never reaches Supabase until reload,
@@ -809,8 +808,10 @@ export function usePlanrStore(userId: string) {
             save(STORAGE_KEYS.dirtyCategories, false)
           }
         }
+        return true
       } catch {
         // Silent fail for periodic sync
+        return false
       } finally {
         syncing = false
       }
@@ -818,28 +819,37 @@ export function usePlanrStore(userId: string) {
     // Background refresh is capped at one successful attempt per Korea-local day,
     // shared across tabs for the signed-in user. Ordinary edits still persist instantly.
     const backgroundKey = `planr_background_sync_${userId}`
+    let nextAttemptAt = 0
     async function dailyRefresh() {
       if (document.visibilityState !== 'visible' || syncing || pendingWrites.current > 0) return
-      const today = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
-      }).format(new Date())
+      const today = koreaToday()
       if (localStorage.getItem(backgroundKey) === today) return
-      // Mark before starting so repeated focus/visibility events don't fan out.
-      localStorage.setItem(backgroundKey, today)
-      await runSync()
+      if (Date.now() < nextAttemptAt) return
+      nextAttemptAt = Date.now() + 60000
+      if (await runSync()) localStorage.setItem(backgroundKey, today)
     }
     function onVisible() { void dailyRefresh() }
-    function onAssistantSaved() { void runSync() }
+    let assistantTimer: ReturnType<typeof setTimeout> | undefined
+    function onAssistantSaved() {
+      clearTimeout(assistantTimer)
+      assistantTimer = setTimeout(() => {
+        // Coalesce a burst of assistant edits into one refresh. If a preceding
+        // refresh/write is still running, keep this notification pending.
+        if (syncing || pendingWrites.current > 0) { onAssistantSaved(); return }
+        void runSync()
+      }, 500)
+    }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
     window.addEventListener('planr:assistant-saved', onAssistantSaved)
     return () => {
+      clearTimeout(assistantTimer)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
       window.removeEventListener('planr:assistant-saved', onAssistantSaved)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId])
+  }, [userId, syncReady])
 
   // ── Setters with auto-persist ──────────────────────────────────────────────
   const setDays = useCallback((v: DayEntry[] | ((p: DayEntry[]) => DayEntry[])) => {
@@ -957,7 +967,6 @@ export function usePlanrStore(userId: string) {
     }, nextDone ? 'completed' : 'reopened', task)
     // Task-only mutation: don't bump meta.updated_at so concurrent meta edits aren't clobbered.
     upsertDay({ ...entry, tasks: entry.tasks.map(t => t.id === taskId ? updatedTask : t) }, { bumpMeta: false })
-    if (userId) trackWrite(upsertTask(userId, updatedTask, date))
   }
 
   function addTask(date: string, categoryId: string, text: string, schedule?: string | TaskScheduleInput) {
@@ -980,7 +989,6 @@ export function usePlanrStore(userId: string) {
       ...(categoryId === SCHEDULE_CAT_ID ? { fixed: true } : {}),
     }, 'created')
     upsertDay({ ...entry, tasks: [...entry.tasks, task] }, { bumpMeta: false })
-    if (userId) trackWrite(upsertTask(userId, task, date))
   }
 
   function deleteTask(date: string, taskId: string) {
@@ -1001,7 +1009,6 @@ export function usePlanrStore(userId: string) {
     const nextTask: Task = { ...task, ...patch, updated_at: now() }
     const updated = appendTaskHistory(nextTask, taskMutationKind(task, nextTask), task)
     upsertDay({ ...entry, tasks: entry.tasks.map(t => t.id === taskId ? updated : t) }, { bumpMeta: false })
-    if (userId) trackWrite(upsertTask(userId, updated, date))
   }
 
   function updateNote(date: string, note: string) {
@@ -1131,7 +1138,6 @@ export function usePlanrStore(userId: string) {
     if (userId && updatedGoal) {
       markGoalDirty(goalId)
       trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(goalId), `goal:${goalId}`)
-      if (updatedTask) trackWrite(upsertTask(userId, updatedTask, goalId))
     }
   }
   function addGoalTask(goalId: string, categoryId: string, text: string) {
@@ -1193,7 +1199,6 @@ export function usePlanrStore(userId: string) {
     if (userId && updatedGoal) {
       markGoalDirty(goalId)
       trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(goalId), `goal:${goalId}`)
-      if (updatedTask) trackWrite(upsertTask(userId, updatedTask, goalId))
     }
   }
 
@@ -1273,7 +1278,6 @@ export function usePlanrStore(userId: string) {
         category_name: targetCat.name, category_color: targetCat.color, updated_at: now(),
       }
       upsertDay({ ...entry, tasks: [...entry.tasks, task] }, { bumpMeta: false })
-      if (userId) trackWrite(upsertTask(userId, task, date))
     } else {
       const catId = uid()
       const newCat: Category = { id: catId, name: '할 일', color: 'purple' }
@@ -1283,7 +1287,6 @@ export function usePlanrStore(userId: string) {
         category_name: newCat.name, category_color: newCat.color, updated_at: now(),
       }
       upsertDay({ ...entry, tasks: [...entry.tasks, task] }, { bumpMeta: false })
-      if (userId) trackWrite(upsertTask(userId, task, date))
     }
   }
 
@@ -1519,7 +1522,6 @@ export function usePlanrStore(userId: string) {
     if (userId && updatedGoal) {
       markGoalDirty(goalId)
       trackWrite(upsertShortGoal(userId, updatedGoal), () => clearGoalDirty(goalId), `goal:${goalId}`)
-      if (updatedTask) trackWrite(upsertTask(userId, updatedTask, goalId))
     }
   }
 

@@ -37,6 +37,7 @@ Next.js + Vercel + Supabase Auth/RLS. 사용자 지시에 따라 기존 `main`/V
 - 503은 서버 인증 미설정, 401은 인증 실패이다. 설정·배포만으로 연결 완료라고 보고하지 않는다.
 - 실제 `planner_read`와 저장 후 조회로 확인한다. 브리핑 실행기에도 같은 연결이 제공돼야 한다.
 - 서버 API는 지정 계정에만 고정되며 임의 user_id나 SQL을 받지 않는다.
+- 사용량 절감을 위해 `planner_read`의 `from`/`to`는 필요한 기간만 지정한다. `schedule_cards`는 기간 및 날짜 미정 항목, `schedule_card_dependencies`는 기간 밖 선행 항목이다. 수정 이력이 필요한 경우에만 `include_history=true`를 요청한다. 다른 기간의 결과가 없다는 것을 일정 삭제로 해석하지 않는다.
 - 서버 API 변경 시 `node tests/assistantApi.test.cjs`도 실행한다.
 
 ## 루틴과 중요 일정 카드

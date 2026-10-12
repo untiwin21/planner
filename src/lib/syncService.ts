@@ -1,10 +1,26 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { mergeDayMeta, localNoteIsNewer } from './dayMetaSync'
 import { supabase } from './supabase'
+import { hydrateDays, legacyTasksFor, readRows } from './plannerQueries'
+import { latestWriter, sameJson } from './syncEfficiency'
 import type { DayEntry, Routine, RoutineLog, ShortGoal, LongGoal, Task, WeeklyReview } from '@/types'
 
-// FETCH ALL — called on app load
-export async function fetchAll(userId: string, client = supabase): Promise<{
+const reads = new WeakMap<object, Map<string, ReturnType<typeof loadAll>>>()
+// Share only in-flight reads. Completed snapshots are never cached, so reads
+// after an assistant/browser edit always see the server's current records.
+export function fetchAll(userId: string, client = supabase, range?: { from: string; to: string }) {
+  if (!client) return loadAll(userId, client, range)
+  let requests = reads.get(client)
+  if (!requests) { requests = new Map(); reads.set(client, requests) }
+  const key = JSON.stringify([userId, range])
+  const existing = requests.get(key)
+  if (existing) return existing
+  const request = loadAll(userId, client, range).finally(() => requests!.delete(key))
+  requests.set(key, request)
+  return request
+}
+
+async function loadAll(userId: string, client = supabase, range?: { from: string; to: string }): Promise<{
   days: DayEntry[]
   routines: Routine[]
   logs: RoutineLog[]
@@ -15,55 +31,30 @@ export async function fetchAll(userId: string, client = supabase): Promise<{
   if (!client) return { days: [], routines: [], logs: [], goals: [], longGoals: [], weeklyReviews: {} }
   try {
     const db = client as any
-    const [
-      { data: dayEntriesData, error: dayEntriesError },
-      { data: tasksData, error: tasksError },
-      { data: routinesData, error: routinesError },
-      { data: logsData, error: logsError },
-      { data: goalsData, error: goalsError },
-      { data: longGoalsData, error: longGoalsError },
-      { data: weeklyReviewsData, error: weeklyReviewsError },
-    ] = await Promise.all([
-      db.from('day_entries').select('*').eq('user_id', userId),
-      db.from('tasks').select('*').eq('user_id', userId),
-      db.from('routines').select('*').eq('user_id', userId),
-      db.from('routine_logs').select('*').eq('user_id', userId),
-      db.from('short_goals').select('*').eq('user_id', userId),
-      db.from('long_goals').select('*').eq('user_id', userId),
-      db.from('weekly_reviews').select('*').eq('user_id', userId),
+    const [dayEntriesData, routinesData, logsData, goalsData, longGoalsData, weeklyReviewsData] = await Promise.all([
+      readRows(() => {
+        const query = db.from('day_entries').select('id,date,note,meta').eq('user_id', userId)
+        return range ? query.gte('date', range.from).lte('date', range.to) : query
+      }),
+      readRows(() => db.from('routines').select('*').eq('user_id', userId)),
+      readRows(() => {
+        const query = db.from('routine_logs').select('*').eq('user_id', userId)
+        return range ? query.gte('date', range.from).lte('date', range.to) : query
+      }),
+      // Goal prerequisites may be outside the requested dates.
+      readRows(() => db.from('short_goals').select('*').eq('user_id', userId)),
+      range ? Promise.resolve([]) : readRows(() => db.from('long_goals').select('*').eq('user_id', userId)),
+      readRows(() => {
+        const query = db.from('weekly_reviews').select('id,week_key,content').eq('user_id', userId)
+        return range ? query.eq('week_key', '__categories__') : query
+      }),
     ])
-
-    const queryError = [
-      dayEntriesError,
-      tasksError,
-      routinesError,
-      logsError,
-      goalsError,
-      longGoalsError,
-      weeklyReviewsError,
-    ].find(Boolean)
-    if (queryError) throw new Error(`fetchAll failed: ${queryError.message}`)
-
-    // Legacy tasks table — used as fallback when embedded tasks aren't present yet
-    const legacyTasks: any[] = tasksData || []
-
-    const days: DayEntry[] = (dayEntriesData || []).map((entry: any) => {
-      const meta = entry.meta ?? {}
-      // Primary: tasks embedded in meta._tasks (no schema change needed)
-      // Fallback: tasks table (legacy, may silently fail on some setups)
-      const hasMeta_tasks = '_tasks' in meta
-      const { _tasks, ...cleanMeta } = meta
-      const embeddedTasks: any[] = hasMeta_tasks
-        ? (_tasks ?? [])
-        : legacyTasks.filter((t: any) => t.day_id === entry.id && !t.goal_id)
-      return {
-        ...entry,
-        meta: cleanMeta,
-        tasks: embeddedTasks.filter((task: any) => !task.deleted_at),
-        task_tombstones: embeddedTasks.filter((task: any) => !!task.deleted_at),
-        categories: [],
-      }
-    })
+    const [legacyDays, legacyGoals] = await Promise.all([
+      legacyTasksFor(userId, 'day_id', dayEntriesData.filter(row => !('_tasks' in (row.meta ?? {}))).map(row => row.id), client),
+      legacyTasksFor(userId, 'goal_id', goalsData.filter(goal => !Array.isArray(goal.tasks) || !goal.tasks.length).map(goal => goal.id), client),
+    ])
+    const days = hydrateDays(dayEntriesData, legacyDays)
+    const legacyTasks = legacyGoals
 
     const goals: ShortGoal[] = (goalsData || []).map((goal: any) => {
       // Primary: tasks embedded in short_goals.tasks column (only if non-empty array)
@@ -74,9 +65,6 @@ export async function fetchAll(userId: string, client = supabase): Promise<{
       const goalTasks = goalTaskRecords.filter((task: any) => !task.deleted_at)
       const taskTombstones = goalTaskRecords.filter((task: any) => !!task.deleted_at)
       const goalNotes: any[] = Array.isArray(goal.notes) ? goal.notes : (goal.notes ?? [])
-      // Diagnostic log so user can verify what Supabase actually returns
-      console.log(`[Planr] fetchAll goal ${goal.id}: embedded=${embedded.length} legacy=${fromLegacy.length} using=${embedded.length > 0 ? 'embedded' : 'legacy'}`,
-        goalTasks.map((t: any) => ({ id: t.id, text: t.text?.slice(0, 20), done: t.done })))
       return { ...goal, tasks: goalTasks, task_tombstones: taskTombstones, notes: goalNotes }
     })
 
@@ -106,13 +94,17 @@ export async function fetchAll(userId: string, client = supabase): Promise<{
 
 // UPSERT operations — these THROW on actual Supabase failure so callers
 // can track dirty state correctly. Network/transient errors propagate up.
-export async function upsertDayEntry(userId: string, entry: DayEntry): Promise<void> {
+const writeDay = latestWriter<{ userId: string; entry: DayEntry }>((_key, { userId, entry }) => persistDayEntry(userId, entry))
+export function upsertDayEntry(userId: string, entry: DayEntry): Promise<void> {
+  return writeDay(JSON.stringify([userId, entry.date]), { userId, entry })
+}
+async function persistDayEntry(userId: string, entry: DayEntry): Promise<void> {
   if (!supabase) return
   const db = supabase as any
   const { id, date, note, meta, tasks, task_tombstones } = entry
   const localRecords = [...(tasks ?? []), ...(task_tombstones ?? [])]
   for (let attempt = 0; attempt < 3; attempt++) {
-    const { data: remote, error: readError } = await db.from('day_entries').select('*').eq('user_id', userId).eq('date', date).maybeSingle()
+    const { data: remote, error: readError } = await db.from('day_entries').select('id,note,meta').eq('user_id', userId).eq('date', date).maybeSingle()
     if (readError) throw new Error(`upsertDayEntry read failed: ${readError.message}`)
     if (!remote) {
       const { error } = await db.from('day_entries').insert({ id, user_id: userId, date, note, meta: { ...meta, _tasks: localRecords } })
@@ -121,19 +113,22 @@ export async function upsertDayEntry(userId: string, entry: DayEntry): Promise<v
       return
     }
     const remoteMeta = remote.meta ?? {}
-    const records = new Map<string, Task>((remoteMeta._tasks ?? []).map((task: Task) => [task.id, task]))
+    const remoteTasks = '_tasks' in remoteMeta ? remoteMeta._tasks ?? [] : await legacyTasksFor(userId, 'day_id', [remote.id])
+    const records = new Map<string, Task>(remoteTasks.map((task: Task) => [task.id, task]))
     for (const task of localRecords) {
       const existing = records.get(task.id)
       if (!existing || (task.updated_at ?? 0) >= (existing.updated_at ?? 0)) records.set(task.id, { ...task, day_id: remote.id })
     }
     const mergedMeta = { ...mergeDayMeta(meta, remoteMeta), _tasks: [...records.values()] }
+    const mergedNote = localNoteIsNewer(meta, remoteMeta) ? note : remote.note
+    if (sameJson(mergedMeta, remoteMeta) && mergedNote === remote.note) return
     const { data: sessionData } = await db.auth.getSession()
     const token = sessionData.session?.access_token
     if (!token) throw new Error('upsertDayEntry failed: sign-in required')
     const response = await fetch('/api/sync/day', {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ id: remote.id, expected: remoteMeta, next: mergedMeta,
-        note: localNoteIsNewer(meta, remoteMeta) ? note : remote.note, expectedNote: remote.note }),
+        note: mergedNote, expectedNote: remote.note }),
     })
     if (!response.ok) throw new Error(`upsertDayEntry failed: sync returned ${response.status}`)
     const { saved } = await response.json()

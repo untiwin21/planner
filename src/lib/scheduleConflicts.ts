@@ -28,18 +28,23 @@ export function eventWindow(date: string, task: Task): [number, number] | null {
   if (validTime(end) && e <= s) e += 1440
   return [base + s, base + e]
 }
-export function findScheduleConflicts(days: Pick<DayEntry, 'date' | 'tasks'>[], candidate?: { date: string; task: Task }) {
-  const events = days.flatMap(day => day.tasks.map(task => ({ date: day.date, task })))
+export function findScheduleConflicts(days: Pick<DayEntry, 'date' | 'tasks'>[], candidate?: { date: string; task: Task }, range?: { from: string; to: string }) {
+  const events = days.flatMap(day => day.tasks.flatMap(task => {
+    const window = eventWindow(day.date, task)
+    return window ? [{ date: day.date, task, window }] : []
+  })).sort((a, b) => a.window[0] - b.window[0])
   const pairs: { date: string; first: { id: string; text: string; date: string }; second: { id: string; text: string; date: string } }[] = []
-  const source = candidate ? [candidate] : events
+  const candidateWindow = candidate && eventWindow(candidate.date, candidate.task)
+  const source = candidate ? (candidateWindow ? [{ ...candidate, window: candidateWindow }] : []) : events
   for (let i = 0; i < source.length; i++) {
-    const a = source[i], aw = eventWindow(a.date, a.task)
-    if (!aw) continue
+    const a = source[i], aw = a.window
     for (let j = candidate ? 0 : i + 1; j < events.length; j++) {
       const b = events[j]
+      if (b.window[0] >= aw[1]) break
       if (a.task.id === b.task.id) continue
-      const bw = eventWindow(b.date, b.task)
-      if (bw && aw[0] < bw[1] && bw[0] < aw[1]) pairs.push({ date: a.date,
+      if (range && ![a.date, b.date].some(ds => ds >= range.from && ds <= range.to)) continue
+      const bw = b.window
+      if (aw[0] < bw[1] && bw[0] < aw[1]) pairs.push({ date: a.date,
         first: { id: a.task.id, text: a.task.text, date: a.date }, second: { id: b.task.id, text: b.task.text, date: b.date } })
     }
   }
