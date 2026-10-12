@@ -63,7 +63,7 @@ export function AssistantReviewPanel({ date, meta, onMetaChange }: Props) {
       ) : content ? (
         <div className="mt-2"><FeedbackMarkdown text={content} /></div>
       ) : (
-        <p className="mt-1 text-xs text-[var(--text-3)]">이 대화에서 하루 피드백을 요청하면 여기에 기록됩니다.</p>
+        <p className="mt-1 text-xs text-[var(--text-3)]">저장된 ChatGPT 하루 피드백이 여기에 표시됩니다.</p>
       )}
     </div>
   )
