@@ -61,14 +61,30 @@ function approximateWindow(card: ScheduleCard) {
   }
   return { from: card.goal?.date_from ?? card.from, to: card.to }
 }
+function weekPlaceableWindow(card: ScheduleCard) {
+  if (card.details.timing !== 'window') return null
+  const label = card.details.date_label ?? ''
+  // A named week or a day-level range is precise enough to choose the weekly
+  // card lane even though the final appointment date is still pending.
+  const hasNamedWeek = /\d{1,2}월\s*\d주차/.test(label)
+  const hasDayLevelDate = /\d{1,2}\s*(?:\/|월\s*)\s*\d{1,2}/.test(label)
+  return hasNamedWeek || hasDayLevelDate ? approximateWindow(card) : null
+}
 export function fourWeekCards(cards: ScheduleCard[], today: string) {
   const from = scheduleWeekStart(today), to = shiftDate(from, 27)
-  return cards.filter(card => !card.details.hide_from_goal_cards && !card.discardedBy && !['undated', 'window'].includes(card.details.timing ?? '') && card.from <= to && card.to >= today)
+  return cards.flatMap(card => {
+    if (card.details.hide_from_goal_cards || card.discardedBy || card.details.timing === 'undated') return []
+    const range = weekPlaceableWindow(card)
+    if (card.details.timing === 'window' && !range) return []
+    const placed = range ? { ...card, from: range.from, to: range.to } : card
+    return placed.from <= to && placed.to >= today ? [placed] : []
+  })
 }
 export function uncertainFourWeekCards(cards: ScheduleCard[], today: string) {
   const from = scheduleWeekStart(today), to = shiftDate(from, 27)
   return cards.filter(card => {
     if (card.details.hide_from_goal_cards || card.discardedBy || card.details.timing !== 'window') return false
+    if (weekPlaceableWindow(card)) return false
     const range = approximateWindow(card)
     return range.from <= to && range.to >= today
   })
