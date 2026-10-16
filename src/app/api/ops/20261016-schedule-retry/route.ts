@@ -9,7 +9,7 @@ const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosnif
 const reply = (value: unknown, status = 200) => Response.json(value, { status, headers })
 
 // One-use operation credential. This route is removed immediately after verification.
-const operationTokenHash = '4632804683e162a00e6c459bc9e7431a58a2a666689f7956520ba555373b9e6f'
+const operationTokenHash = 'b6a294d6e7ad0762ca819c6e1f8854fdf7ac2ddc5b57462eb83015e0a1dba83b'
 
 type Task = Record<string, unknown> & { id: string; text: string; updated_at: number }
 type Day = { date: string; tasks: Task[] }
