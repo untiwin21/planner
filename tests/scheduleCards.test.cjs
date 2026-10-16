@@ -74,9 +74,13 @@ const uncertain = scheduleCards([], [
  {id:'no-range',title:'날짜 미공개',date_from:'2026-10-08',date_to:'2026-10-08',categories:[{id:'__schedule_details__',details:{timing:'undated'}}]},
  {id:'rough-deadline',title:'마감 예정',date_from:'2026-10-20',date_to:'2026-11-05',categories:[{id:'__schedule_details__',details:{timing:'window',kind:'deadline'}}]},
 ])
-assert.deepEqual(fourWeekCards(uncertain,'2026-10-08'),[])
-assert.deepEqual(uncertainFourWeekCards(uncertain,'2026-10-08').map(c=>c.id),['range','rough-deadline'])
-console.log('PASS: Monday-Sunday weeks, fourth Sunday cutoff, uncertain range overlap, undated placeholders excluded')
+assert.deepEqual(fourWeekCards(uncertain,'2026-10-08').map(c=>c.id),['range'])
+assert.equal(fourWeekCards(uncertain,'2026-10-08')[0].from,'2026-10-19','named week is placed in its weekly lane')
+assert.deepEqual(uncertainFourWeekCards(uncertain,'2026-10-08').map(c=>c.id),['rough-deadline'])
+const dayRange = scheduleCards([], [{id:'day-range',title:'면접 기간',date_from:'2026-10-28',date_to:'2026-11-06',categories:[{id:'__schedule_details__',details:{timing:'window',date_label:'10/28~11/6 중 1일'}}]}])
+assert.deepEqual(fourWeekCards(dayRange,'2026-10-08').map(c=>c.id),['day-range'],'day-level ranges appear in the matching week')
+assert.deepEqual(uncertainFourWeekCards(dayRange,'2026-10-08'),[])
+console.log('PASS: Monday-Sunday weeks, named-week placement, day-range placement, genuinely uncertain windows')
 
 const history = scheduleCards([day('2026-10-07',[task('yesterday')]),day('2026-10-08',[task('today')])],[])
 assert.deepEqual(fourWeekCards(history,'2026-10-08').map(c=>c.id),['today'])
