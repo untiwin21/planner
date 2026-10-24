@@ -212,7 +212,6 @@ function taskActualMinutes(task: Task): number | null {
   const direct = timeDiffMinutes(task.actual_start_time, task.actual_end_time)
   if (direct !== null) return direct
   const childValues = (task.subtasks ?? [])
-    .filter(subtask => !subtask.discarded)
     .map(subtask => timeDiffMinutes(subtask.actual_start_time, subtask.actual_end_time))
     .filter((value): value is number => typeof value === 'number')
   return childValues.length ? childValues.reduce((sum, value) => sum + value, 0) : null
@@ -388,14 +387,15 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
   )
 
   const daily: AiDailyRecord[] = selectedDays.map(day => {
-    const activeTasks = (day.tasks ?? []).filter(task => !task.deleted_at && !task.discarded)
+    const recordedTasks = (day.tasks ?? []).filter(task => !task.deleted_at)
+    const activeTasks = recordedTasks.filter(task => !task.discarded)
     const plannedTasks = activeTasks.filter(task => !isActualOnlyTask(task))
-    const actualOnlyTasks = activeTasks.filter(task => isActualOnlyTask(task))
+    const actualOnlyTasks = recordedTasks.filter(task => isActualOnlyTask(task))
     const estimated = plannedTasks.map(taskEstimatedMinutes).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
-    const plannedActual = plannedTasks.map(taskActualMinutes).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
+    const plannedActual = recordedTasks.filter(task => !isActualOnlyTask(task)).map(taskActualMinutes).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
     const unplannedActual = actualOnlyTasks.map(taskActualMinutes).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
     const actual = plannedActual + unplannedActual
-    const actualCovered = uniqueActualCoveredMinutes(activeTasks, day.date)
+    const actualCovered = uniqueActualCoveredMinutes(recordedTasks, day.date)
     const scheduledRoutines = source.routines.filter(routine => routine.status === 'active' && isRoutineScheduledOn(routine, day.date))
     const routineDone = scheduledRoutines.filter(routine => selectedLogs.some(log => log.routine_id === routine.id && log.date === day.date && log.done)).length
     return {
@@ -433,8 +433,8 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
     const planned: AiTimelineBlock[] = []
     const actual: AiTimelineBlock[] = []
     for (const task of day.tasks ?? []) {
-      if (task.deleted_at || task.discarded) continue
-      const plan = plannedRange(task)
+      if (task.deleted_at) continue
+      const plan = task.discarded ? null : plannedRange(task)
       if (plan) planned.push({
         task_id: task.id,
         text: task.text,
@@ -536,10 +536,10 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
 
   const activeTaskRecords = taskRecords.filter(task => !task.discarded && !task.deleted)
   const plannedTaskRecords = activeTaskRecords.filter(task => !task.actual_only)
-  const actualOnlyTaskRecords = activeTaskRecords.filter(task => task.actual_only)
+  const actualOnlyTaskRecords = taskRecords.filter(task => !task.deleted && task.actual_only)
   const completedTasks = plannedTaskRecords.filter(task => task.done).length
   const taskEstimated = plannedTaskRecords.map(task => task.estimated_min).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
-  const plannedTaskActual = plannedTaskRecords.map(task => task.actual_min).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
+  const plannedTaskActual = taskRecords.filter(task => !task.deleted && !task.actual_only).map(task => task.actual_min).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
   const unplannedTaskActual = actualOnlyTaskRecords.map(task => task.actual_min).filter((value): value is number => value !== null).reduce((sum, value) => sum + value, 0)
   const taskActual = plannedTaskActual + unplannedTaskActual
   const actualCovered = daily.reduce((sum, day) => sum + day.actual_covered_min, 0)

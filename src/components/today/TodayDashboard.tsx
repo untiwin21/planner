@@ -1326,22 +1326,8 @@ export function TodayDashboard({
   }
 
   function discardTask(task: Task) {
-    const discarded = !task.discarded
-    onUpdateTask(task.id, discarded ? {
-      discarded: true,
-      done: false,
-      progress_current: undefined,
-      progress_target: undefined,
-      progress_unit: undefined,
-      start_time: undefined,
-      end_time: undefined,
-      time: undefined,
-      actual_start_time: undefined,
-      actual_end_time: undefined,
-      actual_status: undefined,
-      actual_duration_min: undefined,
-      actual_sessions: undefined,
-    } : { discarded: false })
+    // Discard cancels the remaining plan; execution is an independent record.
+    onUpdateTask(task.id, { discarded: !task.discarded })
   }
 
   function setQuickProgress(percent: number) {

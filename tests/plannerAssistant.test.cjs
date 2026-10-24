@@ -193,5 +193,23 @@ const { upsertDayEntry } = load(path.resolve('src/lib/syncService.ts'), true)
   const priorCalls = syncCalls
   await upsertDayEntry('owner',(await snapshot()).days.find(day=>day.date===entry.date))
   assert.equal(syncCalls,priorCalls,'unchanged daily snapshots never invoke Vercel CAS')
+  const historyState = (actual_min, actual_sessions, actual_start, actual_end) => ({ actual_min, actual_sessions, actual_start, actual_end })
+  const first = historyState(33, 1, '14:55', '15:28'), second = historyState(48, 2, '14:00', '15:28')
+  const lost = { id: 'lost', text: '준비', category_id: 'study', category_name: 'Study', done: false, discarded: true, updated_at: 10,
+    history: [{ id: 'one', kind: 'actual_recorded', after: first }, { id: 'two', kind: 'actual_recorded', before: first, after: second }, { id: 'discard', kind: 'discarded', before: second, after: { discarded: true } }] }
+  rows.push({ id: 'recovery', user_id: 'owner', date: '2026-10-24', note: 'keep', meta: { sleep: 480, _tasks: [lost] } })
+  await assert.rejects(run('planner_recover_discarded_time', { date: '2026-10-24', task_id: 'lost', expected_updated_at: 9 }), /변경된/)
+  const recovered = await run('planner_recover_discarded_time', { date: '2026-10-24', task_id: 'lost', expected_updated_at: 10 })
+  assert.equal(recovered.saved, true)
+  assert.equal(recovered.task.discarded, true, 'repair does not reopen the plan')
+  assert.equal(recovered.task.actual_duration_min, 48)
+  assert.deepEqual(recovered.task.actual_sessions.map(s => [s.started_at, s.ended_at, s.duration_min]), [
+    ['2026-10-24T05:55:00.000Z', '2026-10-24T06:28:00.000Z', 33], ['2026-10-24T05:00:00.000Z', '2026-10-24T05:15:00.000Z', 15] ])
+  assert.equal(rows.find(r => r.id === 'recovery').meta.sleep, 480)
+  await assert.rejects(run('planner_recover_discarded_time', { date: '2026-10-24', task_id: 'lost', expected_updated_at: recovered.task.updated_at }), /덮어쓸/)
+  const { recoverDiscardedTime } = load(path.resolve('src/lib/recoverDiscardedTime.ts'))
+  assert.throws(() => recoverDiscardedTime({ ...lost, history: lost.history.slice(1) }, '2026-10-24'), /확정/)
+  assert.throws(() => recoverDiscardedTime({ ...lost, deleted_at: 1 }, '2026-10-24'), /덮어쓸/)
+  assert.throws(() => recoverDiscardedTime({ ...lost, history: [...lost.history, { kind: 'actual_recorded', after: {} }] }, '2026-10-24'), /안전/)
   console.log('PASS: conflict rejection, boundaries, midnight, stale edits, delete/restore, feedback, CAS retry, cross-device merge, legacy preservation, failed-save reporting')
 })().catch(error => { console.error(error); process.exitCode = 1 })

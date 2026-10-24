@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { recoverDiscardedTime } from './recoverDiscardedTime'
 import { validateScheduleDetails } from './scheduleDetails'
 import { fetchAll } from './syncService'
 import { fetchCategories, fetchScheduleDays, fetchDependencyDays } from './plannerQueries'
@@ -10,7 +11,7 @@ import { SCHEDULE_CAT_ID, DEADLINE_CAT_ID } from '@/types'
 
 type Input = Record<string, unknown>
 type Row = { id: string; date: string; user_id: string; note: string; meta: DayMeta & { _tasks?: Task[] } }
-export const assistantToolNames = ['planner_read', 'planner_add_routine', 'planner_add_schedule_card', 'planner_set_card_result', 'planner_update_card_details', 'planner_save_task', 'planner_delete_task', 'planner_restore_task', 'planner_save_feedback'] as const
+export const assistantToolNames = ['planner_recover_discarded_time', 'planner_read', 'planner_add_routine', 'planner_add_schedule_card', 'planner_set_card_result', 'planner_update_card_details', 'planner_save_task', 'planner_delete_task', 'planner_restore_task', 'planner_save_feedback'] as const
 export type AssistantToolName = typeof assistantToolNames[number]
 function text(value: unknown, field: string, max = 1000): string {
   if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`${field} 값이 필요합니다 (최대 ${max}자).`)
@@ -246,6 +247,12 @@ export function createAssistantRunner(supabase: typeof import('./supabase').supa
     const saved = await saveDay(userId, ds, async row => {
       const records = row.meta._tasks ?? []
       const existing = records.find(task => task.id === taskId)
+      if (name === 'planner_recover_discarded_time') {
+        if (!existing) throw new Error('항목을 찾을 수 없습니다.')
+        assertVersion(input, existing)
+        const recovered = recoverDiscardedTime(existing, ds)
+        return { ...row, meta: { ...row.meta, _tasks: records.map(task => task.id === taskId ? recovered : task) } }
+      }
       if (name === 'planner_delete_task' || name === 'planner_restore_task') {
         if (!existing) throw new Error('항목을 찾을 수 없습니다.')
         assertVersion(input, existing)
@@ -308,6 +315,8 @@ export const runAssistantTool = createAssistantRunner(supabase, undefined, () =>
 })
 
 export const assistantTools = [
+  { name: 'planner_recover_discarded_time', description: '구버전 폐기로 지워진 실제 시간을 수정 이력에서만 복구합니다. 세션 구간을 확정할 수 없거나 새 기록이 있으면 거부합니다. 날짜·항목·최신 수정 시각 외의 데이터를 받지 않습니다.', readOnly: false,
+    properties: { date: { type: 'string' }, task_id: { type: 'string' }, expected_updated_at: { type: 'number' } }, required: ['date', 'task_id', 'expected_updated_at'] },
   { name: 'planner_update_card_details', description: '기존 일정 카드의 상세·날짜 확정 분류를 부분 갱신합니다. 기존 결과·연동 메타데이터는 보존합니다. planner_read에서 실제 읽은 categories 전체를 expected_categories로 전달하세요. 날짜가 명시된 일정은 timing=exact, 대략적 기간은 window입니다.', readOnly: false,
     properties: { card_id: { type: 'string' }, schedule_details: { type: 'object' }, expected_categories: { type: 'array', items: { type: 'object' } } }, required: ['card_id', 'schedule_details', 'expected_categories'] },
   { name: 'planner_set_card_result', description: '기간형·미정 일정 카드의 전형 결과를 저장합니다. 먼저 planner_read.goals의 해당 categories 전체를 expected_categories로 전달하세요. 불합격은 연결된 후속 일정 전체를 자동 제외하며, 결과 정정 시 복구됩니다. Task형은 planner_save_task로 수정합니다.', readOnly: false,

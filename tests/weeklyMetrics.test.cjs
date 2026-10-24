@@ -31,3 +31,14 @@ const linked = weeklyMetrics(['2026-10-07'], [day('2026-10-07', [], { linkedGoal
 assert.equal(linked.focusHours, 1.5, 'linked goal execution participates in day totals')
 assert.equal(linked.completion, 100)
 console.log('PASS: explicit execution, category scope, session deduplication, midnight, missing/future data, weighted completion and calibration')
+
+const discarded = task('discarded', { discarded: true, done: false, actual_duration_min: 60,
+  actual_status: 'recorded', actual_sessions: [{ duration_min: 20 }, { duration_min: 40 }] })
+const discardedStats = weeklyMetrics(['2026-10-07'], [day('2026-10-07', [discarded])], '2026-10-07')
+assert.equal(discardedStats.focusHours, 1, 'discarding a plan preserves every recorded session in focus totals')
+assert.equal(discardedStats.plannedCount, 0, 'discarded plans do not affect completion')
+assert.equal(discardedStats.calibrationCount, 0)
+assert.equal(actualMinutes(task('parent', { subtasks: [{ discarded: true, actual_status: 'recorded', actual_start_time: '10:00', actual_end_time: '10:30' }] })), 30, 'discarded children retain execution')
+const linkedDiscarded = weeklyMetrics(['2026-10-07'], [day('2026-10-07', [], { linkedGoalTaskIds: ['discarded'] })], '2026-10-07', [{ date_from: '2026-10-05', date_to: '2026-10-11', tasks: [discarded] }])
+assert.equal(linkedDiscarded.focusHours, 1)
+assert.equal(linkedDiscarded.plannedCount, 0)

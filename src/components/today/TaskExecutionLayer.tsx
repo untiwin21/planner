@@ -219,7 +219,6 @@ function taskActualMinutes(task: FocusTask) {
   }
 
   const recordedSubtasks = (task.subtasks ?? [])
-    .filter(subtask => !subtask.discarded)
     .map(subtaskActualMinutes)
     .filter((minutes): minutes is number => minutes !== null)
 
@@ -281,7 +280,8 @@ function TaskExecution({ task, subtask, date, disabled, onStart }: {
     : taskActualMinutes(task)
   const ratio = actual === null ? null : Math.round((actual / expected) * 100)
 
-  if (task.discarded || subtask?.discarded) return null
+  const discarded = task.discarded || subtask?.discarded
+  if (discarded && actual === null) return null
 
   // Inline, one-line: actual/estimate chip (only once something is recorded) + a small stopwatch button.
   return (
@@ -294,7 +294,7 @@ function TaskExecution({ task, subtask, date, disabled, onStart }: {
           <Clock3 size={9} />{formatMinutes(actual)}
         </span>
       )}
-      {!(subtask ? subtask.done : task.done) && (
+      {!discarded && !(subtask ? subtask.done : task.done) && (
         <button
           type="button"
           disabled={disabled}

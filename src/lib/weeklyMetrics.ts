@@ -28,7 +28,7 @@ export function actualMinutes(task: Task): number | null {
     const duration = minutes(task.actual_start_time, task.actual_end_time)
     if (duration !== null) return duration
   }
-  const children = (task.subtasks ?? []).filter(s => !s.discarded && s.actual_status === 'recorded')
+  const children = (task.subtasks ?? []).filter(s => s.actual_status === 'recorded')
     .map(s => minutes(s.actual_start_time, s.actual_end_time)).filter((m): m is number => m !== null)
   return children.length ? children.reduce((sum, m) => sum + m, 0) : null
 }
@@ -43,7 +43,7 @@ function dayTasks(entry: DayEntry | undefined, goals: ShortGoal[]): Task[] {
   const linkedSubs = new Set(entry.meta.linkedGoalSubtaskIds ?? [])
   for (const goal of goals.filter(g => g.date_from <= entry.date && g.date_to >= entry.date)) {
     for (const task of goal.tasks) {
-      if (task.deleted_at || task.discarded) continue
+      if (task.deleted_at) continue
       if (linkedTasks.has(task.id)) { if (!items.has(task.id)) items.set(task.id, task); continue }
       for (const sub of task.subtasks ?? []) if (linkedSubs.has(sub.id) && !items.has(sub.id)) items.set(sub.id, {
         ...sub, day_id: entry.id, category_id: task.category_id, category_name: task.category_name, category_color: task.category_color,
@@ -56,8 +56,8 @@ export function weeklyMetrics(dates: string[], days: DayEntry[], today: string, 
   const rows = dates.map(date => {
     const entry = days.find(d => d.date === date)
     const future = date > today
-    const tasks = future ? [] : dayTasks(entry, goals).filter(t => !t.deleted_at && !t.discarded)
-    const planned = tasks.filter(t => !t.actual_only && t.category_id !== SCHEDULE_CAT_ID && t.category_id !== DEADLINE_CAT_ID)
+    const tasks = future ? [] : dayTasks(entry, goals).filter(t => !t.deleted_at)
+    const planned = tasks.filter(t => !t.discarded && !t.actual_only && t.category_id !== SCHEDULE_CAT_ID && t.category_id !== DEADLINE_CAT_ID)
     const progress = tasksProgress(planned)
     const focus = Object.fromEntries(FOCUS_CATEGORIES.map(category => [category, null])) as Record<typeof FOCUS_CATEGORIES[number], number | null>
     for (const task of tasks) {
