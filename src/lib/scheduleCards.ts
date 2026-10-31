@@ -77,7 +77,7 @@ export function fourWeekCards(cards: ScheduleCard[], today: string) {
     const range = weekPlaceableWindow(card)
     if (card.details.timing === 'window' && !range) return []
     const placed = range ? { ...card, from: range.from, to: range.to } : card
-    return placed.from <= to && placed.to >= today ? [placed] : []
+    return placed.from <= to && placed.to >= from ? [placed] : []
   })
 }
 export function uncertainFourWeekCards(cards: ScheduleCard[], today: string) {

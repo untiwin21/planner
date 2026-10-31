@@ -33,6 +33,7 @@ export function FourWeekScheduleCards({ days, goals, onUpdateTask, onUpdateGoal,
   const visible = fourWeekCards(cards, today)
   const weekStart = scheduleWeekStart(today)
   const undated = uncertainFourWeekCards(cards, today)
+  const earlier = cards.filter(card => card.to < weekStart && !card.details.hide_from_goal_cards && !card.discardedBy && !['undated', 'window'].includes(card.details.timing ?? '')).slice().reverse()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const selected = cards.find(card => card.id === selectedId)
@@ -62,6 +63,8 @@ export function FourWeekScheduleCards({ days, goals, onUpdateTask, onUpdateGoal,
               ? card.details.due_time ? `${card.details.due_time}까지` : '시간 미정'
               : start ? `${start}${card.task?.end_time ? `–${card.task.end_time}` : ''}` : '시간 미정'
             const rangeLabel = card.details.date_label ?? `${format(parseISO(card.from), 'M/d')}–${format(parseISO(card.to), 'M/d')}`
+            const past = card.to < today
+            if (past) return <button key={card.id} type="button" onClick={() => setSelectedId(card.id)} className={`block w-full min-w-0 py-1 text-left text-xs leading-relaxed hover:underline focus-visible:outline focus-visible:outline-2 ${card.kind === 'deadline' ? 'text-red-700' : card.visibility === 'public' ? 'text-green-700' : 'text-blue-700'}`}><span className="break-words">{card.title}</span><span className="ml-1 text-[10px] tabular-nums">{range ? rangeLabel : time}</span></button>
             return <button key={card.id} aria-label={`${card.title} · ${card.from} · ${time}`} type="button" onClick={() => setSelectedId(card.id)} className={`block min-h-14 w-full min-w-0 rounded-lg border px-2.5 py-2 text-left transition hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${card.kind === 'deadline' ? deadlineStyle : card.visibility === 'public' ? publicStyle : privateStyle}`}>
               <span className="block break-words text-[13px] font-bold leading-snug">{card.title}</span>
               <span className="mt-1 block text-[11px] leading-tight tabular-nums opacity-80">{range ? `${rangeLabel}${card.details.timing === 'window' ? ' · 예정' : ''}${start || card.details.due_time ? ` · ${time}` : ''}` : time}</span>
@@ -84,6 +87,7 @@ export function FourWeekScheduleCards({ days, goals, onUpdateTask, onUpdateGoal,
         })}</div>
       </div>
     </div>
+    {!!earlier.length && <details open className="mt-6 border-t border-slate-100 pt-4"><summary className="cursor-pointer text-sm font-semibold">이전 일정</summary><div className="mt-2 space-y-1">{earlier.map(card => <button key={card.id} type="button" onClick={() => setSelectedId(card.id)} className={`block text-left text-xs leading-relaxed hover:underline ${card.kind === 'deadline' ? 'text-red-700' : card.visibility === 'public' ? 'text-green-700' : 'text-blue-700'}`}><span className="mr-2 tabular-nums">{format(parseISO(card.from), 'yyyy.M.d')}{card.to !== card.from ? `–${format(parseISO(card.to), 'M.d')}` : ''}</span>{card.title}<span className="ml-2 tabular-nums">{card.kind === 'deadline' ? card.details.due_time : card.task?.start_time ?? card.task?.time}</span></button>)}</div></details>}
     <div className="mt-8 border-t border-slate-100 pt-6"><h3 className="mb-2 text-sm font-semibold">일정 미정</h3><div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-6">{undated.map(card => <button key={card.id} type="button" onClick={() => setSelectedId(card.id)} className={`min-w-0 min-h-14 rounded-lg border px-2.5 py-2 text-left ${card.kind === 'deadline' ? deadlineStyle : card.visibility === 'public' ? publicStyle : privateStyle}`}><span className="block break-words text-[13px] font-bold leading-snug">{card.title}</span><span className="mt-1 block text-[11px] leading-tight">{card.details.date_label ?? `${dateLabel(card.goal?.date_from ?? card.from)} ~ ${dateLabel(card.to)}`} · 예정</span></button>)}</div>{!undated.length && <p className="rounded-xl bg-[var(--surface-2)] px-4 py-3 text-sm text-[var(--text-3)]">4주 범위에 해당하는 미정 일정이 없습니다.</p>}</div>
     {selected && <ScheduleDetail key={selected.id} card={selected} onSave={details => save(selected, details)} onClose={() => setSelectedId(null)} onSelectDate={() => { onSelectDate(selected.from); setSelectedId(null) }} onEditGoal={selected.goal && onEditGoal ? () => { onEditGoal(selected.id); setSelectedId(null) } : undefined} />}
     {creating && <CreateSchedule today={today} onClose={() => setCreating(false)} onAdd={onAddGoal} onAddTask={onAddTask} />}
