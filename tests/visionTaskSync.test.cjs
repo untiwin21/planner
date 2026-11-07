@@ -15,7 +15,7 @@ function req(body,token='jwt-owner',origin=V){return new Request(P+'/api/vision-
  assert.equal((await route.POST(req({op:'connect'},'jwt-owner','https://evil.test'))).status,403);
  assert.equal((await route.POST(req({op:'connect'},'jwt-other',P))).status,403);
  assert.equal((await route.POST(req({op:'connect',user_id:other},'jwt-owner',P))).status,403);
- const connected=await route.POST(req({op:'connect'},'jwt-owner',P)),cap=await connected.json();assert.equal(connected.status,200);assert.match(cap.token,/^vt_[a-f0-9]{64}$/);assert.ok(!JSON.stringify(reviews).includes(cap.token),'only hash is stored');
+ const connected=await route.POST(req({op:'connect'},'jwt-owner',P)),cap=await connected.json();assert.equal(connected.status,200);assert.equal(cap.expiresAt,null);assert.match(cap.token,/^vt_[a-f0-9]{64}$/);assert.ok(!JSON.stringify(reviews).includes(cap.token),'only hash is stored');
  assert.equal((await route.POST(req({op:'read',from:'2026-11-07',to:'2026-11-08'},'invalid'))).status,401);
  const runner=helper.createVisionTaskSync(db,owner,{id:'task',name:'Task',color:'blue'}),task={id:'local-a',title:'Sync verification',date:'2026-11-07',previousDate:null,done:false,completedAt:null,dueDate:'2026-11-07',archived:false,expectedUpdatedAt:null,mutationId:'m1'};
  race=row=>row.meta._tasks.push({id:'concurrent',text:'Concurrent unrelated task'});

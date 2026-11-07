@@ -217,7 +217,7 @@ ChatGPT 클라우드의 Planner 조회는 별도 인증이 필요하며 아직 �
 
 ## Vision Plan 할 일 연결
 
-`/vision-task-connect`는 로그인한 플래너 소유자가 Vision Board의 할 일 전용 연결을 허용하는 화면이다. `/api/vision-tasks`는 지정 소유자만 연결하고, 30일 만료 토큰의 해시만 weekly_reviews에 보관한다. 허용 Origin은 운영 Planner와 Vision Board로 고정한다. 일반 일정·일지는 반환하지 않고 `vision-plan:` 네임스페이스의 할 일만 읽고 수정한다. 새 항목은 기존 Task 카테고리에 시간·소요시간 없이 저장한다. 제목·날짜·완료 상태·기준일만 전달하며 Vision의 목표 달성 기준은 보내지 않는다.
+`/vision-task-connect`는 로그인한 플래너 소유자가 Vision Board의 할 일 전용 연결을 허용하는 화면이다. `/api/vision-tasks`는 지정 소유자만 연결하고, 해제 전까지 유지되는 토큰의 해시만 weekly_reviews에 보관한다. 허용 Origin은 운영 Planner와 Vision Board로 고정한다. 일반 일정·일지는 반환하지 않고 `vision-plan:` 네임스페이스의 할 일만 읽고 수정한다. 새 항목은 기존 Task 카테고리에 시간·소요시간 없이 저장한다. 제목·날짜·완료 상태·기준일만 전달하며 Vision의 목표 달성 기준은 보내지 않는다.
 
 날짜 이동은 목적지 저장 확인 후 원본을 tombstone으로 보존한다. 동일 요청의 재시도는 같은 ID/변경 ID를 재사용한다. 저장은 기존 `planner_compare_and_swap_day` RPC를 사용하며 기존 meta·다른 Task를 보존한다. 동시 수정이나 일부 이동 저장은 409로 보고하며 성공으로 처리하지 않는다. 클라이언트는 저장 응답 이후 재조회로 확인한다. 연결 해제는 해당 연결 토큰만 폐기하고 일정은 삭제하지 않는다.
 
