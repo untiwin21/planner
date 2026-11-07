@@ -28,9 +28,10 @@ export async function POST(request:Request){
     }
     const access=await credential(request,db,owner);if(!access)return reply(request,{error:'Reconnect Planner'},401)
     const {data:row,error}=await db.from('weekly_reviews').select('content').eq('user_id',owner).eq('week_key','__categories__').maybeSingle();if(error)throw error
-    const parsed=JSON.parse(row?.content??'[]'),category=(Array.isArray(parsed)?parsed:parsed.items??[]).find((c:any)=>c.id===access.categoryId);if(!category)throw new Error('Category changed')
-    const runner=createVisionTaskSync(db,owner,category)
-    if(body.op==='read'&&!Object.keys(body).some(k=>!['op','from','to'].includes(k)))return reply(request,{tasks:await runner.read(body.from,body.to)})
+    const parsed=JSON.parse(row?.content??'[]'),categories=(Array.isArray(parsed)?parsed:parsed.items??[]).filter((c:any)=>typeof c.id==='string'&&typeof c.name==='string'&&!['schedule','deadline'].includes(c.id)).map((c:any)=>({id:c.id,name:c.name,color:c.color})),category=categories.find((c:any)=>c.id===access.categoryId)??categories.find((c:any)=>c.name==='Task')??categories[0];if(!category)throw new Error('Category changed')
+    const runner=createVisionTaskSync(db,owner,category,categories)
+    if(body.op==='categories'&&Object.keys(body).length===1)return reply(request,{categories,defaultCategoryId:category.id})
+    if(body.op==='read'&&!Object.keys(body).some(k=>!['op','from','to'].includes(k)))return reply(request,{tasks:await runner.read(body.from,body.to),categories,defaultCategoryId:category.id})
     if(body.op==='sync'&&!Object.keys(body).some(k=>!['op','task'].includes(k)))return reply(request,await runner.sync(body.task))
     return reply(request,{error:'Invalid operation'},400)
   }catch(error){return reply(request,{error:error instanceof VisionConflict?(error.partial?'이동이 일부 저장되었습니다. 두 날짜를 확인해 주세요.':'다른 곳에서 수정된 할 일입니다. 덮어쓰지 않았습니다.'):'연결 또는 저장에 실패했습니다. 다시 확인해 주세요.'},error instanceof VisionConflict?409:400)}

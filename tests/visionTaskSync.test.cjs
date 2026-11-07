@@ -33,6 +33,11 @@ function req(body,token='jwt-owner',origin=V){return new Request(P+'/api/vision-
  const read=await route.POST(req({op:'read',from:'2026-11-07',to:'2026-11-08'},cap.token));assert.equal(read.status,200);assert.equal((await read.json()).tasks.length,1);assert.equal(read.headers.get('access-control-allow-origin'),V);
  assert.equal((await route.POST(req({op:'sync',task:{...task,user_id:other}},cap.token))).status,400);
  assert.equal((await route.POST(req('x'.repeat(65537),cap.token))).status,400);
+ const categoryResult=await (await route.POST(req({op:'categories'},cap.token))).json();assert.equal(categoryResult.categories[0].id,'task');assert.equal('tasks' in categoryResult,false);assert.ok(!JSON.stringify(categoryResult).includes('private journal'));
+ const categoryRunner=helper.createVisionTaskSync(db,owner,{id:'task',name:'Task',color:'blue'},[{id:'task',name:'Task',color:'blue'},{id:'study',name:'Study',color:'purple'}]);
+ const categoryTask={...task,id:'category-test',date:'2026-11-09',categoryId:'study',mutationId:'cat-1'};const categorySaved=await categoryRunner.sync(categoryTask);assert.equal(categorySaved.task.categoryId,'study');assert.equal(days.find(d=>d.date==='2026-11-09').meta._tasks[0].category_name,'Study');
+ const changedCategory=await categoryRunner.sync({...categoryTask,categoryId:'task',expectedUpdatedAt:categorySaved.task.updatedAt,mutationId:'cat-2'});assert.equal(changedCategory.task.categoryId,'task');
+ await assert.rejects(categoryRunner.sync({...categoryTask,categoryId:'not-owned',expectedUpdatedAt:changedCategory.task.updatedAt,mutationId:'cat-3'}));
  const removed=await route.DELETE(new Request(P+'/api/vision-tasks',{method:'DELETE',headers:{Origin:V,Authorization:'Bearer '+cap.token}}));assert.equal(removed.status,200);assert.equal((await route.POST(req({op:'read',from:'2026-11-07',to:'2026-11-08'},cap.token))).status,401);
  console.log('PASS: owner-only scoped auth, hash storage, origin/body allowlists, CAS preservation, idempotent retries, safe moves, completion timestamps, tombstones, restore, revocation and no timeline data');
 })().catch(e=>{console.error(e);process.exitCode=1});

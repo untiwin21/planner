@@ -7,18 +7,19 @@ const taskId = (id: string) => VISION_TASK_PREFIX + createHash('sha256').update(
 export class VisionConflict extends Error { constructor(public partial=false){super('Planner changed. Refresh before retrying.')} }
 
 export function validateVisionTask(input: any) {
-  if (!input || Object.keys(input).some(k => !['id','title','date','previousDate','done','completedAt','dueDate','archived','expectedUpdatedAt','mutationId'].includes(k))
+  if (!input || Object.keys(input).some(k => !['id','title','date','previousDate','done','completedAt','dueDate','archived','expectedUpdatedAt','mutationId','categoryId'].includes(k))
     || typeof input.id !== 'string' || !input.id || input.id.length > 100 || typeof input.title !== 'string' || !input.title.trim() || input.title.length > 300
     || (input.date !== null && !validDate(input.date)) || (input.previousDate !== null && !validDate(input.previousDate)) || !validDate(input.dueDate)
     || typeof input.done !== 'boolean' || typeof input.archived !== 'boolean'
     || (input.completedAt !== null && (typeof input.completedAt !== 'string' || !Number.isFinite(Date.parse(input.completedAt))))
     || (input.expectedUpdatedAt !== null && (!Number.isSafeInteger(input.expectedUpdatedAt) || input.expectedUpdatedAt < 0))
+    || (input.categoryId!=null&&(typeof input.categoryId!=='string'||!input.categoryId||input.categoryId.length>100))
     || typeof input.mutationId !== 'string' || !input.mutationId || input.mutationId.length > 120) throw new Error('Invalid task')
   return { ...input, title: input.title.trim() }
 }
 
 /** Scoped to Vision-owned tasks. Other task fields and all day metadata survive. */
-export function createVisionTaskSync(db: any, owner: string, category: {id:string;name:string;color:string}) {
+export function createVisionTaskSync(db: any, owner: string, category: {id:string;name:string;color:string}, categories=[category]) {
   async function load(date: string) {
     const {data,error}=await db.from('day_entries').select('id,date,note,meta').eq('user_id',owner).eq('date',date).maybeSingle()
     if(error)throw error
@@ -43,7 +44,7 @@ export function createVisionTaskSync(db: any, owner: string, category: {id:strin
   }
   function publicTask(t:any,date:string){
     const lastCompletion=(t.history??[]).filter((h:any)=>h.kind==='completed'&&Number.isFinite(Date.parse(h.at))).at(-1)
-    return {id:t.vision_plan.client_id,title:t.text,date,done:t.done,archived:!!t.deleted_at||!!t.discarded,updatedAt:t.updated_at??0,
+    return {id:t.vision_plan.client_id,title:t.text,date,categoryId:t.category_id??null,done:t.done,archived:!!t.deleted_at||!!t.discarded,updatedAt:t.updated_at??0,
       completedAt:t.done?(lastCompletion&&lastCompletion.note!=='Vision Plan 동기화'?lastCompletion.at:t.vision_plan.completed_at??null):null,dueDate:t.vision_plan.due_date,mutationId:t.vision_plan.mutation_id}
   }
   async function read(from:string,to:string){
@@ -62,7 +63,9 @@ export function createVisionTaskSync(db: any, owner: string, category: {id:strin
     const input=validateVisionTask(raw),id=taskId(input.id),sourceDate=input.previousDate??input.date
     if(!sourceDate)return {saved:true,task:null}
     const source=await load(sourceDate),existing=source?.meta._tasks.find((t:any)=>t.id===id)
-    const matches=(t:any)=>t?.vision_plan?.mutation_id===input.mutationId&&t.text===input.title&&t.done===input.done&&!!t.deleted_at===(input.archived||input.date===null)
+    const selected=input.categoryId?categories.find(c=>c.id===input.categoryId):categories.find(c=>c.id===existing?.category_id)??category
+    if(!selected||['schedule','deadline'].includes(selected.id))throw new Error('Invalid task category')
+    const matches=(t:any)=>t?.vision_plan?.mutation_id===input.mutationId&&t.text===input.title&&t.done===input.done&&(!input.categoryId||t.category_id===input.categoryId)&&!!t.deleted_at===(input.archived||input.date===null)
     const alreadyMoved=existing?.deleted_at&&existing.vision_plan?.mutation_id===input.mutationId&&input.date!==sourceDate
     if(existing&&!matches(existing)&&!alreadyMoved&&((existing.updated_at??0)!==input.expectedUpdatedAt))throw new VisionConflict()
     if(!existing&&input.expectedUpdatedAt!==null)throw new VisionConflict()
@@ -76,7 +79,7 @@ export function createVisionTaskSync(db: any, owner: string, category: {id:strin
         else if(previous&&!previous.deleted_at)throw new VisionConflict()
         const now=Math.max(Date.now(),(previous?.updated_at??0)+1)
         const t={...(moving?existing:previous),id,day_id:dayId,text:input.title,done:input.done,deleted_at:undefined,discarded:false,
-          category_id:category.id,category_name:category.name,category_color:category.color,updated_at:now,
+          category_id:selected.id,category_name:selected.name,category_color:selected.color,updated_at:now,
           vision_plan:{client_id:input.id,mutation_id:input.mutationId,completed_at:input.completedAt,due_date:input.dueDate},
           history:[...((moving?existing:previous)?.history??[]),{id:randomUUID(),at:new Date(now).toISOString(),kind:input.done&&!(moving?existing:previous)?.done?'completed':'edited',note:'Vision Plan 동기화'}].slice(-160)}
         return previous?records.map(x=>x.id===id?t:x):[...records,t]
@@ -90,7 +93,7 @@ export function createVisionTaskSync(db: any, owner: string, category: {id:strin
         if(previous?.deleted_at&&previous.vision_plan?.mutation_id===input.mutationId)return records
         if(!previous||(previous.updated_at??0)!==input.expectedUpdatedAt)throw new VisionConflict()
         const now=Math.max(Date.now(),(previous.updated_at??0)+1)
-        const t={...previous,text:input.title,done:input.done,deleted_at:now,updated_at:now,vision_plan:{...previous.vision_plan,mutation_id:input.mutationId,completed_at:input.completedAt,due_date:input.dueDate},history:[...(previous.history??[]),{id:randomUUID(),at:new Date(now).toISOString(),kind:'deleted',note:'Vision Plan 이동 또는 숨김'}].slice(-160)}
+        const t={...previous,text:input.title,done:input.done,category_id:selected.id,category_name:selected.name,category_color:selected.color,deleted_at:now,updated_at:now,vision_plan:{...previous.vision_plan,mutation_id:input.mutationId,completed_at:input.completedAt,due_date:input.dueDate},history:[...(previous.history??[]),{id:randomUUID(),at:new Date(now).toISOString(),kind:'deleted',note:'Vision Plan 이동 또는 숨김'}].slice(-160)}
         if(!destination){destination=t;destinationDate=sourceDate}
         return records.map(x=>x.id===id?t:x)
       })}catch(error){if(destination)throw new VisionConflict(true);throw error}
