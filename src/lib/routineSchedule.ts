@@ -45,7 +45,7 @@ export function routineWeekday(date: string): number {
 }
 
 export function isRoutineScheduledOn(routine: Routine, date: string): boolean {
-  if (routine.status !== 'active') return false
+  if (routine.status !== 'active' || routine.config?.group_only) return false
   const config = routineConfig(routine)
   return config.stage !== 'backlog' && config.days_of_week.includes(routineWeekday(date))
 }

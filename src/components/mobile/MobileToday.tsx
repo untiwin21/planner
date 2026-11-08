@@ -22,8 +22,8 @@ import type {
 } from '@/types'
 import { DEADLINE_CAT_ID, SCHEDULE_CAT_ID } from '@/types'
 import { formatDate } from '@/lib/dates'
-import { isRoutineScheduledOn, isTimedRoutine, routineConfig } from '@/lib/routineSchedule'
-import { RoutineManagerDialog } from '@/components/routine/RoutineManagerDialog'
+import { isRoutineScheduledOn } from '@/lib/routineSchedule'
+import { RoutineSidebar } from '@/components/routine/RoutineSidebar'
 import { DayReviewPanel } from '@/components/today/DayReviewPanel'
 import { WeekOverview } from '@/components/weekly/WeekOverview'
 import { AssistantReviewPanel } from '@/components/today/AssistantReviewPanel'
@@ -55,13 +55,6 @@ interface Props {
   onUnlinkGoalTask: (taskId: string) => void
   onAddCategory?: (category: Omit<Category, 'id'>) => void
   onDeleteCategory?: (categoryId: string) => void
-}
-
-type RoutineCategory = {
-  key: string
-  label: string
-  color: BadgeColor
-  routines: Routine[]
 }
 
 type TaskGroup = {
@@ -99,31 +92,6 @@ const SCHEDULE_TYPE_META = {
   external: { label: '외부', chip: 'bg-[#ECF8F0] text-[#26734D]', dot: 'bg-[#4FA773]' },
   'deep-work': { label: 'Deep Work', chip: 'bg-[#FDECF4] text-[#A43A6C]', dot: 'bg-[#D96B9D]' },
 } as const
-
-function routineCategoryName(routine: Routine) {
-  return routineConfig(routine).bundle?.trim() || '기타 루틴'
-}
-
-function groupRoutines(routines: Routine[]): RoutineCategory[] {
-  const map = new Map<string, Routine[]>()
-  for (const routine of routines) {
-    const label = routineCategoryName(routine)
-    map.set(label, [...(map.get(label) ?? []), routine])
-  }
-  return [...map.entries()].map(([label, items]) => {
-    const sorted = [...items].sort((a, b) => {
-      const timeDiff = (a.time ?? '99:99').localeCompare(b.time ?? '99:99')
-      if (timeDiff !== 0) return timeDiff
-      return (a.order ?? 0) - (b.order ?? 0)
-    })
-    return {
-      key: label,
-      label,
-      color: routineConfig(sorted[0]).category_color,
-      routines: sorted,
-    }
-  })
-}
 
 function groupTasks(tasks: Task[], categories: Category[]): TaskGroup[] {
   const map = new Map<string, Task[]>()
@@ -171,7 +139,6 @@ export function MobileToday(props: Props) {
   const [quickText, setQuickText] = useState('')
   const [quickCategoryId, setQuickCategoryId] = useState('')
   const [showGoalPicker, setShowGoalPicker] = useState(false)
-  const [showRoutineManager, setShowRoutineManager] = useState(false)
 
   const selectedDate = parseISO(date)
   const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 })
@@ -228,7 +195,6 @@ export function MobileToday(props: Props) {
     () => routines.filter(routine => isRoutineScheduledOn(routine, date)),
     [routines, date],
   )
-  const routineCategories = useMemo(() => groupRoutines(activeRoutines), [activeRoutines])
 
   const taskTotal = normalTasks.length + linkedOnly.length
   const taskDone = normalTasks.filter(task => task.done).length + linkedOnly.filter(({ task }) => task.done).length
@@ -240,18 +206,6 @@ export function MobileToday(props: Props) {
     onAddTask(effectiveQuickCategoryId, text)
     setQuickText('')
     setShowQuickAdd(false)
-  }
-
-  function routineIsDone(routineId: string) {
-    return logs.some(log => log.routine_id === routineId && log.date === date && log.done)
-  }
-
-  function toggleRoutineCategory(category: RoutineCategory) {
-    const allDone = category.routines.every(routine => routineIsDone(routine.id))
-    for (const routine of category.routines) {
-      const done = routineIsDone(routine.id)
-      if ((allDone && done) || (!allDone && !done)) onToggleRoutine(routine.id, date)
-    }
   }
 
   function taskRow(task: Task, toggle: () => void, secondary?: string) {
@@ -408,65 +362,14 @@ export function MobileToday(props: Props) {
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            {routineCategories.map(category => {
-              const doneCount = category.routines.filter(routine => routineIsDone(routine.id)).length
-              const allDone = doneCount === category.routines.length
-              return (
-                <section key={category.key} className="overflow-hidden rounded-[18px] border border-[var(--border)] bg-white">
-                  <div className={clsx('flex items-center gap-3 px-4 py-3', TINT_CLASS[category.color])}>
-                    <span className={clsx('h-2.5 w-2.5 rounded-full', DOT_CLASS[category.color])} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5"><Layers3 size={13} /><h2 className="truncate text-sm font-bold">{category.label}</h2></div>
-                      <p className="mt-0.5 text-[10px] opacity-70">{doneCount}/{category.routines.length} 완료</p>
-                    </div>
-                    <button type="button" onClick={() => toggleRoutineCategory(category)} className="rounded-full bg-white/75 px-2.5 py-1 text-[10px] font-bold active:bg-white">{allDone ? '전체 해제' : '한번에 체크'}</button>
-                  </div>
-                  <div className="divide-y divide-[var(--border)]">
-                    {category.routines.map(routine => {
-                      const done = routineIsDone(routine.id)
-                      const config = routineConfig(routine)
-                      // 그날만 옮긴 시각이 있으면 그것을 보여준다 (PC 오늘 할 일에서 옮길 수 있다)
-                      const movedTime = entry.meta.routineTimes?.[routine.id]
-                      const shownTime = movedTime ?? routine.time
-                      return (
-                        <button key={routine.id} type="button" onClick={() => onToggleRoutine(routine.id, date)} className={clsx('w-full flex items-center gap-3 px-4 py-3 text-left', done && 'bg-[var(--surface-2)]/60')}>
-                          <span className={clsx('h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0', done ? 'bg-[var(--teal)] border-[var(--teal)] text-white' : 'border-[var(--border-strong)]')}>{done && <Check size={11} strokeWidth={3} />}</span>
-                          <span className="min-w-0 flex-1">
-                            <span className={clsx('block truncate text-sm font-semibold', done && 'line-through text-[var(--text-3)]')}>{routine.name}</span>
-                            <span className="mt-0.5 block truncate text-[10px] text-[var(--text-3)]">{shownTime ? `${shownTime}${movedTime ? ' (오늘만)' : ''} · ` : ''}{isTimedRoutine(routine) ? `${config.duration_min}분` : '체크형'}{config.cue_label ? ` · ${config.cue_label}` : ''}</span>
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </section>
-              )
-            })}
-
-            {routineCategories.length === 0 && (
-              <div className="rounded-[18px] border border-dashed border-[var(--border-strong)] bg-white px-5 py-12 text-center">
-                <p className="text-sm font-semibold">오늘 실행할 루틴이 없습니다.</p>
-                <p className="mt-1 text-xs text-[var(--text-3)]">루틴 관리에서 카테고리를 만들고 행동을 묶어보세요.</p>
-              </div>
-            )}
-
-            <button type="button" onClick={() => setShowRoutineManager(true)} className="h-11 w-full rounded-[14px] border border-[var(--border)] bg-white text-xs font-bold text-[var(--text-2)] flex items-center justify-center gap-1.5"><Settings2 size={14} /> 루틴 관리</button>
-          </div>
+          <RoutineSidebar routines={routines} logs={logs} selectedDate={date}
+            onToggleLog={onToggleRoutine} onAddRoutine={onAddRoutine} onUpdateRoutine={onUpdateRoutine}
+            onSetStatus={onSetRoutineStatus} onDeleteRoutine={onDeleteRoutine} />
         )}
 
       </main>
 
-      {showRoutineManager && (
-        <RoutineManagerDialog
-          routines={routines}
-          onClose={() => setShowRoutineManager(false)}
-          onAddRoutine={onAddRoutine}
-          onUpdateRoutine={onUpdateRoutine}
-          onSetStatus={onSetRoutineStatus}
-          onDeleteRoutine={onDeleteRoutine}
-        />
-      )}
+
     </div>
   )
 }

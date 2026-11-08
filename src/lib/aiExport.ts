@@ -473,7 +473,7 @@ export function buildAiContextSnapshot(source: AiExportSource, range: AiExportRa
   })
 
   const routines: AiRoutineRecord[] = source.routines
-    .filter(routine => routine.status !== 'archived')
+    .filter(routine => !routine.config?.group_only && routine.status !== 'archived')
     .map(routine => {
       const config = routineConfig(routine)
       const scheduledDates = selectedDays.map(day => day.date).filter(date => isRoutineScheduledOn(routine, date))

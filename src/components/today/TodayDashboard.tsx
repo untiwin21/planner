@@ -46,11 +46,11 @@ import {
 } from '@/lib/plannerTime'
 import { taskProgressPercent, tasksProgress } from '@/lib/taskProgress'
 import { isActualOnlyTask } from '@/lib/taskVisibility'
+import { RoutineSidebar } from '@/components/routine/RoutineSidebar'
 import { RoutineManagerDialog } from '@/components/routine/RoutineManagerDialog'
 import { DayReviewPanel } from './DayReviewPanel'
 import { AssistantReviewPanel } from './AssistantReviewPanel'
 import {
-  ROUTINE_PERIOD_LABELS,
   ROUTINE_PERIOD_ORDER,
   ROUTINE_WEEKDAYS,
   isRoutineScheduledOn,
@@ -59,7 +59,6 @@ import {
   routineColor,
   routineConfig,
   routineStartMinute,
-  routineStage,
 } from '@/lib/routineSchedule'
 
 interface Props {
@@ -629,9 +628,6 @@ export function TodayDashboard({
     }).sort((a, b) => a.start - b.start)
   }, [activeRoutines, date, routineLogs])
   const normalizedNow = nowMinute < TIMELINE_START ? nowMinute + 24 * 60 : nowMinute
-  const currentRoutineGroup = isToday
-    ? routineTimelineGroups.find(group => group.start <= normalizedNow && group.end >= normalizedNow && group.doneCount < group.items.length)
-    : undefined
   const focusGoals = useMemo(() => goals
     .filter(goal => goal.date_from <= date && goal.date_to >= date)
     .sort((a, b) => a.date_to.localeCompare(b.date_to)), [date, goals])
@@ -703,14 +699,12 @@ export function TodayDashboard({
     }
     const minutes = Number.parseInt(durationText, 10)
     const timed = Number.isFinite(minutes) && minutes > 0
-    const formingCount = routines.filter(routine => routine.status === 'active' && routineStage(routine) === 'forming').length
     const config: RoutineConfig = {
       days_of_week: [...routineDays].sort(),
       kind: timed ? 'timed' : 'check',
       duration_min: timed ? Math.max(5, minutes) : undefined,
       cue_type: 'time',
-      // 형성 중 루틴은 3개까지 — 넘치면 유지 중으로 넣고, 루틴 관리에서 옮길 수 있다
-      stage: formingCount < 3 ? 'forming' : 'maintenance',
+      stage: 'maintenance',
       category_color: currentCategory && ['amber', 'purple', 'teal', 'blue', 'coral'].includes(currentCategory.color) ? currentCategory.color : 'amber',
     }
     onAddRoutine(name, routineTime || undefined, undefined, config)
@@ -1640,13 +1634,11 @@ export function TodayDashboard({
                 </>
               )}
             </div>
-            {/* Routine templates are curated by the assistant; daily execution stays editable. */}
           </div>
           <div className="px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-2)]/45">
             <div className={clsx('grid gap-1.5', compact ? 'grid-cols-[auto_auto_1fr_60px_auto]' : 'grid-cols-[auto_auto_1fr_64px_auto]')}>
               <div role="tablist" aria-label="추가할 종류" className="flex h-8 items-center rounded-[9px] border border-[var(--border)] bg-white p-0.5 text-xs font-semibold">
                 <button type="button" role="tab" aria-selected={addMode === 'task'} onClick={() => switchAddMode('task')} className={clsx('h-full rounded-[7px] px-2', addMode === 'task' ? 'bg-[var(--purple)] text-white' : 'text-[var(--text-3)] hover:text-[var(--text)]')}>할 일</button>
-                {/* Routine creation is handled by the assistant rather than the daily task form. */}
               </div>
               {addMode === 'routine' ? (
                 <label className="h-8 px-2 rounded-[9px] bg-white border border-[var(--border)] flex items-center gap-1 text-[11px] text-[var(--text-3)]" title="루틴 시각 (비우면 시간 미지정)">
@@ -1734,94 +1726,21 @@ export function TodayDashboard({
                 {ROUTINE_WEEKDAYS.map((label, day) => (
                   <button type="button" key={label} onClick={() => setRoutineDays(current => current.includes(day) ? current.filter(item => item !== day) : [...current, day])} aria-pressed={routineDays.includes(day)} className={clsx('h-5 w-5 rounded-full text-[10px] font-bold', routineDays.includes(day) ? 'bg-[var(--amber-bg)] text-[var(--amber-text)]' : 'bg-white text-[var(--text-3)] border border-[var(--border)]')}>{label}</button>
                 ))}
-                <span className="ml-1">분을 비우면 체크형 · 단서·최소 버전은 <button type="button" onClick={() => setShowRoutineManager(true)} className="font-semibold text-[var(--amber-text)] underline-offset-2 hover:underline">루틴 관리</button>에서</span>
+                <span className="ml-1">묶음과 세부 루틴은 <button type="button" onClick={() => setShowRoutineManager(true)} className="font-semibold text-[var(--amber-text)] underline-offset-2 hover:underline">루틴 관리</button>에서</span>
               </div>
             )}
             {addError && <p className="mt-1 text-[11px] font-medium text-[var(--red)]">{addError}</p>}
           </div>
 
           <div className="px-2 py-2 min-h-0 flex-1 flex flex-col gap-3 overflow-y-auto scrollbar-thin">
-            {flexible.length === 0 && activeRoutines.length === 0 && taskGroups.length === 0 ? (
+            {!onAddRoutine && flexible.length === 0 && activeRoutines.length === 0 && taskGroups.length === 0 ? (
               <div className="py-10 text-center text-sm text-[var(--text-3)]">오늘 할 일을 추가해보세요.</div>
             ) : (
               <>
-                {activeRoutines.length > 0 && (
-                  <section>
-                    <div className="flex items-center gap-2 px-1 mb-1">
-                      <Flame size={13} className="text-[var(--amber)]" />
-                      <h4 className="text-xs font-bold text-[var(--text-2)]">매일 반복</h4>
-                      <span className="text-[10px] text-[var(--text-3)]">{activeRoutines.length}개</span>
-                    </div>
-                    {currentRoutineGroup && (
-                      <button type="button" onClick={() => toggleRoutineGroup(currentRoutineGroup.items)} className="mb-2 flex w-full items-center gap-2 rounded-[11px] bg-[var(--amber-bg)] px-3 py-2 text-left text-[var(--amber-text)]">
-                        <Clock3 size={13} className="shrink-0" />
-                        <span className="min-w-0 flex-1 truncate text-xs font-bold">지금 · {currentRoutineGroup.label}</span>
-                        <span className="text-[10px]">{currentRoutineGroup.doneCount}/{currentRoutineGroup.items.length}</span>
-                      </button>
-                    )}
-                    <div className="flex flex-col gap-1.5">
-                      {Array.from(new Set(activeRoutines.map(routine => routineConfig(routine).bundle?.trim() || ROUTINE_PERIOD_LABELS[routine.period ?? 'anytime']))).map(bundle => {
-                        const periodRoutines = activeRoutines.filter(routine => (routineConfig(routine).bundle?.trim() || ROUTINE_PERIOD_LABELS[routine.period ?? 'anytime']) === bundle)
-                        if (periodRoutines.length === 0) return null
-                        return (
-                          <div key={bundle}>
-                            <div className="mb-0.5 flex items-center gap-2 px-1">
-                              <span className="text-[10px] font-semibold text-[var(--text-3)]">{bundle}</span>
-                              <div className="h-px flex-1 bg-[var(--border)]" />
-                            </div>
-                            <div className="flex flex-col">
-                              {periodRoutines.map(routine => {
-                                const log = routineLogs.find(item => item.routine_id === routine.id && item.date === date)
-                                const done = Boolean(log?.done)
-                                const minimum = done && log?.completion === 'minimum'
-                                const config = routineConfig(routine)
-                                const timed = isTimedRoutine(routine)
-                                const moved = Boolean(routineTimes[routine.id])
-                                return (
-                                  <div key={routine.id} className={clsx('flex min-h-[30px] items-center gap-1 rounded-[9px] pr-1', done ? 'opacity-60' : 'hover:bg-[var(--surface-2)]/70')}>
-                                    <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'full')} className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-1.5 text-left" title={[timed ? '시간형' : '체크형', config.cue_label || config.bundle, timed && config.minimum_version ? `최소 ${config.minimum_version}` : ''].filter(Boolean).join(' · ')}>
-                                      <span className={clsx('flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-2', done ? 'border-[var(--teal)] bg-[var(--teal)] text-white' : `cat-${config.category_color}`)}>{done && (minimum ? <span className="text-[8px] font-black">M</span> : <Check size={10} strokeWidth={3} />)}</span>
-                                      <span className={clsx('min-w-0 truncate text-[13px] font-medium', done && !minimum && 'line-through')}>{routine.name}</span>
-                                      {(config.cue_label || config.bundle) && <span className="min-w-0 shrink truncate text-[10px] text-[var(--text-3)]">{config.cue_label || config.bundle}</span>}
-                                      <span className="ml-auto shrink-0 text-[10px] tabular-nums text-[var(--text-3)]">{timed ? `${config.duration_min}분` : '체크'}</span>
-                                    </button>
-                                    {routineTimeEditId === routine.id ? (
-                                      <input
-                                        aria-label={`${routine.name} 오늘 시각`}
-                                        type="time"
-                                        autoFocus
-                                        defaultValue={routineClock(routine) ?? ''}
-                                        onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Escape') event.currentTarget.blur() }}
-                                        onBlur={event => {
-                                          const value = event.target.value
-                                          if (value !== (routineClock(routine) ?? '')) moveRoutineTime(routine.id, value || null)
-                                          setRoutineTimeEditId(null)
-                                        }}
-                                        className="w-[104px] shrink-0 rounded-[5px] bg-white px-1 py-0.5 text-[11px] font-semibold text-[var(--amber-text)] outline-none ring-1 ring-[var(--amber)]"
-                                      />
-                                    ) : (
-                                      <button type="button" onClick={() => setRoutineTimeEditId(routine.id)} title={moved ? `오늘만 ${routineClock(routine)} 로 옮김 (원래 ${routine.time ?? '시간 없음'})` : '오늘 할 시각 바꾸기'} className={clsx('flex h-6 shrink-0 items-center gap-0.5 rounded-[6px] px-1.5 font-mono text-[10px] font-semibold tabular-nums', moved ? 'bg-[var(--amber-bg)] text-[var(--amber-text)]' : 'text-[var(--text-3)] hover:bg-[var(--surface-2)]')}>
-                                        {moved && <Repeat2 size={9} />}{routineClock(routine) ?? (timed ? '유동' : '언제든')}
-                                      </button>
-                                    )}
-                                    {moved && (
-                                      <button type="button" onClick={() => moveRoutineTime(routine.id, null)} aria-label={`${routine.name} 원래 시각으로`} title={`원래 시각(${routine.time ?? '시간 없음'})으로 되돌리기`} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-[var(--text-3)] hover:bg-[var(--surface-2)] hover:text-[var(--purple)]"><Undo2 size={11} /></button>
-                                    )}
-                                    {done && timed && (
-                                      <button type="button" onClick={() => openRoutineActualEditor([routine])} className="flex h-6 shrink-0 items-center gap-0.5 rounded-[6px] px-1.5 text-[10px] font-semibold text-[var(--teal-text)] hover:bg-[var(--teal-bg)]" title="실제 수행 시간 수정">
-                                        <Clock3 size={10} />{routineActualOf(routine.id).start ?? '시간'}
-                                      </button>
-                                    )}
-                                    {timed && config.minimum_version && <button type="button" onClick={() => onToggleRoutine?.(routine.id, date, 'minimum')} className={clsx('flex h-6 shrink-0 items-center rounded-[6px] px-1.5 text-[10px] font-bold', minimum ? 'bg-[var(--teal-bg)] text-[var(--teal-text)]' : 'text-[var(--text-3)] hover:bg-[var(--amber-bg)] hover:text-[var(--amber-text)]')} title={`최소 버전: ${config.minimum_version}`}>최소</button>}
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </section>
+                {onToggleRoutine && onAddRoutine && onUpdateRoutine && onSetRoutineStatus && onDeleteRoutine && (
+                  <RoutineSidebar routines={routines} logs={routineLogs} selectedDate={date}
+                    onToggleLog={onToggleRoutine} onAddRoutine={onAddRoutine} onUpdateRoutine={onUpdateRoutine}
+                    onSetStatus={onSetRoutineStatus} onDeleteRoutine={onDeleteRoutine} />
                 )}
 
                 {taskGroups.map(({ category, tasks }) => {

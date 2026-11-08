@@ -232,6 +232,8 @@ export type RoutineCueType = 'time' | 'event'
 export type RoutineKind = 'timed' | 'check'
 
 export interface RoutineConfig {
+  /** A named group container; never a scheduled or checkable routine. */
+  group_only?: boolean
   /** Monday=0 ... Sunday=6. Missing means every day for legacy routines. */
   days_of_week?: number[]
   /** Legacy routines without a kind are treated as timed routines. */

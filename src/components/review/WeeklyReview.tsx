@@ -109,7 +109,7 @@ export function WeeklyReview({ weekDays, days, routines, logs, journalEntries: e
   }, [weekDays, days])
 
   const routineRate = useMemo(() => {
-    const active = routines.filter(r => r.status === 'active')
+    const active = routines.filter(r => !r.config?.group_only && r.status === 'active')
     if (active.length === 0) return null
     let allDoneDays = 0
     for (const d of weekDays) {
@@ -137,7 +137,7 @@ export function WeeklyReview({ weekDays, days, routines, logs, journalEntries: e
     [weekDays, days],
   )
 
-  const heatmapRoutines = routines.filter(r => r.status !== 'archived').slice(0, 8)
+  const heatmapRoutines = routines.filter(r => !r.config?.group_only && r.status !== 'archived').slice(0, 8)
 
   return (
     <div className="flex flex-col gap-6">

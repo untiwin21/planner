@@ -160,12 +160,12 @@ export function DirectionDashboard({
   const identities = useMemo(() => {
     const profileMap = new Map(profiles.map(profile => [profile.name, profile]))
     const names: string[] = [...profiles.map(profile => profile.name)]
-    for (const routine of routines.filter(item => item.status !== 'archived')) {
+    for (const routine of routines.filter(item => !item.config?.group_only && item.status !== 'archived')) {
       const name = bundleName(routine)
       if (!names.includes(name)) names.push(name)
     }
     return names.map(name => {
-      const linkedRoutines = routines.filter(routine => routine.status !== 'archived' && bundleName(routine) === name)
+      const linkedRoutines = routines.filter(routine => !routine.config?.group_only && routine.status !== 'archived' && bundleName(routine) === name)
       const firstColor = linkedRoutines[0] ? routineConfig(linkedRoutines[0]).category_color : 'purple'
       const profile = profileMap.get(name) ?? { name, statement: '', meaning: '', color: firstColor }
       return { ...profile, routines: linkedRoutines }
