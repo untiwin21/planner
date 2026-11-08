@@ -29,7 +29,7 @@ test('routine denominator respects creation, weekdays, pauses and later configur
  const routine={id:'r',status:'active',created_at:'2026-11-09T05:00:00+09:00',config:{days_of_week:[0]}};
  let w=run([],{routines:[routine],logs:[{routine_id:'r',date:cycleStart,done:true,completion:'minimum'}]});assert.equal(w.routines.score,50);assert.equal(w.routines.eligible,1);
  assert.equal(run([],{routines:[routine]}).routines.score,0);
- for(const r of [{...routine,status:'paused'},{...routine,created_at:'2026-11-11T05:00:00+09:00'},{...routine,updated_at:now},{...routine,config:{stage:'backlog'}}])assert.equal(run([],{routines:[r]}).routines.eligible,0);
+ for(const r of [{...routine,status:'paused'},{...routine,created_at:'2026-11-11T05:00:00+09:00'},{...routine,updated_at:now},{...routine,config:{stage:'backlog'}},{...routine,config:{group_only:true}}])assert.equal(run([],{routines:[r]}).routines.eligible,0);
 });
 test('future/current unfinished routines and KPT are not failures; no record is not a failed start',()=>{
  const early=Date.parse('2026-11-09T07:00:00+09:00'),w=assessment({cycleStart,now:early,days:[row([task('future','Study','08:00','09:00')])],routines:[{id:'r',status:'active',created_at:'2026-11-08T00:00:00Z'}]}).weeks[1];

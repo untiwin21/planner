@@ -56,6 +56,7 @@ function assessment({cycleStart,days=[],goals=[],routines=[],logs=[],now=Date.no
       if(closed)observe('kpt',['keep','problem','try'].filter(k=>typeof day.review?.[k]==='string'&&day.review[k].trim()).length/3*100);
       observe('sleep',typeof day.sleep==='number'&&Number.isFinite(day.sleep)&&day.sleep>=0&&day.sleep<=1440?Math.min(100,day.sleep/420*100):null,day.sleep);
       for(const routine of routines){
+        if(routine.config?.group_only)continue;
         const log=logMap.get(date+'|'+routine.id),created=Number.isFinite(Date.parse(routine.created_at))?dateOf(Date.parse(routine.created_at)):null;
         // An explicit historical check survives later pauses, edits or archiving.
         if(log){if(closed||log.done)observe('routines',log.done?(log.completion==='minimum'?50:100):0);continue;}
