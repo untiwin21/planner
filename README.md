@@ -222,3 +222,12 @@ ChatGPT 클라우드의 Planner 조회는 별도 인증이 필요하며 아직 �
 날짜 이동은 목적지 저장 확인 후 원본을 tombstone으로 보존한다. 동일 요청의 재시도는 같은 ID/변경 ID를 재사용한다. 저장은 기존 `planner_compare_and_swap_day` RPC를 사용하며 기존 meta·다른 Task를 보존한다. 동시 수정이나 일부 이동 저장은 409로 보고하며 성공으로 처리하지 않는다. 클라이언트는 저장 응답 이후 재조회로 확인한다. 연결 해제는 해당 연결 토큰만 폐기하고 일정은 삭제하지 않는다.
 
 관련 검증: `node tests/visionTaskSync.test.cjs`, `node tests/plannerAssistant.test.cjs`, `node tests/assistantApi.test.cjs`, `npm run build`.
+
+
+## Vision Plan 전체 문서 저장
+
+`/api/vision-tasks`는 기존 owner 전용 capability 인증 뒤 `plan-read` / `plan-write`를 제공한다. 임의 user_id나 저장 키를 받지 않고 `__vision_plan_document_v1__` 한 행만 읽고 쓴다. 목표/달성 기준/월별·주간 계획/초안/세부 할 일을 계정에 저장하며, 기존 Task 동기화와 분리한다. 개인 일지와 일반 일정은 이 연동에서 반환하지 않는다.
+
+문서는 `src/lib/visionPlanMetrics.cjs`로 검증한다. 이 파일은 Vision Board의 `dist/plan-metrics.js`와 같은 버전을 유지해야 한다. HTTP 요청은 2.2MB로 제한한다. `expectedRevision`과 UUID `requestId`를 사용하며 신규 행의 유일 키와 기존 행의 revision 접두어 조건부 UPDATE로 동시 쓰기를 차단한다. 이전 문서는 서버에 한 세대 보관한다. 큰 문서 자체를 비교 URL에 포함하지 않는다. 충돌은 409, 재시도는 같은 requestId로 멱등 처리한다.
+
+추가 검사: `node tests/visionPlanStore.test.cjs` 및 `node tests/visionTaskSync.test.cjs`. 기존 `plannerAssistant.test.cjs`, `assistantApi.test.cjs`, `npm run build`도 실행한다.

@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 export default function VisionTaskConnect(){
-  const [message,setMessage]=useState('요일에 배치한 할 일만 연결합니다.'),[busy,setBusy]=useState(false)
+  const [message,setMessage]=useState('Plan 기록을 이 계정에 저장하고 기기 간 연결합니다.'),[busy,setBusy]=useState(false)
   async function connect(){
     setBusy(true)
     try{
@@ -18,5 +18,5 @@ export default function VisionTaskConnect(){
     }catch(e){setMessage(e instanceof Error?e.message:'연결하지 못했습니다.')}
     finally{setBusy(false)}
   }
-  return <main style={{maxWidth:520,margin:'10vh auto',padding:28,lineHeight:1.9}}><h1 style={{fontSize:26,fontWeight:600}}>Vision Plan 연결</h1><p>{message}</p><ul style={{paddingLeft:20,listStyle:'disc',margin:'20px 0'}}><li>제목·배치 날짜·완료 상태·기준일을 동기화합니다.</li><li>이 연결에서 만든 할 일만 읽고 수정합니다.</li><li>플래너 소유자 계정에서만 사용할 수 있습니다.</li><li>개인 일지·목표 달성 기준·다른 일정은 비전보드로 보내지 않습니다.</li><li>연결은 기한 없이 유지되며 비전보드에서 언제든 해제할 수 있습니다.</li></ul><button disabled={busy} onClick={connect} style={{padding:'12px 24px',background:'#161616',color:'#fff',borderRadius:24}}>{busy?'연결 중…':'이 계정에 연결 허용'}</button><p style={{fontSize:13,color:'#666'}}>비전보드: vision-board-navy.vercel.app</p></main>
+  return <main style={{maxWidth:520,margin:'10vh auto',padding:28,lineHeight:1.9}}><h1 style={{fontSize:26,fontWeight:600}}>Vision Plan 연결</h1><p>{message}</p><ul style={{paddingLeft:20,listStyle:'disc',margin:'20px 0'}}><li>Plan 목표·달성 기준·월별/주간 계획·초안·세부 할 일·완료 기록을 계정에 저장합니다.</li><li>요일에 배치한 세부 할 일은 하루 4회 플래너에 동기화합니다.</li><li>플래너 소유자 계정에서만 사용할 수 있습니다.</li><li>개인 일지와 다른 일정은 비전보드로 보내지 않습니다.</li><li>연결은 기한 없이 유지되며 비전보드에서 언제든 해제할 수 있습니다.</li></ul><button disabled={busy} onClick={connect} style={{padding:'12px 24px',background:'#161616',color:'#fff',borderRadius:24}}>{busy?'연결 중…':'이 계정에 연결 허용'}</button><p style={{fontSize:13,color:'#666'}}>비전보드: vision-board-navy.vercel.app</p></main>
 }
