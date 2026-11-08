@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 // Same schema as Vision Board; only this dedicated owner namespace is accessed.
-const metrics = require('./visionPlanMetrics.cjs')
+const planMetrics = require('./visionPlanMetrics.cjs')
 const KEY = '__vision_plan_document_v1__'
 const uuid = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v)
 export class PlanDocumentConflict extends Error {}
@@ -17,11 +17,26 @@ export function createVisionPlanStore(db: any, owner: string) {
   }
   async function write(body: any) {
     if (Object.keys(body).some(k => !['op', 'expectedRevision', 'requestId', 'document'].includes(k)) || (body.expectedRevision !== null && !uuid(body.expectedRevision)) || !uuid(body.requestId)) throw new Error('Invalid revision')
-    const document = metrics.validate(body.document)
+    let document = planMetrics.validate(body.document)
     if (JSON.stringify(document).length > 2 * 1024 * 1024) throw new Error('Document too large')
     const previous = await row()
     if (previous?.revision === body.requestId) return { saved: true, revision: previous.revision }
     if ((previous?.revision ?? null) !== body.expectedRevision) throw new PlanDocumentConflict()
+    if (previous?.document) {
+      const previousTasks = new Map<string, any>(previous.document.tasks.map((task: any) => [task.id, task]))
+      const rawTasks = new Map<string, any>((body.document.tasks ?? []).map((task: any) => [task.id, task]))
+      document = planMetrics.validate({ ...document, tasks: document.tasks.map((task: any) => {
+        const priorTask = previousTasks.get(task.id), rawTask = rawTasks.get(task.id)
+        if (!priorTask || !rawTask) return task
+        // Older browsers omit fields they do not understand. Preserve ordering
+        // and deletion instead of treating an omitted field as an explicit reset.
+        const missingOrder = !Object.prototype.hasOwnProperty.call(rawTask, 'sortOrder')
+        const missingDeletion = !Object.prototype.hasOwnProperty.call(rawTask, 'deletedAt')
+        if (missingDeletion && priorTask.deletedAt && !task.archived) throw new PlanDocumentConflict()
+        return { ...task, sortOrder: missingOrder ? priorTask.sortOrder ?? null : task.sortOrder, deletedAt: missingDeletion ? priorTask.deletedAt ?? null : task.deletedAt }
+      }) })
+      if (JSON.stringify(document).length > 2 * 1024 * 1024) throw new Error('Document too large')
+    }
     const value = { revision: body.requestId, document, updatedAt: new Date().toISOString(), previous: previous ? { revision: previous.revision, document: previous.document, updatedAt: previous.updatedAt } : null }
     const content = JSON.stringify(value)
     if (!previous) {
