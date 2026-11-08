@@ -344,7 +344,7 @@
       if (t.dueLocked !== undefined && typeof t.dueLocked !== 'boolean') {
         throw new Error('완료 기준 상태를 확인하세요.');
       }
-      if (t.kind !== undefined && !['task', 'weekly-goal'].includes(t.kind)) {
+      if (t.kind !== undefined && !['task', 'weekly-goal', 'task-group'].includes(t.kind)) {
         throw new Error('할 일 종류를 확인하세요.');
       }
       if (t.kind === 'weekly-goal' && (assigned !== null || t.parentId != null)) {
@@ -393,7 +393,21 @@
         ) {
           throw new Error('이월 순서와 이전 날짜를 확인하세요.');
         }
-        return { fromWeek: h.fromWeek, toWeek: h.toWeek, fromDate: h.fromDate, at: h.at };
+        if (
+          h.done !== undefined &&
+          (h.done !== true ||
+            (h.completedAt !== null &&
+              (typeof h.completedAt !== 'string' || !Number.isFinite(Date.parse(h.completedAt)))))
+        ) {
+          throw new Error('이월 전 완료 기록을 확인하세요.');
+        }
+        return {
+          fromWeek: h.fromWeek,
+          toWeek: h.toWeek,
+          fromDate: h.fromDate,
+          at: h.at,
+          ...(h.done ? { done: true, completedAt: h.completedAt } : {}),
+        };
       });
       if (
         carryHistory.length &&
@@ -451,12 +465,24 @@
       ) {
         throw new Error('세부항목 순서를 확인하세요.');
       }
+      const groupId = t.groupId ?? null;
+      if (
+        groupId !== null &&
+        (typeof groupId !== 'string' ||
+          !groupId ||
+          groupId.length > 100 ||
+          groupId === t.id ||
+          (t.kind !== undefined && t.kind !== 'task'))
+      ) {
+        throw new Error('할 일 묶음을 확인하세요.');
+      }
       ids.add(t.id);
       return {
         dayMoves,
         discardedAt,
         deletedAt,
         sortOrder,
+        groupId,
         carryHistory,
         categoryId: t.categoryId ?? null,
         categoryOverride: t.categoryOverride === true,
@@ -489,6 +515,19 @@
       if (t.parentId && (!byId.has(t.parentId) || byId.get(t.parentId).kind !== 'weekly-goal')) {
         throw new Error('실행 할 일의 상위 목표가 없습니다.');
       }
+      if (t.groupId) {
+        const group = byId.get(t.groupId);
+        if (
+          !group ||
+          group.kind !== 'task-group' ||
+          group.parentId !== t.parentId ||
+          (!t.archived &&
+            !group.archived &&
+            (group.week !== t.week || group.date !== t.date || group.categoryId !== t.categoryId))
+        ) {
+          throw new Error('묶음과 하위 할 일의 주차·요일·카테고리를 확인하세요.');
+        }
+      }
     }
     return {
       kind: planData.kind,
@@ -518,15 +557,24 @@
     const s = addDays(planData.cycleStart, (weekNumber - 1) * 7);
     const e = addDays(s, 6);
     const active = (planData.tasks || []).filter(
-      (t) => (!t.archived || t.discardedAt) && t.kind !== 'weekly-goal',
+      (t) => (!t.archived || t.discardedAt) && t.kind !== 'weekly-goal' && t.kind !== 'task-group',
     );
     const tasks = active.filter(
-      (t) => t.week === weekNumber || (!t.week && t.date >= s && t.date <= e),
+      (t) =>
+        (t.week === weekNumber || (!t.week && t.date >= s && t.date <= e)) &&
+        !t.carryHistory?.some((entry) => entry.done),
     );
-    const outgoing = active.filter((t) => t.carryHistory?.some((h) => h.fromWeek === weekNumber));
+    const outgoing = active.filter(
+      (t) =>
+        t.carryHistory?.some((h) => h.fromWeek === weekNumber) &&
+        !t.carryHistory.some((h) => h.done && h.fromWeek < weekNumber),
+    );
     if (tasks.length || outgoing.length) {
       w.execution = {
-        done: tasks.filter((t) => t.done).length,
+        done:
+          tasks.filter((t) => t.done).length +
+          outgoing.filter((t) => t.carryHistory.find((h) => h.fromWeek === weekNumber)?.done)
+            .length,
         total: tasks.length + outgoing.length,
       };
     }
@@ -536,7 +584,14 @@
       ...tasks.filter((t) => !t.carryHistory?.length),
       ...outgoing
         .filter((t) => t.carryHistory[0].fromWeek === weekNumber)
-        .map((t) => ({ ...t, done: false, completedAt: null })),
+        .map((t) => {
+          const entry = t.carryHistory[0];
+          return {
+            ...t,
+            done: entry.done === true,
+            completedAt: entry.done ? entry.completedAt : null,
+          };
+        }),
     ];
     const assessable = timely.filter(
       (t) => (t.done && t.completedAt) || (!t.done && (t.dueDate ?? t.date ?? e) < currentDate),
