@@ -8,7 +8,7 @@ const db={auth:{getUser:async token=>({data:{user:{id:token==='jwt-owner'?owner:
 function compile(file,req){const m={exports:{}};const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('require','module','exports',code)(req,m,m.exports);return m.exports}
 const helper=compile('src/lib/visionTaskSync.ts',name=>name==='./plannerQueries'?{legacyTasksFor:async()=>[]}:require(name));
 const planStore=compile('src/lib/visionPlanStore.ts',name=>name==='./visionPlanMetrics.cjs'?require('../src/lib/visionPlanMetrics.cjs'):require(name));
-const route=compile('src/app/api/vision-tasks/route.ts',name=>name==='@supabase/supabase-js'?{createClient:()=>db}:name==='@/lib/visionTaskSync'?helper:name==='@/lib/visionPlanStore'?planStore:require(name));
+const route=compile('src/app/api/vision-tasks/route.ts',name=>name==='@supabase/supabase-js'?{createClient:()=>db}:name==='@/lib/visionTaskSync'?helper:name==='@/lib/visionPlanStore'?planStore:name==='@/lib/visionAssessmentRead'?{readVisionAssessment:async(db,owner,cycleStart)=>{assert.equal(owner,'00000000-0000-4000-8000-000000000001');if(!/^\d{4}-\d{2}-\d{2}$/.test(cycleStart))throw new Error('Invalid cycle');return {version:1,cycleStart,weeks:{}};}}:require(name));
 const V='https://vision-board-navy.vercel.app',P='https://planner-kappa-two.vercel.app';
 function req(body,token='jwt-owner',origin=V){return new Request(P+'/api/vision-tasks',{method:'POST',headers:{Origin:origin,Authorization:'Bearer '+token,'Content-Type':'application/json'},body:typeof body==='string'?body:JSON.stringify(body)})}
 (async()=>{
@@ -46,6 +46,9 @@ function req(body,token='jwt-owner',origin=V){return new Request(P+'/api/vision-
  const categoryTask={...task,id:'category-test',date:'2026-11-09',categoryId:'study',mutationId:'cat-1'};const categorySaved=await categoryRunner.sync(categoryTask);assert.equal(categorySaved.task.categoryId,'study');assert.equal(days.find(d=>d.date==='2026-11-09').meta._tasks[0].category_name,'Study');
  const changedCategory=await categoryRunner.sync({...categoryTask,categoryId:'task',expectedUpdatedAt:categorySaved.task.updatedAt,mutationId:'cat-2'});assert.equal(changedCategory.task.categoryId,'task');
  await assert.rejects(categoryRunner.sync({...categoryTask,categoryId:'not-owned',expectedUpdatedAt:changedCategory.task.updatedAt,mutationId:'cat-3'}));
+ assert.equal((await route.POST(req({op:'assessment-read',cycleStart:'2026-11-09'},'invalid'))).status,401);
+ assert.equal((await route.POST(req({op:'assessment-read',cycleStart:'2026-11-09',user_id:other},cap.token))).status,400);
+ const assessmentResponse=await route.POST(req({op:'assessment-read',cycleStart:'2026-11-09'},cap.token));assert.equal(assessmentResponse.status,200);assert.ok(!JSON.stringify(await assessmentResponse.json()).includes('private journal'));
  const removed=await route.DELETE(new Request(P+'/api/vision-tasks',{method:'DELETE',headers:{Origin:V,Authorization:'Bearer '+cap.token}}));assert.equal(removed.status,200);assert.equal((await route.POST(req({op:'read',from:'2026-11-07',to:'2026-11-08'},cap.token))).status,401);
  console.log('PASS: owner-only scoped auth, hash storage, origin/body allowlists, CAS preservation, idempotent retries, safe moves, completion timestamps, tombstones, restore, revocation and no timeline data');
 })().catch(e=>{console.error(e);process.exitCode=1});

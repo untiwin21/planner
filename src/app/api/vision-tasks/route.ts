@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { createVisionTaskSync, VisionConflict } from '@/lib/visionTaskSync'
 import { createVisionPlanStore, PlanDocumentConflict } from '@/lib/visionPlanStore'
+import { readVisionAssessment } from '@/lib/visionAssessmentRead'
 
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
@@ -31,6 +32,7 @@ export async function POST(request:Request){
     const plans=createVisionPlanStore(db,owner)
     if(body.op==='plan-read'&&Object.keys(body).length===1)return reply(request,await plans.read())
     if(body.op==='plan-write')return reply(request,await plans.write(body))
+    if(body.op==='assessment-read'&&Object.keys(body).every(k=>['op','cycleStart'].includes(k)))return reply(request,{assessment:await readVisionAssessment(db,owner,body.cycleStart)})
     if(JSON.stringify(body).length>65536)return reply(request,{error:'Too large'},400)
     const {data:row,error}=await db.from('weekly_reviews').select('content').eq('user_id',owner).eq('week_key','__categories__').maybeSingle();if(error)throw error
     const parsed=JSON.parse(row?.content??'[]'),categories=(Array.isArray(parsed)?parsed:parsed.items??[]).filter((c:any)=>typeof c.id==='string'&&typeof c.name==='string'&&!['schedule','deadline'].includes(c.id)).map((c:any)=>({id:c.id,name:c.name,color:c.color})),category=categories.find((c:any)=>c.id===access.categoryId)??categories.find((c:any)=>c.name==='Task')??categories[0];if(!category)throw new Error('Category changed')

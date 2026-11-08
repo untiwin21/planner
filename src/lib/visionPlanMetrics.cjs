@@ -1,7 +1,7 @@
 'use strict';
 (function(root){
-  const keys=['execution','onTime'];
-  const weights={execution:50,onTime:50};
+  const keys=['execution','onTime','studyStart','calibration','action','kpt','sleep','routines'];
+  const weights={execution:25,onTime:10,studyStart:10,calibration:15,action:20,kpt:5,sleep:10,routines:5};
   // Preserve retired values in existing files, without using them in current scores.
   const storedKeys=[...keys,'starts','returns','advance','transfer','project','career','learning','communication'];
   function pair(v){
@@ -88,14 +88,14 @@
       const moved=t.dayMoves??[];if(!Array.isArray(moved)||moved.length>500)throw new Error('일별 이월 이력을 확인하세요.');
       const dayMoves=moved.map(h=>{if(!h||!validDate(h.fromDate)||!validDate(h.toDate)||h.toDate!==addDays(h.fromDate,1)||h.fromDate<d.cycleStart||h.toDate>addDays(d.cycleStart,83)||typeof h.at!=='string'||!Number.isFinite(Date.parse(h.at)))throw new Error('일별 이월 날짜를 확인하세요.');return {fromDate:h.fromDate,toDate:h.toDate,at:h.at};});
       const discardedAt=t.discardedAt??null;if(discardedAt!==null&&(typeof discardedAt!=='string'||!Number.isFinite(Date.parse(discardedAt))||!t.archived||t.done||t.kind==='weekly-goal'))throw new Error('폐기 기록을 확인하세요.');
-      ids.add(t.id);return {dayMoves,discardedAt,carryHistory,categoryId:t.categoryId??null,id:t.id,date:assigned,week:weekNumber,dueDate,dueLocked:t.dueLocked??(assigned!==null),title:t.title.trim(),done:t.done,completedAt,goal:t.goal,archived:t.archived===true,updatedAt:typeof t.updatedAt==='string'?t.updatedAt:'',remoteDate:validDate(t.remoteDate)?t.remoteDate:null,remoteUpdatedAt:Number.isSafeInteger(t.remoteUpdatedAt)&&t.remoteUpdatedAt>=0?t.remoteUpdatedAt:null,syncedAt:typeof t.syncedAt==='string'?t.syncedAt:'',kind:t.kind??'task',parentId:t.parentId??null,planId:t.planId??null,decomposed:t.decomposed===true,brainDumpDraft:t.brainDumpDraft??''};
+      ids.add(t.id);return {dayMoves,discardedAt,carryHistory,categoryId:t.categoryId??null,categoryOverride:t.categoryOverride===true,id:t.id,date:assigned,week:weekNumber,dueDate,dueLocked:t.dueLocked??(assigned!==null),title:t.title.trim(),done:t.done,completedAt,goal:t.goal,archived:t.archived===true,updatedAt:typeof t.updatedAt==='string'?t.updatedAt:'',remoteDate:validDate(t.remoteDate)?t.remoteDate:null,remoteUpdatedAt:Number.isSafeInteger(t.remoteUpdatedAt)&&t.remoteUpdatedAt>=0?t.remoteUpdatedAt:null,syncedAt:typeof t.syncedAt==='string'?t.syncedAt:'',kind:t.kind??'task',parentId:t.parentId??null,planId:t.planId??null,decomposed:t.decomposed===true,brainDumpDraft:t.brainDumpDraft??''};
     });
     const byId=new Map(normalizedTasks.map(t=>[t.id,t]));
     for(const t of normalizedTasks)if(t.parentId&&(!byId.has(t.parentId)||byId.get(t.parentId).kind!=='weekly-goal'))throw new Error('실행 할 일의 상위 목표가 없습니다.');
     return {kind:d.kind,version:2,cycleStart:d.cycleStart,cycleAnchorVersion:d.cycleAnchorVersion===1?1:0,profile,weeks,history,goals:goals.map(g=>g.trim()),goalCriteria:goalCriteria.map(g=>g.trim()),goalPlans:plans,goalDrafts:drafts,tasks:normalizedTasks};
   }
   function koreaDate(iso){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(iso));}
-  function record(d,n,date=today()){
+  function record(d,n,date=today(),evidence=null){
     const w={...(d.weeks[n]||{})},s=addDays(d.cycleStart,(n-1)*7),e=addDays(s,6);
     const active=(d.tasks||[]).filter(t=>(!t.archived||t.discardedAt)&&t.kind!=='weekly-goal'),tasks=active.filter(t=>t.week===n||(!t.week&&t.date>=s&&t.date<=e)),outgoing=active.filter(t=>t.carryHistory?.some(h=>h.fromWeek===n));
     if(tasks.length||outgoing.length)w.execution={done:tasks.filter(t=>t.done).length,total:tasks.length+outgoing.length};
@@ -105,15 +105,21 @@
     const assessable=timely.filter(t=>(t.done&&t.completedAt)||(!t.done&&(t.dueDate??t.date??e)<date));
     if(tasks.length||outgoing.length)w.onTime=assessable.length?{done:assessable.filter(t=>t.done&&koreaDate(t.completedAt)<=(t.dueDate??t.date??e)).length,total:assessable.length}:timely.length?null:{done:0,total:0};
     w.onTimeUnknown=timely.filter(t=>t.done&&!t.completedAt).length;
+    if(evidence?.cycleStart===d.cycleStart&&evidence.asOf>=s&&evidence.asOf<=date&&evidence.weeks?.[n]){
+      w.evidence=evidence.weeks[n];
+      w.evidencePending=evidence.asOf<(e<date?e:date);
+      for(const key of keys.slice(2)){const m=w.evidence[key];w[key]=m?.eligible===0?{done:0,total:0}:m?.score!=null?{done:Math.round(m.score*100),total:10000}:null;}
+    }
     return w;
   }
   function score(w){
     let covered=0,applicable=0,earned=0;
-    for(const key of keys){const p=pair(w?.[key]);if(!p)continue;covered+=weights[key];if(p.total){applicable+=weights[key];earned+=weights[key]*p.done/p.total;}}
-    return {value:applicable?Math.round(earned/applicable*100):null,coverage:covered,provisional:covered<100||!!w?.onTimeUnknown};
+    for(const key of keys){const p=pair(w?.[key]);if(!p)continue;const m=w?.evidence?.[key];covered+=weights[key]*(m?.eligible?m.observed/m.eligible:1);if(p.total){applicable+=weights[key];earned+=weights[key]*p.done/p.total;}}
+    covered=Math.round(covered*10)/10;
+    return {value:applicable?Math.round(earned/applicable*100):null,coverage:covered,provisional:covered<100||!!w?.onTimeUnknown||!!w?.evidencePending};
   }
-  function dashboard(d,date){
-    const rows=Array.from({length:12},(_,i)=>{const n=i+1,start=addDays(d.cycleStart,i*7),end=addDays(start,6),w=record(d,n,date);return {n,start,end,record:w,score:start<=date?score(w):{value:null,coverage:0,provisional:true},future:start>date,closed:end<date};});
+  function dashboard(d,date,evidence=null){
+    const rows=Array.from({length:12},(_,i)=>{const n=i+1,start=addDays(d.cycleStart,i*7),end=addDays(start,6),w=record(d,n,date,evidence);return {n,start,end,record:w,score:start<=date?score(w):{value:null,coverage:0,provisional:true},future:start>date,closed:end<date};});
     const observed=rows.filter(r=>!r.future&&r.score.value!==null),elapsed=rows.filter(r=>!r.future);
     const total=observed.length?Math.round(observed.reduce((s,r)=>s+r.score.value,0)/observed.length):null;
     const provisional=elapsed.some(r=>!r.closed||r.score.value===null||r.score.provisional);
