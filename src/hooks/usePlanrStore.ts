@@ -1,6 +1,7 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { sameJson } from '@/lib/syncEfficiency'
+import { mergeRoutineSnapshot } from '@/lib/routineSync'
 import { koreaToday } from '@/lib/scheduleConflicts'
 import type { DayEntry, ShortGoal, Routine, RoutineConfig, RoutineLog, RoutineLogPatch, Category, Task, TaskHistoryKind, DayMeta, LongGoal, RoutineStatus, NoteEntry, JournalEntry, RoutinePeriod, TaskScheduleInput } from '@/types'
 import { mergeDayMeta, stampDayMeta, localNoteIsNewer } from '@/lib/dayMetaSync'
@@ -414,21 +415,14 @@ export function usePlanrStore(userId: string) {
           return mergedGoals
         })
 
-        // Routines: LWW by updated_at
-        if (remoteData.routines.length > 0) {
-          setRoutinesRaw(prev => {
-            const map = new Map<string, Routine>(prev.map(r => [r.id, r]))
-            for (const rr of remoteData.routines) {
-              if (dirtyRoutineIds.current.has(rr.id)) continue
-              const lr = map.get(rr.id)
-              if (!lr) { map.set(rr.id, rr); continue }
-              if ((rr.updated_at ?? 0) >= (lr.updated_at ?? 0)) map.set(rr.id, rr)
-            }
-            const merged = Array.from(map.values())
-            save(STORAGE_KEYS.routines, merged)
-            return merged
-          })
-        }
+        // Honor server deletions on initial load, including an empty snapshot.
+        // Only explicitly unsaved local edits may survive a missing remote row.
+        setRoutinesRaw(prev => {
+          const merged = mergeRoutineSnapshot(prev, remoteData.routines, dirtyRoutineIds.current)
+          routinesRef.current = merged
+          save(STORAGE_KEYS.routines, merged)
+          return merged
+        })
         // Routine logs: LWW by updated_at, keyed by (routine_id, date)
         if (remoteData.logs.length > 0) {
           setLogsRaw(prev => {
@@ -540,7 +534,7 @@ export function usePlanrStore(userId: string) {
           const results = await Promise.allSettled([
             ...daysForBackfill.filter(day => !remoteDays.has(day.date) || !sameJson(dayContent(day), dayContent(remoteDays.get(day.date)!))).map(d => upsertDayEntry(userId, d)),
             ...goalsForBackfill.filter(goal => !sameJson(goal, remoteGoals.get(goal.id))).map(g => upsertShortGoal(userId, g)),
-            ...routinesRef.current.filter(item => !remoteRoutineIds.has(item.id)).map(item => upsertRoutine(userId, item)),
+            ...routinesRef.current.filter(item => dirtyRoutineIds.current.has(item.id) && !remoteRoutineIds.has(item.id)).map(item => upsertRoutine(userId, item)),
             ...logsRef.current.filter(item => !remoteLogKeys.has(routineLogKey(item))).map(item => upsertRoutineLog(userId, item)),
             ...longGoalsRef.current.filter(item => !remoteLongGoalIds.has(item.id)).map(item => upsertLongGoal(userId, item)),
             ...Object.entries(weeklyReviewsRef.current)
@@ -626,7 +620,6 @@ export function usePlanrStore(userId: string) {
           let missingLocalRecords = 0
           const remoteDayDates = new Set(remoteData.days.map(item => item.date))
           const remoteGoalIds = new Set(remoteData.goals.map(item => item.id))
-          const remoteRoutineIds = new Set(remoteData.routines.map(item => item.id))
           const remoteLogKeys = new Set(remoteData.logs.map(item => routineLogKey(item)))
           const remoteLongGoalIds = new Set(remoteData.longGoals.map(item => item.id))
           for (const day of daysRef.current) {
@@ -634,9 +627,6 @@ export function usePlanrStore(userId: string) {
           }
           for (const goal of goalsRef.current) {
             if (!remoteGoalIds.has(goal.id)) { markGoalDirty(goal.id); missingLocalRecords++ }
-          }
-          for (const routine of routinesRef.current) {
-            if (!remoteRoutineIds.has(routine.id)) { markRoutineDirty(routine.id); missingLocalRecords++ }
           }
           for (const log of logsRef.current) {
             const key = routineLogKey(log)
@@ -731,18 +721,10 @@ export function usePlanrStore(userId: string) {
 
         // ── Routines ─────────────────────────────────────────────────────────
         setRoutinesRaw(prev => {
-            const map = new Map<string, Routine>(
-              prev.filter(r => dirtyRoutineIds.current.has(r.id) || !backfillComplete).map(r => [r.id, r]),
-            )
-            for (const rr of remoteData.routines) {
-              if (dirtyRoutineIds.current.has(rr.id) && map.has(rr.id)) continue
-              const lr = map.get(rr.id)
-              if (!lr) { map.set(rr.id, rr); continue }
-              if ((rr.updated_at ?? 0) >= (lr.updated_at ?? 0)) map.set(rr.id, rr)
-            }
-            const merged = Array.from(map.values())
-            save(STORAGE_KEYS.routines, merged)
-            return merged
+          const merged = mergeRoutineSnapshot(prev, remoteData.routines, dirtyRoutineIds.current)
+          routinesRef.current = merged
+          save(STORAGE_KEYS.routines, merged)
+          return merged
         })
 
         // ── Routine logs ─────────────────────────────────────────────────────
