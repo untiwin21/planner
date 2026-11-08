@@ -8,10 +8,11 @@ const clone = value => JSON.parse(JSON.stringify(value))
 const db = { auth: { getSession: async () => ({data:{session:{access_token:'test-session'}}}), getUser: async () => ({ data: { user: { id: 'owner' } } }) }, from(table) {
   let mode = 'read', payload, filters = [], selection, offset = 0, end = Infinity
   const q = {
-    select(value) { selection = value; return q }, eq(k, v) { filters.push(row => ['meta','categories'].includes(k) ? JSON.stringify(row[k]) === v : row[k] === v); return q }, is(k, v) { return q.eq(k,v) },
+    select(value) { selection = value; return q }, eq(k, v) { filters.push(row => ['meta','categories','config'].includes(k) ? JSON.stringify(row[k]) === v : row[k] === v); return q }, is(k, v) { return q.eq(k,v) },
     gte(k,v) { filters.push(row => row[k] >= v); return q }, lte(k,v) { filters.push(row => row[k] <= v); return q },
     in(k,v) { filters.push(row => v.includes(row[k])); return q }, order() { return q }, range(a,b) { offset=a; end=b; return q },
     contains(k,v) { filters.push(row => row[k]?._tasks?.some(t => t.id === v._tasks[0].id)); return q },
+    delete() { mode = 'delete'; return q },
     insert(value) { mode = 'insert'; payload = value; return q }, update(value) { mode = 'update'; payload = value; return q },
     maybeSingle() { return q.then(result => ({ ...result, data: result.data?.[0] ?? null })) },
     then(resolve, reject) {
@@ -29,8 +30,9 @@ const db = { auth: { getSession: async () => ({data:{session:{access_token:'test
           if (rows.some(row => row.user_id === payload.user_id && row.date === payload.date)) return { data: null, error: { code: '23505' } }
           rows.push(clone(payload)); return { data: [], error: null }
         }
-        if (mode === 'update' && race) { const action = race; race = null; action() }
+        if (['update', 'delete'].includes(mode) && race) { const action = race; race = null; action() }
         const found = data.filter(match)
+        if (mode === 'delete' && table === 'routines') routines = routines.filter(row => !found.includes(row))
         if (mode === 'update') found.forEach(row => Object.assign(row, clone(payload)))
         const projected = selection?.includes('records:meta->_tasks') ? found.map(({id,date,meta})=>({id,date,records:meta._tasks??null})) : found
         return { data: clone(projected.slice(offset, end + 1)), error: null }
@@ -81,6 +83,27 @@ const { upsertDayEntry } = load(path.resolve('src/lib/syncService.ts'), true)
   assert.equal(routines[0].config.duration_min, 30)
   await assert.rejects(run('planner_add_routine', morning), /이미 등록/)
   assert.equal(routines.length, 1, 'retry never duplicates or overwrites an existing routine')
+  const checkInput = { routine_id: 'check', name: 'KPT 회고', kind: 'check', bundle: '나이트루틴', order: 1 }
+  const check = await run('planner_add_routine', checkInput)
+  assert.equal(check.saved, true)
+  assert.equal(check.routine.time, null)
+  assert.equal(check.routine.config.kind, 'check')
+  assert.equal(check.routine.config.bundle, '나이트루틴')
+  assert.equal(check.routine.config.duration_min, undefined)
+  assert.equal(check.routine.order, 1)
+  await assert.rejects(run('planner_add_routine', { ...checkInput, routine_id: 'invalid-check', start_time: '06:30' }), /시간/)
+  await assert.rejects(run('planner_delete_routine', { routine_id: 'check', expected_updated_at: 0 }), /변경/)
+  assert.equal(routines.length, 2)
+  race = () => { routines.find(item => item.id === 'check').updated_at += 1 }
+  await assert.rejects(run('planner_delete_routine', { routine_id: 'check', expected_updated_at: check.routine.updated_at }), /변경/)
+  assert.equal(routines.length, 2, 'concurrent edits block deletion')
+  const currentCheck = routines.find(item => item.id === 'check')
+  assert.equal((await run('planner_delete_routine', { routine_id: 'check', expected_updated_at: currentCheck.updated_at })).saved, true)
+  assert.equal(routines.length, 1)
+  routines.push({ id: 'legacy', user_id: 'owner', name: 'old', status: 'active', updated_at: null, config: {}, time: null })
+  assert.equal((await run('planner_delete_routine', { routine_id: 'legacy', expected_updated_at: 0 })).saved, true)
+  assert.equal((await run('planner_delete_routine', { routine_id: 'legacy', expected_updated_at: 0 })).saved, true, 'delete retry is idempotent')
+  assert.equal(routines.length, 1)
   assert.equal(validDate('2026-02-30'), false)
   assert.equal(validDate('2026-10-04'), true)
   await run('planner_save_task', { date: '2026-10-05', task_id: 'a', text: '면접 A', kind: 'schedule', start_time: '10:00', end_time: '11:00' })
