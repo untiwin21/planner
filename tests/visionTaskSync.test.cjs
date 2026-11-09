@@ -469,7 +469,7 @@ function req(body, token = 'jwt-owner', origin = V) {
         updatedAt: undefined,
         categoryId: undefined
       }))
-      .map(({ updatedAt, categoryId, ...child }) => child)
+      .map(({ updatedAt, metadataOnlySince, categoryId, ...child }) => child)
   })
   assert.equal(hiddenBundle.task.archived, true)
   assert.equal(hiddenBundle.task.subtasks.length, 2)
@@ -524,6 +524,92 @@ function req(body, token = 'jwt-owner', origin = V) {
   assert.equal(recovered.task.migrationPending, false)
   assert.equal((await runner.read('2026-11-12', '2026-11-13')).length, 1)
   db.rpc = originalRpc
+  // Native estimated/time edits change the row version, but not shared Plan fields.
+  const timed = await runner.sync({
+    ...firstLeaf,
+    id: 'metadata-proof',
+    mutationId: 'metadata-original'
+  })
+  const timedDay = days.find((day) => day.date === timed.task.date)
+  const timedNative = timedDay.meta._tasks.find(
+    (item) => item.vision_plan?.client_id === 'metadata-proof'
+  )
+  const auditState = (item) => ({
+    text: item.text,
+    done: item.done,
+    category_id: item.category_id,
+    discarded: !!item.discarded,
+    subtasks: item.subtasks ?? []
+  })
+  const beforeTime = auditState(timedNative)
+  timedNative.duration_min = 40
+  timedNative.start_time = '10:30'
+  timedNative.updated_at += 100
+  timedNative.history.push({
+    id: 'hist-synthetic-time',
+    at: new Date(timedNative.updated_at).toISOString(),
+    kind: 'planned',
+    before: beforeTime,
+    after: { ...beforeTime, estimated_min: 40, planned_start: '10:30' }
+  })
+  const timedRead = (await runner.read(timed.task.date, timed.task.date)).find(
+    (item) => item.id === 'metadata-proof'
+  )
+  assert.equal(timedRead.metadataOnlySince, timed.task.updatedAt)
+  assert.ok(!JSON.stringify(timedRead).includes('10:30'))
+  const movedTimed = await runner.sync({
+    ...firstLeaf,
+    id: 'metadata-proof',
+    date: '2026-11-14',
+    previousDate: timed.task.date,
+    mutationId: 'metadata-moved',
+    expectedUpdatedAt: timedRead.updatedAt
+  })
+  const movedNative = days
+    .find((day) => day.date === '2026-11-14')
+    .meta._tasks.find((item) => item.vision_plan?.client_id === 'metadata-proof')
+  assert.equal(movedNative.duration_min, 40)
+  assert.equal(movedNative.start_time, '10:30')
+  const beforeTitle = auditState(movedNative)
+  movedNative.text = 'Changed in Planner'
+  movedNative.updated_at += 100
+  movedNative.history.push({
+    id: 'hist-synthetic-title',
+    at: new Date(movedNative.updated_at).toISOString(),
+    kind: 'edited',
+    before: beforeTitle,
+    after: auditState(movedNative)
+  })
+  let changedRead = (await runner.read('2026-11-14', '2026-11-14')).find(
+    (item) => item.id === 'metadata-proof'
+  )
+  assert.equal(changedRead.metadataOnlySince, movedNative.updated_at)
+  await assert.rejects(
+    runner.sync({
+      ...firstLeaf,
+      id: 'metadata-proof',
+      date: '2026-11-14',
+      previousDate: '2026-11-14',
+      mutationId: 'stale-title',
+      expectedUpdatedAt: movedTimed.task.updatedAt
+    }),
+    helper.VisionConflict
+  )
+  // Missing audit data must never authorize a stale overwrite.
+  movedNative.history = []
+  changedRead = (await runner.read('2026-11-14', '2026-11-14')).find(
+    (item) => item.id === 'metadata-proof'
+  )
+  assert.equal(changedRead.metadataOnlySince, movedNative.updated_at)
+  // A duplicate identity is quarantined, and does not prevent unrelated reads.
+  const duplicate = clone(movedNative)
+  days.find((day) => day.date === '2026-11-13').meta._tasks.push(duplicate)
+  const duplicateRead = await runner.read('2026-11-13', '2026-11-14')
+  assert.equal(duplicateRead.find((item) => item.id === 'metadata-proof').syncConflict, true)
+  assert.ok(duplicateRead.some((item) => item.id === 'retry-group'))
+  console.log(
+    'PASS: metadata-only version proof, retained Planner times on weekday moves, shared edits/missing audit protection, isolated duplicate identities'
+  )
   assert.throws(() =>
     helper.validateVisionTask({ ...bundle, subtasks: [{ ...bundle.subtasks[0], subtasks: [] }] })
   )

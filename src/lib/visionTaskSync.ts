@@ -144,6 +144,52 @@ export function createVisionTaskSync(
       createHash('sha256')
         .update(parentId + ':' + child.id)
         .digest('hex')
+  // Walk only a complete native audit chain. A missing event, a shared-field
+  // change or a different writer stops the proof; never guess from timestamps.
+  function metadataOnlySince(task: any) {
+    const shared = (state: any) =>
+      JSON.stringify({
+        text: state.text,
+        done: !!state.done,
+        category: state.category_id ?? null,
+        discarded: !!state.discarded,
+        subtasks: (state.subtasks ?? []).map((child: any) => ({
+          id: child.id,
+          text: child.text,
+          done: !!child.done,
+          discarded: !!child.discarded
+        }))
+      })
+    let version = task.updated_at ?? 0
+    const signature = shared(task)
+    const history = task.history ?? []
+    for (let index = history.length - 1; index > 0; index--) {
+      const event = history[index]
+      const previous = Date.parse(history[index - 1].at)
+      if (
+        task.deleted_at ||
+        !event.id?.startsWith('hist-') ||
+        ![
+          'edited',
+          'planned',
+          'rescheduled',
+          'unplanned',
+          'actual_recorded',
+          'focus_session'
+        ].includes(event.kind) ||
+        Date.parse(event.at) !== version ||
+        !Number.isSafeInteger(previous) ||
+        previous >= version ||
+        !event.before ||
+        !event.after ||
+        shared(event.before) !== signature ||
+        shared(event.after) !== signature
+      )
+        break
+      version = previous
+    }
+    return version
+  }
   function publicTask(t: any, date: string) {
     const lastCompletion = (t.history ?? [])
       .filter((h: any) => h.kind === 'completed' && Number.isFinite(Date.parse(h.at)))
@@ -156,6 +202,7 @@ export function createVisionTaskSync(
       done: t.done,
       archived: !!t.deleted_at || !!t.discarded,
       updatedAt: t.updated_at ?? 0,
+      metadataOnlySince: metadataOnlySince(t),
       completedAt: t.done
         ? lastCompletion && lastCompletion.note !== 'Vision Plan 동기화'
           ? lastCompletion.at
@@ -175,6 +222,7 @@ export function createVisionTaskSync(
               done: !!child.done,
               archived: !!child.discarded || !!t.vision_plan.unassigned,
               updatedAt: t.updated_at ?? 0,
+              metadataOnlySince: metadataOnlySince(t),
               completedAt: child.done
                 ? child.vision_plan?.done === child.done
                   ? (child.vision_plan.completed_at ?? null)
@@ -210,13 +258,17 @@ export function createVisionTaskSync(
         if (t.id?.startsWith(VISION_TASK_PREFIX) && t.vision_plan?.client_id) {
           const next = publicTask(t, row.date),
             prior = result.get(next.id)
-          if (prior && !prior.archived && !next.archived) throw new VisionConflict(true)
+          if (prior && !prior.archived && !next.archived) {
+            // Quarantine only this identity. Other tasks must remain readable.
+            result.set(next.id, { ...prior, syncConflict: true })
+            continue
+          }
           if (
             !prior ||
             (!next.archived && prior.archived) ||
             (next.archived === prior.archived && next.updatedAt > prior.updatedAt)
           )
-            result.set(next.id, next)
+            result.set(next.id, { ...next, ...(prior?.syncConflict ? { syncConflict: true } : {}) })
         }
     const nested = new Set(
       [...result.values()].flatMap((task) => (task.subtasks ?? []).map((child: any) => child.id))
@@ -240,6 +292,8 @@ export function createVisionTaskSync(
       if (
         !task ||
         task.vision_plan?.mutation_id !== input.mutationId ||
+        task.vision_plan?.due_date !== input.dueDate ||
+        (task.vision_plan?.completed_at ?? null) !== input.completedAt ||
         task.text !== input.title ||
         task.done !== input.done ||
         task.category_id !== selected!.id ||
@@ -452,6 +506,8 @@ export function createVisionTaskSync(
       throw new Error('Invalid task category')
     const matches = (t: any) =>
       t?.vision_plan?.mutation_id === input.mutationId &&
+      t.vision_plan?.due_date === input.dueDate &&
+      (t.vision_plan?.completed_at ?? null) === input.completedAt &&
       t.text === input.title &&
       t.done === input.done &&
       (!input.categoryId || t.category_id === input.categoryId) &&
