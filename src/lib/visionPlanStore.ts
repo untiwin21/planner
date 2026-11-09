@@ -53,11 +53,22 @@ export function createVisionPlanStore(db: any, owner: string) {
           const missingOrder = !Object.prototype.hasOwnProperty.call(rawTask, 'sortOrder')
           const missingDeletion = !Object.prototype.hasOwnProperty.call(rawTask, 'deletedAt')
           const missingGroup = !Object.prototype.hasOwnProperty.call(rawTask, 'groupId')
+          const missingScheduleChanges = !Object.prototype.hasOwnProperty.call(
+            rawTask,
+            'scheduleChanges'
+          )
           if (missingDeletion && priorTask.deletedAt && !task.archived)
             throw new PlanDocumentConflict()
           return {
             ...task,
             groupId: missingGroup ? (priorTask.groupId ?? null) : task.groupId,
+            scheduleChanges: missingScheduleChanges
+              ? (priorTask.scheduleChanges ?? [])
+              : task.scheduleChanges,
+            dueDate:
+              missingScheduleChanges && priorTask.scheduleChanges?.length
+                ? priorTask.dueDate
+                : task.dueDate,
             sortOrder: missingOrder ? (priorTask.sortOrder ?? null) : task.sortOrder,
             deletedAt: missingDeletion ? (priorTask.deletedAt ?? null) : task.deletedAt
           }

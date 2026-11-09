@@ -437,6 +437,38 @@
         return { fromDate: h.fromDate, toDate: h.toDate, at: h.at };
       });
       const discardedAt = t.discardedAt ?? null;
+      const changed = t.scheduleChanges ?? [];
+      if (!Array.isArray(changed) || changed.length > 500) {
+        throw new Error('계획 변경 이력을 확인하세요.');
+      }
+      const scheduleChanges = changed.map((entry, index) => {
+        if (
+          !entry ||
+          !['replan', 'carry'].includes(entry.mode) ||
+          !validDate(entry.fromDate) ||
+          !validDate(entry.toDate) ||
+          entry.fromDate === entry.toDate ||
+          !validDate(entry.fromDueDate) ||
+          !validDate(entry.toDueDate) ||
+          (entry.mode === 'replan'
+            ? entry.toDueDate !== entry.toDate
+            : entry.toDueDate !== entry.fromDueDate) ||
+          typeof entry.at !== 'string' ||
+          !Number.isFinite(Date.parse(entry.at)) ||
+          (index && Date.parse(entry.at) < Date.parse(changed[index - 1].at)) ||
+          t.kind === 'weekly-goal'
+        ) {
+          throw new Error('계획 변경 날짜와 평가 기준을 확인하세요.');
+        }
+        return {
+          fromDate: entry.fromDate,
+          toDate: entry.toDate,
+          fromDueDate: entry.fromDueDate,
+          toDueDate: entry.toDueDate,
+          mode: entry.mode,
+          at: entry.at,
+        };
+      });
       if (
         discardedAt !== null &&
         (typeof discardedAt !== 'string' ||
@@ -479,6 +511,7 @@
       ids.add(t.id);
       return {
         dayMoves,
+        scheduleChanges,
         discardedAt,
         deletedAt,
         sortOrder,
@@ -590,6 +623,9 @@
             ...t,
             done: entry.done === true,
             completedAt: entry.done ? entry.completedAt : null,
+            dueDate:
+              t.scheduleChanges?.find((change) => Date.parse(change.at) > Date.parse(entry.at))
+                ?.fromDueDate ?? t.dueDate,
           };
         }),
     ];

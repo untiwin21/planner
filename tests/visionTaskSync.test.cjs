@@ -616,6 +616,38 @@ function req(body, token = 'jwt-owner', origin = V) {
   console.log(
     'PASS: native task/subtask hierarchy, standalone retirement, retained execution data, child completion, stale edits, hide/restore and retryable partial migrations'
   )
+
+  const replanInput = { ...firstLeaf, id: 'replan-date-and-deadline', mutationId: 'replan-before' }
+  const beforeReplan = await runner.sync(replanInput)
+  const replanSource = days
+    .find((day) => day.date === replanInput.date)
+    .meta._tasks.find((item) => item.vision_plan?.client_id === replanInput.id)
+  replanSource.duration_min = 35
+  const replanMove = {
+    ...replanInput,
+    previousDate: replanInput.date,
+    date: '2026-11-15',
+    dueDate: '2026-11-15',
+    expectedUpdatedAt: beforeReplan.task.updatedAt,
+    mutationId: 'replan-after'
+  }
+  const replanned = await runner.sync(replanMove)
+  assert.equal(replanned.task.date, '2026-11-15')
+  assert.equal(replanned.task.dueDate, '2026-11-15')
+  assert.equal(replanSource.vision_plan.due_date, '2026-11-10')
+  const replanNative = days
+    .find((day) => day.date === '2026-11-15')
+    .meta._tasks.find((item) => item.vision_plan?.client_id === replanInput.id)
+  assert.equal(replanNative.duration_min, 35)
+  assert.equal((await runner.sync(replanMove)).task.updatedAt, replanned.task.updatedAt)
+  const replanRead = (await runner.read('2026-11-10', '2026-11-15')).filter(
+    (item) => item.id === replanInput.id
+  )
+  assert.equal(replanRead.length, 1)
+  assert.equal(replanRead[0].dueDate, '2026-11-15')
+  console.log(
+    'PASS: replanned weekdays and evaluation deadlines move together with native time preservation and idempotent retries'
+  )
   const removed = await route.DELETE(
     new Request(P + '/api/vision-tasks', {
       method: 'DELETE',

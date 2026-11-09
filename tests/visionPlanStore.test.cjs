@@ -31,6 +31,15 @@ const empty=()=>M.validate({kind:'my-vision-plan-review',version:2,cycleStart:'2
  groupDoc.tasks.push({id:'bundle',title:'A grouped weekly task',kind:'task-group',goal:null,week:1,date:null,done:false},...['a','b'].map((id,index)=>({id:'nested-'+id,title:'Nested '+id,kind:'task',groupId:'bundle',parentId:null,goal:null,week:1,date:null,done:index===0,completedAt:index===0?'2026-11-09T01:00:00Z':null,sortOrder:1-index})));
  await store.write({op:'plan-write',expectedRevision:priorGroup.revision,requestId:randomUUID(),document:groupDoc});const groupRead=await store.read();assert.equal(groupRead.document.tasks.find(task=>task.id==='bundle').kind,'task-group');assert.equal(groupRead.document.tasks.find(task=>task.id==='nested-a').groupId,'bundle');
  const omittedGroups=clone(groupRead.document);omittedGroups.tasks.forEach(task=>{delete task.groupId});await store.write({op:'plan-write',expectedRevision:groupRead.revision,requestId:randomUUID(),document:omittedGroups});const groupKept=await store.read();assert.equal(groupKept.document.tasks.find(task=>task.id==='nested-a').groupId,'bundle');assert.equal(groupKept.document.tasks.find(task=>task.id==='nested-a').done,true);
+
+ const beforeSchedule=await store.read(),scheduleDoc=clone(beforeSchedule.document);
+ scheduleDoc.tasks.push({id:'replanned-leaf',title:'Replanned work',goal:null,week:1,date:'2026-11-10',dueDate:'2026-11-10',dueLocked:true,done:false,updatedAt:'2026-11-09T03:00:00Z',scheduleChanges:[{fromDate:'2026-11-09',toDate:'2026-11-10',fromDueDate:'2026-11-09',toDueDate:'2026-11-10',mode:'replan',at:'2026-11-09T03:00:00Z'}]});
+ await store.write({op:'plan-write',expectedRevision:beforeSchedule.revision,requestId:randomUUID(),document:scheduleDoc});
+ const scheduleRead=await store.read();assert.equal(scheduleRead.document.tasks.find(task=>task.id==='replanned-leaf').scheduleChanges[0].mode,'replan');
+ const oldScheduleClient=clone(scheduleRead.document),oldTask=oldScheduleClient.tasks.find(task=>task.id==='replanned-leaf');delete oldTask.scheduleChanges;oldTask.dueDate='2026-11-09';oldTask.title='Title edited on an older client';
+ await store.write({op:'plan-write',expectedRevision:scheduleRead.revision,requestId:randomUUID(),document:oldScheduleClient});
+ const scheduleKept=(await store.read()).document.tasks.find(task=>task.id==='replanned-leaf');assert.equal(scheduleKept.scheduleChanges.length,1);assert.equal(scheduleKept.dueDate,'2026-11-10');assert.equal(scheduleKept.title,oldTask.title);
+ console.log('PASS: replanning history and revised deadlines survive account round-trips and legacy clients that omit the new field');
  console.log('PASS: nested task groups survive account sharing and clients that omit grouping metadata');
  console.log('PASS: complete Plan storage, account isolation, schema validation, idempotency, atomic insert/update races, private short CAS predicate, previous revision recovery and database failures');
 })().catch(e=>{console.error(e);process.exitCode=1});
