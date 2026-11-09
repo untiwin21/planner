@@ -648,6 +648,69 @@ function req(body, token = 'jwt-owner', origin = V) {
   console.log(
     'PASS: replanned weekdays and evaluation deadlines move together with native time preservation and idempotent retries'
   )
+
+  const weekMove = {
+    ...bundle,
+    date: '2026-11-25',
+    dueDate: '2026-11-25',
+    previousDate: '2026-11-11',
+    expectedUpdatedAt: restoredBundle.task.updatedAt,
+    mutationId: 'bundle-week-three',
+    subtasks: bundle.subtasks.map((child) => ({
+      ...child,
+      date: '2026-11-25',
+      dueDate: '2026-11-25',
+      mutationId: 'week-three-' + child.id
+    }))
+  }
+  const weekSaved = await runner.sync(weekMove)
+  assert.equal(weekSaved.task.subtasks.length, 2)
+  assert.deepEqual(
+    weekSaved.task.subtasks.map((child) => child.id),
+    bundle.subtasks.map((child) => child.id)
+  )
+  const weekNative = days
+    .find((day) => day.date === '2026-11-25')
+    .meta._tasks.find((item) => item.vision_plan?.client_id === bundle.id)
+  assert.equal(weekNative.subtasks[0].duration_min, 45)
+  assert.equal(weekNative.subtasks[0].actual_start_time, '09:00')
+  assert.equal((await runner.sync(weekMove)).task.updatedAt, weekSaved.task.updatedAt)
+  const returnMove = {
+    ...weekMove,
+    date: '2026-11-12',
+    dueDate: '2026-11-12',
+    previousDate: '2026-11-25',
+    expectedUpdatedAt: weekSaved.task.updatedAt,
+    mutationId: 'bundle-returned',
+    subtasks: weekMove.subtasks.map((child) => ({
+      ...child,
+      date: '2026-11-12',
+      dueDate: '2026-11-12',
+      mutationId: 'returned-' + child.id
+    }))
+  }
+  const returned = await runner.sync(returnMove)
+  assert.equal(returned.task.date, '2026-11-12')
+  const weekRead = (await runner.read('2026-11-09', '2026-11-29')).filter(
+    (item) => item.id === bundle.id
+  )
+  assert.equal(weekRead.length, 1)
+  assert.equal(weekRead[0].date, '2026-11-12')
+  assert.equal(weekRead[0].subtasks.length, 2)
+  assert.equal(
+    days
+      .find((day) => day.date === '2026-11-25')
+      .meta._tasks.find((item) => item.vision_plan?.client_id === bundle.id).deleted_at !==
+      undefined,
+    true
+  )
+  await assert.rejects(
+    runner.sync({ ...weekMove, mutationId: 'stale-cross-week' }),
+    helper.VisionConflict
+  )
+  console.log(
+    'PASS: cross-week native bundles move forward and backward without flattening, duplicates, lost execution data or stale overwrites'
+  )
   const removed = await route.DELETE(
     new Request(P + '/api/vision-tasks', {
       method: 'DELETE',

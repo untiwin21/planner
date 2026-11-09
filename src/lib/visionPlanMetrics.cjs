@@ -372,7 +372,7 @@
         throw new Error('플래너 카테고리를 확인하세요.');
       }
       const carried = t.carryHistory ?? [];
-      if (!Array.isArray(carried) || carried.length > 11) {
+      if (!Array.isArray(carried) || carried.length > 500) {
         throw new Error('이월 이력을 확인하세요.');
       }
       const carryHistory = carried.map((h, i) => {
@@ -381,8 +381,9 @@
           !Number.isInteger(h.fromWeek) ||
           h.fromWeek < 1 ||
           h.fromWeek > 11 ||
-          h.toWeek !== h.fromWeek + 1 ||
-          (i && h.fromWeek !== carried[i - 1].toWeek) ||
+          !Number.isInteger(h.toWeek) ||
+          h.toWeek <= h.fromWeek ||
+          h.toWeek > 12 ||
           typeof h.at !== 'string' ||
           !Number.isFinite(Date.parse(h.at)) ||
           (i && Date.parse(h.at) < Date.parse(carried[i - 1].at)) ||
@@ -409,14 +410,6 @@
           ...(h.done ? { done: true, completedAt: h.completedAt } : {}),
         };
       });
-      if (
-        carryHistory.length &&
-        (weekNumber !== carryHistory.at(-1).toWeek ||
-          t.kind === 'weekly-goal' ||
-          t.dueLocked !== true)
-      ) {
-        throw new Error('이월한 할 일의 주차와 최초 기한을 확인하세요.');
-      }
       const moved = t.dayMoves ?? [];
       if (!Array.isArray(moved) || moved.length > 500) {
         throw new Error('일별 이월 이력을 확인하세요.');
@@ -442,33 +435,85 @@
         throw new Error('계획 변경 이력을 확인하세요.');
       }
       const scheduleChanges = changed.map((entry, index) => {
+        const fromWeek =
+          entry?.fromWeek ??
+          (entry?.fromDate
+            ? Math.floor(
+                (Date.parse(entry.fromDate) - Date.parse(planData.cycleStart)) / 604800000,
+              ) + 1
+            : null);
+        const toWeek =
+          entry?.toWeek ??
+          (entry?.toDate
+            ? Math.floor((Date.parse(entry.toDate) - Date.parse(planData.cycleStart)) / 604800000) +
+              1
+            : null);
         if (
           !entry ||
           !['replan', 'carry'].includes(entry.mode) ||
-          !validDate(entry.fromDate) ||
-          !validDate(entry.toDate) ||
-          entry.fromDate === entry.toDate ||
+          (entry.fromDate !== null && !validDate(entry.fromDate)) ||
+          (entry.toDate !== null && !validDate(entry.toDate)) ||
+          !Number.isInteger(fromWeek) ||
+          fromWeek < 1 ||
+          fromWeek > 12 ||
+          !Number.isInteger(toWeek) ||
+          toWeek < 1 ||
+          toWeek > 12 ||
+          (entry.fromDate === entry.toDate && fromWeek === toWeek) ||
+          [
+            [entry.fromDate, fromWeek],
+            [entry.toDate, toWeek],
+          ].some(
+            ([date, number]) =>
+              date !== null &&
+              (date < addDays(planData.cycleStart, (number - 1) * 7) ||
+                date > addDays(planData.cycleStart, number * 7 - 1)),
+          ) ||
           !validDate(entry.fromDueDate) ||
           !validDate(entry.toDueDate) ||
-          (entry.mode === 'replan'
-            ? entry.toDueDate !== entry.toDate
+          (entry.mode === 'replan' && !entry.done
+            ? entry.toDueDate !== (entry.toDate || addDays(planData.cycleStart, toWeek * 7 - 1))
             : entry.toDueDate !== entry.fromDueDate) ||
           typeof entry.at !== 'string' ||
           !Number.isFinite(Date.parse(entry.at)) ||
           (index && Date.parse(entry.at) < Date.parse(changed[index - 1].at)) ||
-          t.kind === 'weekly-goal'
+          t.kind === 'weekly-goal' ||
+          (entry.done !== undefined &&
+            (entry.done !== true ||
+              (entry.completedAt !== null && !Number.isFinite(Date.parse(entry.completedAt)))))
         ) {
           throw new Error('계획 변경 날짜와 평가 기준을 확인하세요.');
         }
         return {
+          fromWeek,
+          toWeek,
           fromDate: entry.fromDate,
           toDate: entry.toDate,
           fromDueDate: entry.fromDueDate,
           toDueDate: entry.toDueDate,
           mode: entry.mode,
           at: entry.at,
+          ...(entry.done ? { done: true, completedAt: entry.completedAt } : {}),
         };
       });
+      const movements = [
+        ...scheduleChanges,
+        ...carryHistory.filter(
+          (entry) =>
+            !scheduleChanges.some(
+              (change) =>
+                change.at === entry.at &&
+                change.fromWeek === entry.fromWeek &&
+                change.toWeek === entry.toWeek,
+            ),
+        ),
+      ].sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
+      if (
+        movements.some((entry, index) => index && entry.fromWeek !== movements[index - 1].toWeek) ||
+        (movements.length && (weekNumber !== movements.at(-1).toWeek || t.dueLocked !== true))
+      ) {
+        throw new Error('이동 이력과 현재 주차를 확인하세요.');
+      }
       if (
         discardedAt !== null &&
         (typeof discardedAt !== 'string' ||
@@ -592,47 +637,63 @@
     const active = (planData.tasks || []).filter(
       (t) => (!t.archived || t.discardedAt) && t.kind !== 'weekly-goal' && t.kind !== 'task-group',
     );
+    function checkpoints(task) {
+      return [
+        ...(task.carryHistory || []),
+        ...(task.scheduleChanges || []).filter((change) => change.done),
+      ].sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
+    }
+    const outgoing = active.flatMap((task) => {
+      const history = checkpoints(task);
+      if (history.some((entry) => entry.done && entry.fromWeek < weekNumber)) {
+        return [];
+      }
+      const entry = history.find((item) => item.fromWeek === weekNumber);
+      return entry
+        ? [
+            {
+              ...task,
+              done: entry.done === true,
+              completedAt: entry.done ? entry.completedAt : null,
+              dueDate:
+                task.scheduleChanges?.find((change) => Date.parse(change.at) > Date.parse(entry.at))
+                  ?.fromDueDate ?? task.dueDate,
+              attemptAt: entry.at,
+            },
+          ]
+        : [];
+    });
+    const outgoingIds = new Set(outgoing.map((task) => task.id));
+    const movedAway = active.some((task) =>
+      task.scheduleChanges?.some(
+        (change) => change.fromWeek === weekNumber && change.toWeek !== weekNumber,
+      ),
+    );
     const tasks = active.filter(
-      (t) =>
-        (t.week === weekNumber || (!t.week && t.date >= s && t.date <= e)) &&
-        !t.carryHistory?.some((entry) => entry.done),
+      (task) =>
+        (task.week === weekNumber || (!task.week && task.date >= s && task.date <= e)) &&
+        !outgoingIds.has(task.id) &&
+        !checkpoints(task).some((entry) => entry.done),
     );
-    const outgoing = active.filter(
-      (t) =>
-        t.carryHistory?.some((h) => h.fromWeek === weekNumber) &&
-        !t.carryHistory.some((h) => h.done && h.fromWeek < weekNumber),
-    );
-    if (tasks.length || outgoing.length) {
+    // One attempt per task/week. Moving a bundle cannot count finished work again,
+    // and returning to an already missed week cannot erase that week's snapshot.
+    if (tasks.length || outgoing.length || movedAway) {
       w.execution = {
         done:
-          tasks.filter((t) => t.done).length +
-          outgoing.filter((t) => t.carryHistory.find((h) => h.fromWeek === weekNumber)?.done)
-            .length,
+          tasks.filter((task) => task.done).length + outgoing.filter((task) => task.done).length,
         total: tasks.length + outgoing.length,
       };
     }
-    // Preserve failed attempts in their original weeks; a later completion cannot erase them.
-    // Punctuality is assessed only once, in the task's first week, without repeated carry penalties.
     const timely = [
-      ...tasks.filter((t) => !t.carryHistory?.length),
-      ...outgoing
-        .filter((t) => t.carryHistory[0].fromWeek === weekNumber)
-        .map((t) => {
-          const entry = t.carryHistory[0];
-          return {
-            ...t,
-            done: entry.done === true,
-            completedAt: entry.done ? entry.completedAt : null,
-            dueDate:
-              t.scheduleChanges?.find((change) => Date.parse(change.at) > Date.parse(entry.at))
-                ?.fromDueDate ?? t.dueDate,
-          };
-        }),
+      ...tasks.filter((task) => !task.carryHistory?.length),
+      ...outgoing.filter(
+        (task) => !task.carryHistory?.length || task.carryHistory[0].fromWeek === weekNumber,
+      ),
     ];
     const assessable = timely.filter(
       (t) => (t.done && t.completedAt) || (!t.done && (t.dueDate ?? t.date ?? e) < currentDate),
     );
-    if (tasks.length || outgoing.length) {
+    if (tasks.length || outgoing.length || movedAway) {
       w.onTime = assessable.length
         ? {
             done: assessable.filter(

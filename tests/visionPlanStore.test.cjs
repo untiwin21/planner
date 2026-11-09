@@ -40,6 +40,14 @@ const empty=()=>M.validate({kind:'my-vision-plan-review',version:2,cycleStart:'2
  await store.write({op:'plan-write',expectedRevision:scheduleRead.revision,requestId:randomUUID(),document:oldScheduleClient});
  const scheduleKept=(await store.read()).document.tasks.find(task=>task.id==='replanned-leaf');assert.equal(scheduleKept.scheduleChanges.length,1);assert.equal(scheduleKept.dueDate,'2026-11-10');assert.equal(scheduleKept.title,oldTask.title);
  console.log('PASS: replanning history and revised deadlines survive account round-trips and legacy clients that omit the new field');
+
+ const beforeCross=await store.read(),crossDoc=clone(beforeCross.document),change={fromWeek:2,toWeek:1,fromDate:'2026-11-17',toDate:'2026-11-10',fromDueDate:'2026-11-17',toDueDate:'2026-11-10',mode:'replan',at:'2026-11-10T01:00:00Z'};
+ crossDoc.tasks.push({id:'original-week-two',title:'Future weekly goal',kind:'weekly-goal',goal:null,week:2,date:null,done:false},...[{id:'cross-bundle',kind:'task-group',groupId:null},{id:'cross-child',kind:'task',groupId:'cross-bundle'}].map(item=>({...item,title:item.id,goal:null,parentId:'original-week-two',week:1,date:'2026-11-10',dueDate:'2026-11-10',dueLocked:true,done:false,updatedAt:change.at,scheduleChanges:[change]})));
+ await store.write({op:'plan-write',expectedRevision:beforeCross.revision,requestId:randomUUID(),document:crossDoc});const crossRead=await store.read();
+ const crossChild=crossRead.document.tasks.find(task=>task.id==='cross-child');assert.equal(crossChild.groupId,'cross-bundle');assert.equal(crossChild.parentId,'original-week-two');assert.equal(crossChild.week,1);assert.equal(crossChild.scheduleChanges[0].fromWeek,2);
+ const legacyCross=clone(crossRead.document);legacyCross.tasks.filter(task=>task.id.startsWith('cross-')).forEach(task=>task.scheduleChanges.forEach(entry=>{delete entry.fromWeek;delete entry.toWeek}));
+ await store.write({op:'plan-write',expectedRevision:crossRead.revision,requestId:randomUUID(),document:legacyCross});const legacyCrossRead=await store.read();assert.equal(legacyCrossRead.document.tasks.find(task=>task.id==='cross-child').scheduleChanges[0].toWeek,1);
+ console.log('PASS: cross-week hierarchy and movement checkpoints survive shared-account storage and dated legacy history');
  console.log('PASS: nested task groups survive account sharing and clients that omit grouping metadata');
  console.log('PASS: complete Plan storage, account isolation, schema validation, idempotency, atomic insert/update races, private short CAS predicate, previous revision recovery and database failures');
 })().catch(e=>{console.error(e);process.exitCode=1});
